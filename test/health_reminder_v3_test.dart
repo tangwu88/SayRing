@@ -32,6 +32,12 @@ Session _session(String member) => Session(
 
 class _Api extends Fake implements SaydianApi {
   @override
+  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) async =>
+      throw const FeatureNotConfiguredException(
+        'Synthetic fixture has no cloud upload',
+      );
+
+  @override
   Future<Session> login(String username, String password) async =>
       _session(username);
   @override
@@ -50,6 +56,21 @@ class _Api extends Fake implements SaydianApi {
 class _Wearable extends Fake implements WearableBridge {
   @override
   Stream<WearableEvent> get events => const Stream.empty();
+}
+
+class _HeldQuarantineStore extends MemoryHealthStore {
+  Completer<bool>? pendingLookup;
+  Completer<void>? requested;
+  int lookupCalls = 0;
+
+  @override
+  Future<bool> isHealthRecordQuarantined(String id) {
+    lookupCalls++;
+    final current = pendingLookup;
+    if (current == null) return super.isHealthRecordQuarantined(id);
+    if (requested?.isCompleted == false) requested!.complete();
+    return current.future;
+  }
 }
 
 class _LiveWearable extends _Wearable
@@ -397,6 +418,274 @@ void main() {
       },
     );
   }
+
+  test(
+    'future legacy history cannot masquerade as a fresh manual measurement',
+    () async {
+      final ring = _LiveWearable();
+      final store = MemoryHealthStore();
+      final notifications = _Notifications();
+      final app = await _controller(
+        store: store,
+        wearable: ring,
+        notifications: notifications,
+        iosScope: false,
+      );
+      addTearDown(app.dispose);
+      addTearDown(ring.records.close);
+      await app.connectDevice(_LiveWearable.device);
+      await _settleEvents();
+      expect(await app.startMeasurement(HealthMetric.heartRate), isTrue);
+      final history = HealthRecord(
+        id: 'future-legacy-heart',
+        metric: HealthMetric.heartRate,
+        values: const {'value': 140},
+        unit: 'bpm',
+        measuredAt: DateTime.now().toUtc().add(const Duration(hours: 7)),
+        timezone: '-05:00',
+        deviceId: _LiveWearable.device.id,
+        firmwareVersion: 'synthetic',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        origin: MeasurementOrigin.watchHistory,
+        rawVersion: 1,
+      );
+      ring.records.add(
+        WearableEvent(type: 'healthRecord', payload: history.toJson()),
+      );
+      await _settleEvents();
+      expect(app.measurementResult, isNull);
+      expect(app.activeMeasurementMetric, HealthMetric.heartRate);
+      expect(app.healthRecords, isEmpty);
+      expect(await store.recent(), isEmpty);
+      expect(app.healthReminderEvents, isEmpty);
+      expect(app.notificationInboxEvents, isEmpty);
+      expect(notifications.shown, isEmpty);
+      expect(ring.pulses, 0);
+    },
+  );
+
+  test(
+    'quarantined history cannot become fresh after its timestamp catches up',
+    () async {
+      final timestamp = DateTime.now().toUtc();
+      var storeTime = timestamp.subtract(const Duration(hours: 7));
+      final store = MemoryHealthStore(clock: () => storeTime);
+      final ring = _LiveWearable();
+      final notifications = _Notifications();
+      final app = await _controller(
+        store: store,
+        wearable: ring,
+        notifications: notifications,
+        iosScope: false,
+      );
+      addTearDown(app.dispose);
+      addTearDown(ring.records.close);
+      await app.connectDevice(_LiveWearable.device);
+      await _settleEvents();
+      final record = HealthRecord(
+        id: 'formerly-future-history',
+        metric: HealthMetric.heartRate,
+        values: const {'value': 140},
+        unit: 'bpm',
+        measuredAt: timestamp,
+        timezone: '-05:00',
+        deviceId: _LiveWearable.device.id,
+        firmwareVersion: 'synthetic',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        origin: MeasurementOrigin.watchHistory,
+        rawVersion: 1,
+      );
+      await store.upsertImmediate(record);
+      expect(await store.isHealthRecordQuarantined(record.id), isTrue);
+      storeTime = DateTime.now().toUtc();
+      expect(await app.startMeasurement(HealthMetric.heartRate), isTrue);
+      ring.records.add(
+        WearableEvent(type: 'healthRecord', payload: record.toJson()),
+      );
+      await _settleEvents();
+      expect(app.measurementResult, isNull);
+      expect(app.activeMeasurementMetric, HealthMetric.heartRate);
+      expect(app.healthRecords, isEmpty);
+      expect(app.healthReminderEvents, isEmpty);
+      expect(app.notificationInboxEvents, isEmpty);
+      expect(notifications.shown, isEmpty);
+      expect(ring.pulses, 0);
+      expect(await store.isHealthRecordQuarantined(record.id), isTrue);
+    },
+  );
+
+  test(
+    'rejected current measurement still notifies after quarantine lookup',
+    () async {
+      final ring = _LiveWearable();
+      final app = await _controller(wearable: ring, iosScope: false);
+      addTearDown(app.dispose);
+      addTearDown(ring.records.close);
+      await app.connectDevice(_LiveWearable.device);
+      await _settleEvents();
+      expect(await app.startMeasurement(HealthMetric.heartRate), isTrue);
+      var notifiedRejection = false;
+      app.addListener(() {
+        if (app.measurementErrorMessage != null) notifiedRejection = true;
+      });
+      ring.records.add(
+        WearableEvent(
+          type: 'healthRecord',
+          payload: HealthRecord(
+            id: 'rejected-current',
+            metric: HealthMetric.heartRate,
+            values: const {'value': 1},
+            unit: 'bpm',
+            measuredAt: DateTime.now().toUtc(),
+            timezone: '+00:00',
+            deviceId: _LiveWearable.device.id,
+            firmwareVersion: 'synthetic',
+            quality: 'device_reported',
+            source: MeasurementSource.wearable,
+            origin: MeasurementOrigin.appMeasurement,
+            rawVersion: 1,
+          ).toJson(),
+        ),
+      );
+      await _settleEvents();
+      expect(app.activeMeasurementMetric, isNull);
+      expect(notifiedRejection, isTrue);
+      expect(app.healthRecords, isEmpty);
+    },
+  );
+
+  for (final reading in [140, 1]) {
+    test(
+      'held quarantine lookup cannot complete or reject a newer manual test ($reading)',
+      () async {
+        final store = _HeldQuarantineStore();
+        final ring = _LiveWearable();
+        final app = await _controller(
+          store: store,
+          wearable: ring,
+          iosScope: false,
+        );
+        addTearDown(app.dispose);
+        addTearDown(ring.records.close);
+        await app.connectDevice(_LiveWearable.device);
+        await _settleEvents();
+        expect(await app.startMeasurement(HealthMetric.heartRate), isTrue);
+        store.pendingLookup = Completer<bool>();
+        store.requested = Completer<void>();
+        ring.records.add(
+          WearableEvent(
+            type: 'healthRecord',
+            payload: HealthRecord(
+              id: 'held-prior-measurement-$reading',
+              metric: HealthMetric.heartRate,
+              values: {'value': reading},
+              unit: 'bpm',
+              measuredAt: DateTime.now().toUtc(),
+              timezone: '+00:00',
+              deviceId: _LiveWearable.device.id,
+              firmwareVersion: 'synthetic',
+              quality: 'device_reported',
+              source: MeasurementSource.wearable,
+              origin: MeasurementOrigin.watchHistory,
+              rawVersion: 1,
+            ).toJson(),
+          ),
+        );
+        await store.requested!.future;
+        await app.stopMeasurement(HealthMetric.heartRate);
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        expect(await app.startMeasurement(HealthMetric.heartRate), isTrue);
+        store.pendingLookup!.complete(false);
+        await _settleEvents();
+        expect(app.activeMeasurementMetric, HealthMetric.heartRate);
+        expect(app.measurementResult, isNull);
+        expect(app.measurementErrorMessage, isNull);
+        expect(app.healthReminderEvents, isEmpty);
+        if (reading == 1) {
+          expect(app.healthRecords, isEmpty);
+        } else {
+          expect(
+            app.healthRecords.single.origin,
+            MeasurementOrigin.watchHistory,
+          );
+        }
+      },
+    );
+  }
+
+  test(
+    'native manual result does not wait for a blocked quarantine lookup',
+    () async {
+      final store = _HeldQuarantineStore();
+      final ring = _LiveWearable();
+      final app = await _controller(
+        store: store,
+        wearable: ring,
+        iosScope: false,
+      );
+      addTearDown(app.dispose);
+      addTearDown(ring.records.close);
+      await app.connectDevice(_LiveWearable.device);
+      await _settleEvents();
+      expect(await app.startMeasurement(HealthMetric.heartRate), isTrue);
+      final callsBefore = store.lookupCalls;
+      store.pendingLookup = Completer<bool>();
+      _emitHighReading(ring, 'native-no-db-wait');
+      await _settleEvents();
+      expect(store.lookupCalls, callsBefore);
+      expect(store.pendingLookup!.isCompleted, isFalse);
+      expect(app.measurementResult?.id, 'native-no-db-wait');
+    },
+  );
+
+  test(
+    'valid legacy history can complete its original manual test after quarantine lookup',
+    () async {
+      final store = _HeldQuarantineStore();
+      final ring = _LiveWearable();
+      final app = await _controller(
+        store: store,
+        wearable: ring,
+        iosScope: false,
+      );
+      addTearDown(app.dispose);
+      addTearDown(ring.records.close);
+      await app.connectDevice(_LiveWearable.device);
+      await _settleEvents();
+      expect(await app.startMeasurement(HealthMetric.heartRate), isTrue);
+      store.pendingLookup = Completer<bool>();
+      store.requested = Completer<void>();
+      ring.records.add(
+        WearableEvent(
+          type: 'healthRecord',
+          payload: HealthRecord(
+            id: 'legacy-valid-after-lookup',
+            metric: HealthMetric.heartRate,
+            values: const {'value': 75},
+            unit: 'bpm',
+            measuredAt: DateTime.now().toUtc(),
+            timezone: '+00:00',
+            deviceId: _LiveWearable.device.id,
+            firmwareVersion: 'synthetic',
+            quality: 'device_reported',
+            source: MeasurementSource.wearable,
+            origin: MeasurementOrigin.watchHistory,
+            rawVersion: 1,
+          ).toJson(),
+        ),
+      );
+      await store.requested!.future;
+      expect(app.activeMeasurementMetric, HealthMetric.heartRate);
+      expect(app.measurementResult, isNull);
+      store.pendingLookup!.complete(false);
+      await _settleEvents();
+      expect(app.activeMeasurementMetric, isNull);
+      expect(app.measurementResult?.id, 'legacy-valid-after-lookup');
+      expect(app.measurementResult?.origin, MeasurementOrigin.appMeasurement);
+    },
+  );
 
   test(
     'in-app reminder survives denied system notifications, deduplicates and persists across restart',

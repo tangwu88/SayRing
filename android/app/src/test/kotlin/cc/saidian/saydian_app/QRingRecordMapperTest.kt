@@ -2,6 +2,11 @@ package cc.saidian.saydian_app
 
 import com.oudmon.ble.base.bean.SleepDisplay
 import com.oudmon.ble.base.communication.entity.BleStepDetails
+import com.oudmon.ble.base.communication.bigData.BloodOxygenEntity
+import com.oudmon.ble.base.communication.bigData.bean.IntervalTemperatureEntity
+import com.oudmon.ble.base.communication.rsp.HRVRsp
+import com.oudmon.ble.base.communication.rsp.PressureRsp
+import com.oudmon.ble.base.communication.rsp.ReadHeartRateRsp
 import com.oudmon.ble.base.communication.rsp.SetTimeRsp
 import com.oudmon.ble.base.communication.rsp.DeviceSupportFunctionRsp
 import org.junit.Assert.assertEquals
@@ -47,6 +52,119 @@ class QRingRecordMapperTest {
         assertEquals(1_700_000_000_000L, QRingRecordMapper.sdkTimestamp(1_700_000_000L, fallback))
         assertEquals(1_700_000_000_123L, QRingRecordMapper.sdkTimestamp(1_700_000_000_123L, fallback))
         assertEquals(fallback, QRingRecordMapper.sdkTimestamp(0, fallback))
+    }
+
+    @Test
+    fun `real SDK hourly HRV slots stay in the requested day without expanding time twice`() {
+        val response = decodedHrv(intervalMinutes = 60, sampleCount = 24, wordEncoded = false)
+        // 使用随包 AAR 的真实解析结果，不能用未展开的数组替代这条契约。
+        assertEquals(60, response.range)
+        assertEquals(288, response.array.size)
+        assertEquals((0 until 24).map { it * 12 }, response.array.indices.filter { response.array[it] > 0 })
+        val start = QRingRecordMapper.dayStart(1)
+        val records = QRingRecordMapper.hrvRecords("ring", "R8", "1", 1, response)
+        assertEquals(24, records.size)
+        records.forEachIndexed { index, record ->
+            assertEquals(Instant.ofEpochMilli(start + index * 60L * 60_000L).toString(), record["measuredAt"])
+            assertTrue(Instant.parse(record["measuredAt"] as String).toEpochMilli() < start + 24L * 60 * 60_000L)
+            assertEquals(40 + index % 20, (record["values"] as Map<*, *>)["value"])
+            assertEquals("ms", record["unit"])
+        }
+        assertTrue(records.all { it["rawVersion"] == 2 })
+        assertEquals(records.size, records.map { it["id"] }.toSet().size)
+    }
+
+    @Test
+    fun `real SDK half hourly word encoded HRV retains five minute grid and sample values`() {
+        val response = decodedHrv(intervalMinutes = 30, sampleCount = 48, wordEncoded = true)
+        assertEquals(288, response.array.size)
+        assertEquals((0 until 48).map { it * 6 }, response.array.indices.filter { response.array[it] > 0 })
+        val start = QRingRecordMapper.dayStart(1)
+        val records = QRingRecordMapper.hrvRecords("ring", "R8", "1", 1, response)
+        assertEquals(48, records.size)
+        records.forEachIndexed { index, record ->
+            assertEquals(Instant.ofEpochMilli(start + index * 30L * 60_000L).toString(), record["measuredAt"])
+            assertEquals(40 + index % 20, (record["values"] as Map<*, *>)["value"])
+        }
+        assertTrue(records.all { it["rawVersion"] == 2 })
+        assertEquals(records, QRingRecordMapper.hrvRecords("ring", "R8", "1", 1, response))
+    }
+
+    @Test
+    fun `SDK start offset is not inside the expanded HRV grid and is added exactly once`() {
+        for (interval in listOf(5, 30, 60)) {
+            for (wordEncoded in listOf(false, true)) {
+                // 至少 6 个 byte 样本，避免 SDK 对极短包的 byte/word 猜测产生歧义。
+                val response = decodedHrv(interval, 6, wordEncoded, startMinutes = 60)
+                assertEquals(60, response.startInterval)
+                assertEquals(interval, response.range)
+                assertEquals(288, response.array.size)
+                // SDK 的展开只使用原样本下标，未把 startInterval 加进槽位。
+                assertEquals((0 until 6).map { it * interval / 5 },
+                    response.array.indices.filter { response.array[it] > 0 })
+                val start = QRingRecordMapper.dayStart(1)
+                val records = QRingRecordMapper.hrvRecords("ring", "R8", "1", 1, response)
+                assertEquals(6, records.size)
+                records.forEachIndexed { index, record ->
+                    assertEquals(Instant.ofEpochMilli(start + (60L + index * interval) * 60_000L).toString(),
+                        record["measuredAt"])
+                    assertEquals(40 + index, (record["values"] as Map<*, *>)["value"])
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `HRV fixed grid does not change other metrics explicit sampling intervals`() {
+        val heart = ReadHeartRateRsp().apply {
+            interval = 30
+            array = listOf(70, 72)
+        }
+        val oxygen = BloodOxygenEntity().apply {
+            interval = 20
+            array = listOf(96, 97)
+        }
+        val temperature = IntervalTemperatureEntity().apply {
+            interval = 45
+            array = listOf(32.0f, 32.1f)
+        }
+        val stress = PressureRsp().apply {
+            setOtherDataPressure(0, 0, 15, byteArrayOf(21, 22))
+        }
+        val cases = listOf(
+            30 to QRingRecordMapper.heartRecords("ring", "R8", "1", 1, heart),
+            20 to QRingRecordMapper.oxygenRecords("ring", "R8", "1", 1, oxygen),
+            45 to QRingRecordMapper.temperatureRecords("ring", "R8", "1", 1, temperature),
+            15 to QRingRecordMapper.stressRecords("ring", "R8", "1", 1, stress),
+        )
+        cases.forEach { (minutes, records) ->
+            assertEquals(2, records.size)
+            val first = Instant.parse(records[0]["measuredAt"] as String)
+            val second = Instant.parse(records[1]["measuredAt"] as String)
+            assertEquals(minutes * 60L, second.epochSecond - first.epochSecond)
+        }
+    }
+
+    private fun decodedHrv(
+        intervalMinutes: Int,
+        sampleCount: Int,
+        wordEncoded: Boolean,
+        startMinutes: Int? = null,
+    ): HRVRsp {
+        val response = HRVRsp()
+        val header = mutableListOf<Byte>(0, 2, intervalMinutes.toByte())
+        if (startMinutes != null) header.add(startMinutes.toByte())
+        response.acceptData(header.toByteArray())
+        val payload = mutableListOf<Byte>(1, 1) // 首个数据包及昨天的 dayIndex。
+        repeat(sampleCount) { index ->
+            payload.add((40 + index % 20).toByte())
+            if (wordEncoded) payload.add(0)
+        }
+        response.acceptData(payload.toByteArray())
+        response.acceptData(byteArrayOf(0xff.toByte()))
+        assertTrue(response.isEndFlag)
+        assertEquals(1, response.offset)
+        return response
     }
 
     @Test

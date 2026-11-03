@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
@@ -170,6 +171,172 @@ void main() {
       },
     );
   }
+
+  for (final lookupFails in [false, true]) {
+    testWidgets(
+      'late cached lookup fallback cannot scan over a connected ring, '
+      'fails=$lookupFails',
+      (tester) async {
+        environment.sdk = 31;
+        final wearable = _ConnectedCachedScanWearable()
+          ..lookupReply = Completer<List<DeviceInfo>>();
+        final controller = _controller(wearable);
+        addTearDown(controller.dispose);
+        await _pumpSearch(tester, controller, settle: false);
+        await tester.pump();
+        expect(wearable.lookups, 1);
+        expect(wearable.scans, 0);
+
+        // 用真实控制器连接推进代次，不能直接赋值伪造 ready 状态。
+        // 添加页旧缓存查询仍在等待；后台恢复或另一路连接已经成功。
+        await controller.connectDevice(_ConnectedCachedScanWearable.r8);
+        await tester.pump();
+        expect(controller.deviceState, DeviceConnectionState.ready);
+        expect(controller.deviceCapabilityState, DeviceCapabilityState.ready);
+        final connected = controller.connectedDevice;
+        final capabilities = controller.capabilities;
+        expect(capabilities?.supportsHistorySync, isTrue);
+
+        if (lookupFails) {
+          wearable.lookupReply!.completeError(
+            PlatformException(code: 'BLE_PERMISSION_DENIED'),
+          );
+        } else {
+          wearable.lookupReply!.complete(const <DeviceInfo>[]);
+        }
+        await tester.pumpAndSettle();
+
+        // 被淘汰的查询返回 0 不等于当前搜索确实为空；不得启动新扫描，
+        // 更不能把正常连接改成 error/disconnected 后保留一份假连接资料。
+        expect(controller.connectedDevice, same(connected));
+        expect(controller.capabilities, same(capabilities));
+        expect(controller.deviceCapabilityState, DeviceCapabilityState.ready);
+        expect(controller.deviceState, DeviceConnectionState.ready);
+        expect(controller.errorMessage, isNull);
+        expect(wearable.scans, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  test('explicit scans cannot overwrite an already connected ring', () async {
+    environment.sdk = 31;
+    final wearable = _ConnectedCachedScanWearable();
+    final controller = _controller(wearable);
+    addTearDown(controller.dispose);
+    await controller.connectDevice(_ConnectedCachedScanWearable.r8);
+    expect(controller.deviceState, DeviceConnectionState.ready);
+    expect(controller.deviceCapabilityState, DeviceCapabilityState.ready);
+    final connected = controller.connectedDevice;
+    final capabilities = controller.capabilities;
+    expect(capabilities?.supportsHistorySync, isTrue);
+
+    // 连续调用覆盖旧页面回调/重复点击：不能先 ready→error，
+    // 再 error→scanning→disconnected，留下 connectedDevice 非空的矛盾状态。
+    await controller.scanDevices();
+    await controller.scanDevices();
+
+    expect(controller.connectedDevice, same(connected));
+    expect(controller.capabilities, same(capabilities));
+    expect(controller.deviceCapabilityState, DeviceCapabilityState.ready);
+    expect(controller.deviceState, DeviceConnectionState.ready);
+    expect(controller.errorMessage, isNull);
+    expect(wearable.scans, 0);
+  });
+
+  for (final cachedLookup in [false, true]) {
+    for (final connectPending in [false, true]) {
+      test('late search permission cannot replace a newer connection, '
+          'cached=$cachedLookup, connecting=$connectPending', () async {
+        environment.sdk = 31;
+        environment.permissionReply = Completer<Map<int, int>>();
+        final wearable = _ConnectedCachedScanWearable();
+        if (connectPending) {
+          wearable.connectReply = Completer<void>();
+        }
+        final controller = _controller(wearable);
+        addTearDown(controller.dispose);
+        final pendingSearch = cachedLookup
+            ? controller.listBondedDevicesForSelection().then<void>((_) {})
+            : controller.scanDevices();
+        await environment.permissionsRequested.future;
+
+        // 系统权限弹窗未返回时，另一条连接流程已经取得本轮连接槽。
+        // 分别覆盖仍在握手和已握手成功，不能只检查 connectedDevice 非空。
+        final connecting = controller.connectDevice(
+          _ConnectedCachedScanWearable.r8,
+        );
+        await wearable.connectStarted.future;
+        if (!connectPending) await connecting;
+        final before = controller.deviceState;
+        expect(
+          before,
+          connectPending
+              ? DeviceConnectionState.connecting
+              : DeviceConnectionState.ready,
+        );
+        expect(controller.canSearchForDevice, isFalse);
+
+        environment.permissionReply!.complete({
+          for (final permission in environment.requestedPermissions.single)
+            permission: 1,
+        });
+        await pendingSearch;
+        expect(controller.deviceState, before);
+        expect(controller.deviceScanIssue, isNull);
+        expect(wearable.scans, 0);
+        expect(wearable.lookups, 0);
+
+        if (connectPending) {
+          wearable.connectReply!.complete();
+          await connecting;
+        }
+        expect(controller.deviceState, DeviceConnectionState.ready);
+        expect(
+          controller.connectedDevice?.id,
+          _ConnectedCachedScanWearable.r8.id,
+        );
+        expect(controller.deviceCapabilityState, DeviceCapabilityState.ready);
+        expect(controller.capabilities?.supportsHistorySync, isTrue);
+        expect(controller.errorMessage, isNull);
+      });
+    }
+  }
+
+  test(
+    'disconnected remembered ring still permits search and recovery lookup',
+    () async {
+      environment.sdk = 31;
+      final wearable = _ConnectedCachedScanWearable(
+        cached: const [_ConnectedCachedScanWearable.r8],
+      );
+      final controller = _controller(wearable);
+      addTearDown(controller.dispose);
+      await controller.connectDevice(_ConnectedCachedScanWearable.r8);
+      expect(controller.deviceState, DeviceConnectionState.ready);
+      final remembered = controller.rememberedDevice;
+      expect(remembered?.id, _ConnectedCachedScanWearable.r8.id);
+      await controller.disconnectDevice();
+
+      // 正常断线只保留恢复目标；新门禁不能要求先解绑或删除记忆目标。
+      expect(controller.connectedDevice, isNull);
+      expect(controller.rememberedDevice, same(remembered));
+      expect(controller.canSearchForDevice, isTrue);
+      await controller.scanDevices();
+      expect(wearable.scans, 1);
+      expect(controller.deviceState, DeviceConnectionState.disconnected);
+      expect(controller.scannedDevices, contains(_ScanWearable.watch));
+      expect(await controller.listBondedDevicesForSelection(), 1);
+      expect(wearable.lookups, 1);
+      expect(
+        controller.scannedDevices,
+        contains(_ConnectedCachedScanWearable.r8),
+      );
+      expect(controller.rememberedDevice, same(remembered));
+      expect(controller.deviceState, DeviceConnectionState.disconnected);
+      expect(controller.canSearchForDevice, isTrue);
+    },
+  );
 
   test('denied permission stays distinct from disabled location', () async {
     environment.permissionGranted = false;
@@ -548,6 +715,39 @@ class _CachedScanWearable extends _ScanWearable
   }
 }
 
+class _ConnectedCachedScanWearable extends _CachedScanWearable {
+  _ConnectedCachedScanWearable({super.cached = const []});
+
+  static const r8 = DeviceInfo(id: 'qring:TEST-R8', name: 'SD_RING_R8');
+  final connectStarted = Completer<void>();
+  Completer<void>? connectReply;
+
+  @override
+  Future<void> connect(
+    String deviceId, {
+    required WearableUserProfile profile,
+  }) async {
+    connectedIds.add(deviceId);
+    if (!connectStarted.isCompleted) connectStarted.complete();
+    await connectReply?.future;
+  }
+
+  @override
+  Future<void> disconnect() async {}
+
+  @override
+  Future<DeviceCapabilities> getCapabilities() async =>
+      const DeviceCapabilities(
+        metrics: {HealthMetric.steps, HealthMetric.sleep},
+      );
+
+  @override
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async => [];
+
+  @override
+  Future<List<SportRecord>> readSportRecords() async => [];
+}
+
 class _AndroidScanEnvironment {
   int sdk = 29;
   bool permissionGranted = true;
@@ -557,6 +757,8 @@ class _AndroidScanEnvironment {
   int appSettingsOpened = 0;
   final requestedPermissions = <List<int>>[];
   final permissionCalls = <String>[];
+  final permissionsRequested = Completer<void>();
+  Completer<Map<int, int>>? permissionReply;
 
   Future<Object?> permissionCall(MethodCall call) async {
     permissionCalls.add('${call.method}:${call.arguments}');
@@ -564,10 +766,12 @@ class _AndroidScanEnvironment {
       case 'requestPermissions':
         final requested = List<int>.from(call.arguments as List);
         requestedPermissions.add(requested);
-        return <int, int>{
-          for (final permission in requested)
-            permission: permissionGranted ? 1 : 0,
-        };
+        if (!permissionsRequested.isCompleted) permissionsRequested.complete();
+        return permissionReply?.future ??
+            <int, int>{
+              for (final permission in requested)
+                permission: permissionGranted ? 1 : 0,
+            };
       case 'checkServiceStatus':
         if (call.arguments != Permission.locationWhenInUse.value) {
           throw StateError('Unexpected service permission ${call.arguments}');

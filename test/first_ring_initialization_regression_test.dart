@@ -491,7 +491,7 @@ void main() {
   );
 
   test(
-    'history-only clear ACK resumes after a fresh CoolWear handshake',
+    'history-only clear ACK resumes through one automatic fresh CoolWear handshake',
     () async {
       const coolwear = DeviceInfo(
         id: 'coolwear:AA:BB:CC:DD:EE:FF',
@@ -501,19 +501,17 @@ void main() {
       final api = _ExistingBindingApi()..shouldClear = true;
       final ring = _PendingInitializationRing()
         ..initializationStatus = null
+        ..rememberConnections = true
         ..clearResult = RingDataClearResult.acknowledged;
       final controller = await setup(api, ring, vault: vault);
       await controller.connectDevice(coolwear);
       await _settle();
-      expect(controller.isRingInitializationPending, isTrue);
-      expect(ring.historyReads, 0);
-      expect(vault.ringInitializationStages.values, [
-        RingInitializationStage.historyClearAcknowledged,
-      ]);
-      await controller.disconnectDevice();
-      await controller.connectDevice(coolwear);
-      await _settle();
+      // 真实 ACK 后由控制器完成新握手，不再由测试额外断连补齐用户流程。
+      // CoolWear 仍只开放手动同步，不能在旧握手上导入缓存。
+      expect(controller.connectedDevice?.id, coolwear.id);
+      expect(controller.deviceState, DeviceConnectionState.ready);
       expect(controller.isRingInitializationPending, isFalse);
+      expect(ring.historyReads, 0);
       expect(await controller.syncDeviceData(), isTrue);
       expect(ring.historyReads, 1);
       expect(ring.resetCalls, 1);
@@ -851,7 +849,15 @@ class _PendingInitializationRing extends Fake
     required WearableUserProfile profile,
   }) async {
     connectedDeviceId = deviceId;
-    if (rememberConnections) saved = _device;
+    if (rememberConnections) {
+      // 回归需要保存真实选择目标，不能把 CoolWear 重连偷换成固定 R8。
+      saved = deviceId == _device.id
+          ? _device
+          : DeviceInfo(
+              id: deviceId,
+              name: deviceId.startsWith('coolwear:') ? 'R7 Pro' : 'R8_TEST',
+            );
+    }
   }
 
   @override

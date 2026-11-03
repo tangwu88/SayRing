@@ -72,12 +72,49 @@ abstract interface class RingInitializationVault {
   Future<void> clearRingInitializationStage(String owner, String deviceId);
 }
 
+/// 首次绑定请求与状态原子保存；旧的未知状态没有编号时不得补造编号重试。
+abstract interface class RingInitializationOperationVault {
+  Future<String?> readRingInitializationOperationId(
+    String owner,
+    String deviceId,
+  );
+  Future<void> writeRingInitializationRequest(
+    String owner,
+    String deviceId,
+    String operationId,
+  );
+}
+
+bool isValidRingInitializationOperationId(String value) => RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+).hasMatch(value);
+
+({RingInitializationStage stage, String? operationId})
+_decodeRingInitialization(String raw) {
+  final legacy = RingInitializationStage.values.where((s) => s.name == raw);
+  if (legacy.isNotEmpty) return (stage: legacy.single, operationId: null);
+  final value = jsonDecode(raw);
+  if (value is! Map ||
+      value['version'] != 2 ||
+      value['operationId'] is! String ||
+      !isValidRingInitializationOperationId(value['operationId'] as String)) {
+    throw const FormatException('Invalid ring initialization request');
+  }
+  final stage = RingInitializationStage.values.firstWhere(
+    (s) => s.name == value['stage'],
+    orElse: () =>
+        throw const FormatException('Invalid ring initialization stage'),
+  );
+  return (stage: stage, operationId: value['operationId'] as String);
+}
+
 class SecureSessionVault
     implements
         SessionVault,
         SayRingAppDisplayVault,
         HomeHealthCardsVault,
-        RingInitializationVault {
+        RingInitializationVault,
+        RingInitializationOperationVault {
   SecureSessionVault([FlutterSecureStorage? storage])
     : storageNamespace = null,
       _storage = storage ?? safeSecureStorage;
@@ -121,10 +158,7 @@ class SecureSessionVault
       key: _ringInitializationKey(owner, deviceId),
     );
     if (raw == null) return null;
-    return RingInitializationStage.values.firstWhere(
-      (stage) => stage.name == raw,
-      orElse: () => throw const FormatException('Invalid ring initialization'),
-    );
+    return _decodeRingInitialization(raw).stage;
   }
 
   @override
@@ -132,10 +166,61 @@ class SecureSessionVault
     String owner,
     String deviceId,
     RingInitializationStage stage,
-  ) => _storage.write(
-    key: _ringInitializationKey(owner, deviceId),
-    value: stage.name,
-  );
+  ) async {
+    final key = _ringInitializationKey(owner, deviceId);
+    final raw = await _storage.read(key: key);
+    final operationId = raw == null
+        ? null
+        : _decodeRingInitialization(raw).operationId;
+    await _storage.write(
+      key: key,
+      value: operationId == null
+          ? stage.name
+          : jsonEncode({
+              'version': 2,
+              'stage': stage.name,
+              'operationId': operationId,
+            }),
+    );
+  }
+
+  @override
+  Future<String?> readRingInitializationOperationId(
+    String owner,
+    String deviceId,
+  ) async {
+    final raw = await _storage.read(
+      key: _ringInitializationKey(owner, deviceId),
+    );
+    return raw == null ? null : _decodeRingInitialization(raw).operationId;
+  }
+
+  @override
+  Future<void> writeRingInitializationRequest(
+    String owner,
+    String deviceId,
+    String operationId,
+  ) async {
+    if (!isValidRingInitializationOperationId(operationId)) {
+      throw const FormatException('Invalid ring operation ID');
+    }
+    final key = _ringInitializationKey(owner, deviceId);
+    final raw = await _storage.read(key: key);
+    final state = raw == null ? null : _decodeRingInitialization(raw);
+    if (state?.stage != RingInitializationStage.decisionRequired ||
+        (state?.operationId != null && state!.operationId != operationId)) {
+      throw StateError('Cannot replace an uncertain ring decision');
+    }
+    // 一个安全存储值同时保存状态和编号，避免崩溃后状态在、编号丢失。
+    await _storage.write(
+      key: key,
+      value: jsonEncode({
+        'version': 2,
+        'stage': RingInitializationStage.decisionRequired.name,
+        'operationId': operationId,
+      }),
+    );
+  }
 
   @override
   Future<void> clearRingInitializationStage(String owner, String deviceId) =>
@@ -365,8 +450,33 @@ class MemorySessionVault
         SessionVault,
         SayRingAppDisplayVault,
         HomeHealthCardsVault,
-        RingInitializationVault {
+        RingInitializationVault,
+        RingInitializationOperationVault {
   final Map<String, RingInitializationStage> ringInitializationStages = {};
+  final Map<String, String> ringInitializationOperationIds = {};
+
+  @override
+  Future<String?> readRingInitializationOperationId(
+    String owner,
+    String deviceId,
+  ) async => ringInitializationOperationIds['$owner\u0000$deviceId'];
+
+  @override
+  Future<void> writeRingInitializationRequest(
+    String owner,
+    String deviceId,
+    String operationId,
+  ) async {
+    final key = '$owner\u0000$deviceId';
+    if (!isValidRingInitializationOperationId(operationId) ||
+        ringInitializationStages[key] !=
+            RingInitializationStage.decisionRequired ||
+        (ringInitializationOperationIds[key] != null &&
+            ringInitializationOperationIds[key] != operationId)) {
+      throw StateError('Cannot replace an uncertain ring decision');
+    }
+    ringInitializationOperationIds[key] = operationId;
+  }
 
   @override
   Future<RingInitializationStage?> readRingInitializationStage(
@@ -389,6 +499,7 @@ class MemorySessionVault
     String deviceId,
   ) async {
     ringInitializationStages.remove('$owner\u0000$deviceId');
+    ringInitializationOperationIds.remove('$owner\u0000$deviceId');
   }
 
   final Map<String, HomeHealthCardLayout> homeHealthCards = {};

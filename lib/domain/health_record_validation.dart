@@ -1,6 +1,21 @@
 import 'ecg_waveform.dart';
 import 'models.dart';
 
+/// 仅容忍设备与手机的小幅时钟误差，不将历史包改写为手机时间。
+const wearableHistoryClockTolerance = Duration(minutes: 5);
+
+/// 以首次收到历史包的时刻判定；命中后应持久隔离原始行，不能等时间
+/// 追上后重新当作新记录。此规则不改变手动测量或其他来源的既有门禁。
+bool isFutureWearableHistory(
+  HealthRecord record, {
+  required DateTime receivedAt,
+}) =>
+    record.source == MeasurementSource.wearable &&
+    record.origin == MeasurementOrigin.watchHistory &&
+    record.measuredAt.isAfter(
+      receivedAt.toUtc().add(wearableHistoryClockTolerance),
+    );
+
 /// Rejects values that cannot be a completed wearable measurement.
 ///
 /// These are deliberately broad transport-sanity limits, not clinical

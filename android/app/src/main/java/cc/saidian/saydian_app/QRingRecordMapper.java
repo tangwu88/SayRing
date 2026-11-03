@@ -112,10 +112,17 @@ final class QRingRecordMapper {
 
     static List<Map<String, Object>> hrvRecords(
             String deviceId, String model, String firmware, int dayIndex, HRVRsp value) {
-        int interval = value == null ? 5 : Math.max(1, value.getRange());
+        // 当前随包 SDK 已把 HRV 展开为一天 288 个、每格 5 分钟的数组。
+        // getRange() 是展开前的监测间隔；再次用它乘下标，会把同日记录排到未来数天。
+        // 只修正 HRV 的数组时间步长，其他指标仍使用各自 SDK 返回的间隔。
+        final int normalizedSlotMinutes = 5;
+        // SDK 展开下标不包含 startInterval；原始起始分钟偏移仍只在这里加一次。
         long base = dayStart(dayIndex) + (value == null ? 0 : Math.max(0, value.getStartInterval())) * 60_000L;
-        return integerSeries(deviceId, model, firmware, "hrv", "ms", base, interval,
+        List<Map<String, Object>> records = integerSeries(deviceId, model, firmware, "hrv", "ms", base, normalizedSlotMinutes,
                 value == null ? null : value.getArray(), 1, 1000);
+        // 新时间映射单独标记版本；历史原行不修改、不删除。
+        for (Map<String, Object> record : records) record.put("rawVersion", 2);
+        return records;
     }
 
     static List<Map<String, Object>> stressRecords(

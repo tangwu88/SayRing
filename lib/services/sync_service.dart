@@ -74,8 +74,14 @@ class HealthSyncService {
       if (projected.isEmpty) {
         return SyncOutcome(uploaded: uploaded, rejected: rejected);
       }
+      // Store 已在入库时永久隔离未来历史；此处同时保护旧版/测试适配器，
+      // 不能把异常时间记录上传后再依赖服务端修正时间。
+      final receivedAt = DateTime.now();
+      bool validForUpload(HealthRecord record) =>
+          hasSaneWearableTransportValues(record) &&
+          !isFutureWearableHistory(record, receivedAt: receivedAt);
       final invalid = projected
-          .where((record) => !hasSaneWearableTransportValues(record))
+          .where((record) => !validForUpload(record))
           .toList();
       if (invalid.isNotEmpty) {
         await _store.markInvalid(invalid.map((record) => record.id));
@@ -85,7 +91,7 @@ class HealthSyncService {
         quarantined += invalid.length;
         rejected += invalid.length;
       }
-      final records = projected.where(hasSaneWearableTransportValues).toList();
+      final records = projected.where(validForUpload).toList();
       if (records.isEmpty) continue;
       final cursor = await _store.readCursor();
       if (!canContinue()) {

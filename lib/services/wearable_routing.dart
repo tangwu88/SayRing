@@ -800,16 +800,44 @@ class RoutedWearableBridge
 
     final connectionOwnerKey = _recoveryOwnerKey;
     final contextGeneration = _recoveryContextGeneration;
-    final previous = _activeTransport == null
-        ? null
-        : _sources[_activeTransport];
+    final previousTransport = _activeTransport;
+    final previous = _sources[previousTransport];
+    final changesTransport =
+        previousTransport != null && previousTransport != device.transport;
+    final retiringGeneration = changesTransport
+        ? ++_connectionGeneration
+        : null;
+    if (changesTransport) {
+      // 换通道前先撤销旧事件归属；退出期间迟到的断开/恢复回包不能改新连接代次。
+      // 这里只停用 SDK 会话，不调用路由解绑，也不清账号保存的恢复目标。
+      _activeTransport = null;
+      _activeConnectionGeneration = null;
+    }
     if (previous is WearableExactTargetRecoveryBridge) {
-      _exactRecoveryTargets.remove(_activeTransport);
+      _exactRecoveryTargets.remove(previousTransport);
       await (previous as WearableExactTargetRecoveryBridge)
           .configureRecoveryTarget(nativeIdentifier: null);
+    } else if (previous != null && changesTransport) {
+      // 非 Exact SDK 也可能有安装级自动重连。切走时必须普通断开，不能让旧
+      // SDK 继续抢占无线连接。复用屏障，保留超时后仍在运行的真实退出任务。
+      var pending = _pendingRecoveryWork[previousTransport];
+      if (pending == null) {
+        late final Future<void> retiring;
+        retiring = previous.disconnect().whenComplete(() {
+          if (identical(_pendingRecoveryWork[previousTransport], retiring)) {
+            _pendingRecoveryWork.remove(previousTransport);
+          }
+        });
+        _pendingRecoveryWork[previousTransport] = retiring;
+        unawaited(retiring.catchError((Object _) {}));
+        pending = retiring;
+      }
+      await pending.timeout(recoveryOperationTimeout);
     }
     if (contextGeneration != _recoveryContextGeneration ||
-        connectionOwnerKey != _recoveryOwnerKey) {
+        connectionOwnerKey != _recoveryOwnerKey ||
+        (retiringGeneration != null &&
+            retiringGeneration != _connectionGeneration)) {
       return;
     }
 

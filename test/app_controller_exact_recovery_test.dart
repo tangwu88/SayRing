@@ -86,6 +86,33 @@ void main() {
   );
 
   test(
+    'future history does not inflate displayed sync count or block completion',
+    () async {
+      final state = await setup();
+      state.ring.history = Completer<List<HealthRecord>>();
+      await state.controller.connectDevice(_Ring.device);
+      await _settle();
+      final valid = activity('valid-current');
+      final future = activity(
+        'future-history',
+        measuredAt: DateTime.now().toUtc().add(const Duration(hours: 7)),
+      );
+      state.ring.source.add(
+        WearableEvent(type: 'healthRecord', payload: future.toJson()),
+      );
+      await _settle();
+      expect(state.controller.healthRecords, isEmpty);
+      state.ring.history!.complete([valid, future]);
+      await _settle();
+      expect(state.controller.isDeviceSyncing, isFalse);
+      expect(state.controller.syncStatus, '已同步 1 条');
+      expect(state.controller.healthRecords.map((r) => r.id), [valid.id]);
+      expect((await state.store.recent()).map((r) => r.id), [valid.id]);
+      expect(state.controller.healthWarningAlerts, isEmpty);
+    },
+  );
+
+  test(
     'history failure retains early activity without claiming full success',
     () async {
       final state = await setup();

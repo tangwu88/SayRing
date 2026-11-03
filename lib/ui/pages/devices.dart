@@ -1047,6 +1047,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   }
 
   Future<void> _findCachedOrScan() async {
+    if (!mounted || !widget.controller.canSearchForDevice) return;
     if (!widget.controller.supportsBondedDeviceSelection) {
       await _startScan();
       return;
@@ -1054,9 +1055,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (_bondedLookupInFlight || _scanInFlight) return;
     setState(() => _bondedLookupInFlight = true);
     try {
+      final session = widget.controller.session;
       widget.controller.clearError();
       final count = await widget.controller.listBondedDevicesForSelection();
-      if (mounted && count == 0) await _startScan();
+      // 返回 0 也可能表示旧查询已被连接或换账号淘汰，并不代表当前没有设备。
+      if (mounted &&
+          count == 0 &&
+          identical(session, widget.controller.session) &&
+          widget.controller.canSearchForDevice &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        await _startScan();
+      }
     } finally {
       if (mounted) setState(() => _bondedLookupInFlight = false);
     }
@@ -1073,7 +1082,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   }
 
   Future<void> _startScan() async {
-    if (_connectingDeviceId != null || _scanInFlight) return;
+    if (!mounted ||
+        !widget.controller.canSearchForDevice ||
+        _connectingDeviceId != null ||
+        _scanInFlight) {
+      return;
+    }
     _scanInFlight = true;
     try {
       widget.controller.clearError();
@@ -1135,7 +1149,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   }
 
   Future<void> _findBondedDevices() async {
-    if (_connectingDeviceId != null || _scanInFlight || _bondedLookupInFlight) {
+    if (!widget.controller.canSearchForDevice ||
+        _connectingDeviceId != null ||
+        _scanInFlight ||
+        _bondedLookupInFlight) {
       return;
     }
     setState(() => _bondedLookupInFlight = true);
@@ -1229,7 +1246,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         final scanning =
             controller.deviceState == DeviceConnectionState.scanning;
         final connecting = _connectingDeviceId != null;
-        final busy = connecting || _bondedLookupInFlight;
+        final busy =
+            connecting ||
+            _bondedLookupInFlight ||
+            !controller.canSearchForDevice;
         return PopScope(
           canPop: true,
           child: Scaffold(

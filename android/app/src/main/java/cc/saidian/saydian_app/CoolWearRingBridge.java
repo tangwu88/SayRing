@@ -53,6 +53,8 @@ import ce.com.cenewbluesdk.entity.k6.K6_TempStruct;
 import ce.com.cenewbluesdk.entity.k6.k6_RRI_HRV_DATA;
 import ce.com.cenewbluesdk.proxy.interfaces.K6BleDataResult;
 import ce.com.cenewbluesdk.proxy.interfaces.OnScanDevListener;
+import ce.com.cenewbluesdk.proxy.BleFactory;
+import ce.com.cenewbluesdk.proxy.CEBluetoothProxyBase;
 import ce.com.cenewbluesdk.proxy.sdkhelper.BluetoothHelper;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.EventChannel;
@@ -86,6 +88,30 @@ public final class CoolWearRingBridge
     private final Handler main = new Handler(Looper.getMainLooper());
     private final LinkedHashMap<String, Map<String, Object>> scanned = new LinkedHashMap<>();
     private BluetoothHelper helper;
+    private final CoolWearRecoveryTarget recoveryTarget = new CoolWearRecoveryTarget();
+    private final CoolWearRecoveryTarget.Sdk recoverySdk = new CoolWearRecoveryTarget.Sdk() {
+        @Override public void clearTarget() {
+            CEBluetoothProxyBase proxy = BleFactory.getInstance().getK6Proxy();
+            if (!"".equals(proxy.getBlueAddress()) ||
+                    !"".equals(proxy.getConnectUtil().getBlueAddress())) {
+                // 公开 setter 仅清 RAM 和 KEY_DEVMACADDRESS；不能替换为 unbindDevice。
+                proxy.setBlueAddress("");
+                if (!"".equals(proxy.getBlueAddress()) ||
+                        !"".equals(proxy.getConnectUtil().getBlueAddress())) {
+                    throw new IllegalStateException("Vendor recovery target was not cleared");
+                }
+            }
+        }
+        @Override public void setTarget(String target) {
+            CEBluetoothProxyBase proxy = BleFactory.getInstance().getK6Proxy();
+            proxy.setBlueAddress(target);
+            if (!target.equals(proxy.getBlueAddress()) ||
+                    !target.equals(proxy.getConnectUtil().getBlueAddress())) {
+                throw new IllegalStateException("Vendor recovery target was not accepted");
+            }
+        }
+        @Override public void disconnect() { if (helper != null) helper.disConnect(); }
+    };
     private EventChannel.EventSink sink;
     private MethodChannel.Result pendingScan;
     private String scanExactTargetId;
@@ -148,21 +174,35 @@ public final class CoolWearRingBridge
     }
 
     private void ensureSdk() {
-        if (helper != null) return;
+        if (helper != null) {
+            recoveryTarget.initializeIdle(recoverySdk);
+            return;
+        }
         helper = BluetoothHelper.getInstance();
         helper.init();
         helper.initProxy(activity.getApplicationContext());
+        // 联合扫描和能力查询不能借安装缓存复活另一个账号/通道的旧戒指。
+        recoveryTarget.initializeIdle(recoverySdk);
         configureScanCallback(scanGeneration);
         helper.getRcvDataManager().addBleDataResultListener(
                 K6_Action.RCVD.RCVD_BLUE_CONNECT_STATE_CHANGE,
                 (K6BleDataResult<Integer>) status -> {
-                    main.post(() -> onConnectionState(status));
+                    long generation = recoveryTarget.generation();
+                    main.post(() -> {
+                        if (activeBridge != this) return;
+                        onConnectionState(status, generation);
+                    });
                     return false;
                 });
         helper.getRcvDataManager().addBleDataResultListener(
                 K6_Action.RCVD.RCVD_DEVINFO,
                 (K6BleDataResult<K6_DevInfoStruct>) info -> {
-                    main.post(() -> onDeviceInfo(info));
+                    long generation = recoveryTarget.generation();
+                    main.post(() -> {
+                        if (activeBridge != this || !recoveryTarget.isCurrent(generation) ||
+                                !recoveryTarget.isActive()) return;
+                        onDeviceInfo(info);
+                    });
                     return false;
                 });
         registerRemainingListeners();
@@ -632,7 +672,6 @@ public final class CoolWearRingBridge
         connectDeadline = null;
         MethodChannel.Result result = pendingConnect;
         pendingConnect = null;
-        if (result != null) result.error(code, message, null);
         linkConnected = false;
         deviceInfoReceived = false;
         functionControl = null;
@@ -641,7 +680,18 @@ public final class CoolWearRingBridge
         connectedId = null;
         connectedName = null;
         connectedVendorId = null;
-        if (helper != null) helper.disConnect();
+        pauseSdkRecovery();
+        if (result != null) result.error(code, message, null);
+    }
+
+    private void pauseSdkRecovery() {
+        if (helper == null) return;
+        try {
+            recoveryTarget.pause(recoverySdk);
+        } catch (RuntimeException error) {
+            // 清理失败不能伪造成功、改业务绑定或发送恢复出厂；晚到回调仍会被撤销代次挡住。
+            Log.w(TAG, "vendor recovery cache cleanup failed");
+        }
     }
 
     private void completeConnectIfReady() {
@@ -655,13 +705,20 @@ public final class CoolWearRingBridge
         emit("deviceDetails", deviceDetails());
     }
 
-    private void onConnectionState(Integer status) {
+    private void onConnectionState(Integer status, long generation) {
         profileTrace("vendor connection callback " + status);
         if (status == null) return;
+        try {
+            if (!recoveryTarget.acceptCallback(generation,
+                    status == K6_Action.RCVD.BLUE_CONNECTED, recoverySdk)) return;
+        } catch (RuntimeException error) {
+            Log.w(TAG, "inactive vendor connection cleanup failed");
+            return;
+        }
         if (status == K6_Action.RCVD.BLUE_CONNECTED) {
             if (!linkConnected) connectionEpoch++;
             if (connectedId == null) {
-                helper.disConnect();
+                pauseSdkRecovery();
                 return;
             }
             linkConnected = true;
@@ -1590,7 +1647,14 @@ public final class CoolWearRingBridge
                     sportHeartStreamStarted = false;
                     recoveringConnection = false;
                     pendingConnect = result;
-                    helper.connectDev(id.toUpperCase(Locale.ROOT), "");
+                    try {
+                        // id 已通过本轮扫描/系统精确候选验证；仅此入口可以重新授予 SDK 目标。
+                        recoveryTarget.activate(id.toUpperCase(Locale.ROOT), recoverySdk);
+                        helper.connectDev(id.toUpperCase(Locale.ROOT), "");
+                    } catch (RuntimeException error) {
+                        failConnect("COOLWEAR_SDK_ERROR", "戒指通信失败，请重试");
+                        break;
+                    }
                     connectDeadline = () -> failConnect(
                             "COOLWEAR_HANDSHAKE_TIMEOUT", "戒指未完成设备信息握手，请重试");
                     main.postDelayed(connectDeadline, CONNECT_MS);
@@ -1603,7 +1667,7 @@ public final class CoolWearRingBridge
                     failPendingAutoSettings("CONNECT_CANCELLED", "连接已断开");
                     cancelReminderRead();
                     if (pendingConnect != null) failConnect("CONNECT_CANCELLED", "连接已取消");
-                    else helper.disConnect();
+                    else pauseSdkRecovery();
                     connectedId = null;
                     connectedVendorId = null;
                     connectedName = null;
@@ -1930,7 +1994,8 @@ public final class CoolWearRingBridge
     public void dispose() {
         cancelHealthPulse(true);
         resetGesture("BRIDGE_DISPOSED", "戒指连接已关闭");
-        if (activeBridge == this) activeBridge = null;
+        boolean ownsSdk = activeBridge == this;
+        if (ownsSdk) activeBridge = null;
         linkConnected = false;
         deviceInfoReceived = false;
         if (scanDeadline != null) main.removeCallbacks(scanDeadline);
@@ -1939,9 +2004,9 @@ public final class CoolWearRingBridge
         failPendingAutoSettings("BRIDGE_DISPOSED", "戒指连接已关闭");
         cancelReminderRead();
         failPendingSync("BRIDGE_DISPOSED", "戒指连接已关闭");
-        if (helper != null) {
+        if (ownsSdk && helper != null) {
             helper.stopScan();
-            helper.disConnect();
+            pauseSdkRecovery();
         }
         sink = null;
     }

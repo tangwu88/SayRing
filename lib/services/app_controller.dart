@@ -1240,6 +1240,7 @@ class AppController extends ChangeNotifier {
   Object? _bindingHistoryRecoveryToken;
   bool _nativeRingInitializationPending = false;
   RingInitializationStage? _ringInitializationStage;
+  String? _ringInitializationOperationId;
   String? _ringInitializationOwner;
   String? _ringInitializationDeviceId;
   int? _firstRingInitializationReconnectGeneration;
@@ -1250,7 +1251,7 @@ class AppController extends ChangeNotifier {
       _ringInitializationGuardReadable &&
       _ringInitializationStage == RingInitializationStage.decisionUnknown &&
       !_nativeRingInitializationPending &&
-      _api is SayRingBindingHistoryApi &&
+      (_api is SayRingBindingHistoryApi || _api is SayRingBindingDecisionApi) &&
       session != null &&
       !isLocalMode &&
       !isPreviewMode;
@@ -2617,14 +2618,27 @@ class AppController extends ChangeNotifier {
       _isCurrentSessionGeneration(session) &&
       scan == _deviceScanGeneration;
 
+  // 搜索只服务于尚未连接的设备。旧添加页、权限弹窗或缓存查询返回时，
+  // 戒指可能已经完成握手；不能再用扫描状态覆盖连接、能力和恢复目标。
+  // 保留 rememberedDevice 不阻止搜索，断线后的手动选环仍可正常使用。
+  bool get canSearchForDevice =>
+      !_disposed &&
+      !_accountTransitioning &&
+      connectedDevice == null &&
+      _wearableConnectInFlight == null &&
+      const {
+        DeviceConnectionState.disconnected,
+        DeviceConnectionState.scanning,
+        DeviceConnectionState.error,
+      }.contains(deviceState);
+
   Future<void> scanDevices() async {
-    if (_disposed ||
-        _accountTransitioning ||
-        deviceState == DeviceConnectionState.scanning) {
+    if (!canSearchForDevice || deviceState == DeviceConnectionState.scanning) {
       return;
     }
     final scan = ++_deviceScanGeneration, session = _sessionGeneration;
-    bool current() => _isCurrentDeviceSearch(scan, session);
+    bool current() =>
+        _isCurrentDeviceSearch(scan, session) && canSearchForDevice;
     _wearableReconnectGeneration++;
     _wearableRecoverySuspended = true;
     isWearableRecovering = false;
@@ -2681,12 +2695,13 @@ class AppController extends ChangeNotifier {
   }
 
   Future<int> listBondedDevicesForSelection() async {
-    if (_disposed || _accountTransitioning || !supportsBondedDeviceSelection) {
+    if (!canSearchForDevice || !supportsBondedDeviceSelection) {
       return 0;
     }
     // 搜索和恢复共用轮次。权限弹窗、系统缓存或 SDK 的结果，都可能在用户离开后才回来。
     final scan = ++_deviceScanGeneration, session = _sessionGeneration;
-    bool current() => _isCurrentDeviceSearch(scan, session);
+    bool current() =>
+        _isCurrentDeviceSearch(scan, session) && canSearchForDevice;
     errorMessage = null;
     deviceScanIssue = null;
     try {
@@ -2903,53 +2918,7 @@ class AppController extends ChangeNotifier {
         );
         if (!isCurrent() || connectedDevice?.id != device.id) return;
         if (shouldClear == true) {
-          // Persist before dispatch. Even an exception can mean the physical
-          // command was sent; only its matching native receipt may release it.
-          await _persistRingInitializationStage(
-            RingInitializationStage.resetAttempted,
-          );
-          if (!isCurrent() || connectedDevice?.id != device.id) return;
-          _firstRingBindingDecisionPending = false;
-          _nativeRingInitializationPending = true;
-          firstRingBindingStatus = '首次绑定，正在清空戒指历史数据';
-          notifyListeners();
-          try {
-            final bridge = _wearable;
-            if (bridge is! WearableRingDataClearBridge) {
-              throw PlatformException(
-                code: 'RING_HISTORY_CLEAR_UNSUPPORTED',
-                message: '此戒指暂不支持仅清除历史数据，未执行恢复出厂',
-              );
-            }
-            final cleared = await (bridge as WearableRingDataClearBridge)
-                .clearRingHistory(
-                  deviceId: device.id,
-                  ownerKey: _healthOwnerFor(session),
-                  allowFactoryReset: true,
-                );
-            if (!isCurrent() || connectedDevice?.id != device.id) return;
-            if (cleared == RingDataClearResult.acknowledged &&
-                device.sdkSource == WearableSdkSource.coolwear) {
-              await _persistRingInitializationStage(
-                RingInitializationStage.historyClearAcknowledged,
-              );
-              if (!isCurrent() || connectedDevice?.id != device.id) return;
-            }
-            firstRingBindingStatus = cleared == RingDataClearResult.acknowledged
-                ? '戒指已确认清空指令，请重新连接后同步新数据'
-                : cleared == RingDataClearResult.factoryResetRequested
-                ? '恢复出厂指令已发送，重连后将初始化设置；结果待确认'
-                : '清空指令已发送，设备结果待确认；请重新连接后核验';
-          } catch (error) {
-            if (!isCurrent() || connectedDevice?.id != device.id) return;
-            firstRingBindingStatus = error is PlatformException
-                ? _wearableErrorMessage(error, fallback: '首次清空未确认，请勿将旧数据视为本人记录')
-                : '首次清空未确认，请勿将旧数据视为本人记录';
-          }
-          // No automatic sync in this initialization connection. An ACK is
-          // not a fresh, empty-history readback; never import cached samples.
-          syncStatus = '请重新连接后再同步';
-          notifyListeners();
+          await _initializeFirstRingBinding(device, isCurrent);
           return;
         }
         if (shouldClear == null) {
@@ -3081,6 +3050,7 @@ class AppController extends ChangeNotifier {
     _ringInitializationOwner = owner;
     _ringInitializationDeviceId = device.id;
     _ringInitializationGuardReadable = false;
+    _ringInitializationOperationId = null;
     // Block unsolicited history while the durable owner/target guard loads.
     _firstRingBindingPending = true;
     _firstRingBindingDecisionPending = true;
@@ -3107,7 +3077,35 @@ class AppController extends ChangeNotifier {
         );
         if (!isCurrent()) return;
       }
+      String? operationId;
+      if (_api is SayRingBindingDecisionApi) {
+        if (vault is! RingInitializationOperationVault) {
+          throw StateError('Ring decision request storage unavailable');
+        }
+        final operationVault = vault as RingInitializationOperationVault;
+        operationId = await operationVault.readRingInitializationOperationId(
+          owner,
+          device.id,
+        );
+        if (!isCurrent()) return;
+        if (operationId == null &&
+            stage == RingInitializationStage.decisionRequired) {
+          operationId = const Uuid().v4();
+          await operationVault.writeRingInitializationRequest(
+            owner,
+            device.id,
+            operationId,
+          );
+          if (!isCurrent()) return;
+        }
+        // 旧版 decisionUnknown 没有编号时绝不补造，防止把第二次绑定当原决定。
+        if (operationId != null &&
+            !isValidRingInitializationOperationId(operationId)) {
+          throw const FormatException('Invalid ring operation ID');
+        }
+      }
       _ringInitializationStage = stage;
+      _ringInitializationOperationId = operationId;
       _ringInitializationGuardReadable = true;
       _firstRingBindingDecisionPending =
           stage == RingInitializationStage.decisionRequired ||
@@ -3167,6 +3165,7 @@ class AppController extends ChangeNotifier {
         owner == _ringInitializationOwner &&
         deviceId == _ringInitializationDeviceId) {
       _ringInitializationStage = null;
+      _ringInitializationOperationId = null;
     }
   }
 
@@ -3178,7 +3177,8 @@ class AppController extends ChangeNotifier {
     final ownerSession = session;
     final deviceId = connectedDevice?.id;
     if (_bindingHistoryRecoveryToken != null ||
-        api is! SayRingBindingHistoryApi ||
+        (api is! SayRingBindingHistoryApi &&
+            api is! SayRingBindingDecisionApi) ||
         ownerSession == null ||
         deviceId == null ||
         isLocalMode ||
@@ -3206,15 +3206,52 @@ class AppController extends ChangeNotifier {
     _bindingHistoryRecoveryToken = token;
     notifyListeners();
     try {
-      // 首次请求丢回执后，不能重放一次性清空授权。
-      // 只有服务端证明这枚戒指入库前已有其他绑定，才解除“决定未知”；
-      // 已发送清空、原生回执不明和新会员仍保持原有保护。
-      final confirmed = await (api as SayRingBindingHistoryApi)
-          .hasPriorBindingBeforeDevice(
-            expectedSession: ownerSession,
-            deviceId: deviceId,
-          )
-          .timeout(const Duration(seconds: 8));
+      // 新请求用持久编号找原决定：尚未提交才可按同编号重试；已发出清空
+      // 授权不重放。旧无编号状态只接受可证明的历史，不猜测原来是否清空。
+      var confirmed = false;
+      final operationId = _ringInitializationOperationId;
+      if (operationId != null && api is SayRingBindingDecisionApi) {
+        final decisionApi = api as SayRingBindingDecisionApi;
+        final status = await decisionApi
+            .readRingBindingDecision(
+              expectedSession: ownerSession,
+              deviceId: deviceId,
+              operationId: operationId,
+            )
+            .timeout(const Duration(seconds: 8));
+        if (!isCurrent() ||
+            operationId != _ringInitializationOperationId ||
+            _ringInitializationStage !=
+                RingInitializationStage.decisionUnknown ||
+            _nativeRingInitializationPending) {
+          return;
+        }
+        if (status == RingBindingDecisionStatus.clearIssued) return;
+        confirmed = status == RingBindingDecisionStatus.preserve;
+        if (status == RingBindingDecisionStatus.notFound) {
+          final device = connectedDevice!;
+          final shouldClear = await _reportConnectedDevice(
+            device,
+            generation,
+            initializeFirstBinding: true,
+          ).timeout(const Duration(seconds: 8));
+          if (!isCurrent() || operationId != _ringInitializationOperationId) {
+            return;
+          }
+          if (shouldClear == true) {
+            await _initializeFirstRingBinding(device, isCurrent);
+            return;
+          }
+          confirmed = shouldClear == false;
+        }
+      } else if (api is SayRingBindingHistoryApi) {
+        confirmed = await (api as SayRingBindingHistoryApi)
+            .hasPriorBindingBeforeDevice(
+              expectedSession: ownerSession,
+              deviceId: deviceId,
+            )
+            .timeout(const Duration(seconds: 8));
+      }
       if (!confirmed ||
           !isCurrent() ||
           !_ringInitializationGuardReadable ||
@@ -3228,6 +3265,8 @@ class AppController extends ChangeNotifier {
       _firstRingBindingPending = _nativeRingInitializationPending;
       firstRingBindingStatus = '已有绑定记录，保留戒指数据';
       notifyListeners();
+      // 旧请求可能从未写入目标行；只补普通连接元数据，不再申请首次清空。
+      unawaited(_reportConnectedDevice(connectedDevice!, generation));
       if (startInitialSync && !_firstRingBindingPending && !isDeviceSyncing) {
         unawaited(_syncInitialDeviceData(deviceId));
       }
@@ -3246,6 +3285,64 @@ class AppController extends ChangeNotifier {
         if (!_disposed) notifyListeners();
       }
     }
+  }
+
+  Future<void> _initializeFirstRingBinding(
+    DeviceInfo device,
+    bool Function() isCurrent,
+  ) async {
+    // Persist before dispatch. Even an exception can mean the physical
+    // command was sent; only its matching native receipt may release it.
+    await _persistRingInitializationStage(
+      RingInitializationStage.resetAttempted,
+    );
+    if (!isCurrent() || connectedDevice?.id != device.id) return;
+    _firstRingBindingDecisionPending = false;
+    _nativeRingInitializationPending = true;
+    firstRingBindingStatus = '首次绑定，正在清空戒指历史数据';
+    notifyListeners();
+    try {
+      final bridge = _wearable;
+      if (bridge is! WearableRingDataClearBridge) {
+        throw PlatformException(
+          code: 'RING_HISTORY_CLEAR_UNSUPPORTED',
+          message: '此戒指暂不支持仅清除历史数据，未执行恢复出厂',
+        );
+      }
+      final cleared = await (bridge as WearableRingDataClearBridge)
+          .clearRingHistory(
+            deviceId: device.id,
+            ownerKey: _healthOwnerFor(session),
+            allowFactoryReset: true,
+          );
+      if (!isCurrent() || connectedDevice?.id != device.id) return;
+      if (cleared == RingDataClearResult.acknowledged &&
+          device.sdkSource == WearableSdkSource.coolwear) {
+        await _persistRingInitializationStage(
+          RingInitializationStage.historyClearAcknowledged,
+        );
+        if (!isCurrent() || connectedDevice?.id != device.id) return;
+        // 已收到真实 ACK 且持久化成功，安排一次保绑定的新握手。
+        // 不能在当前连接里 await：恢复器需要先等本次连接槽释放。
+        // 未确认指令不走此分支，也不会再次发送清空命令。
+        unawaited(_resumeConfirmedRingInitialization());
+      }
+      firstRingBindingStatus = cleared == RingDataClearResult.acknowledged
+          ? '戒指已确认清空指令，请重新连接后同步新数据'
+          : cleared == RingDataClearResult.factoryResetRequested
+          ? '恢复出厂指令已发送，重连后将初始化设置；结果待确认'
+          : '清空指令已发送，设备结果待确认；请重新连接后核验';
+    } catch (error) {
+      if (!isCurrent() || connectedDevice?.id != device.id) return;
+      firstRingBindingStatus = error is PlatformException
+          ? _wearableErrorMessage(error, fallback: '首次清空未确认，请勿将旧数据视为本人记录')
+          : '首次清空未确认，请勿将旧数据视为本人记录';
+    }
+    // No automatic sync in this initialization connection. An ACK is
+    // not a fresh, empty-history readback; never import cached samples.
+    syncStatus = '请重新连接后再同步';
+    notifyListeners();
+    return;
   }
 
   Future<void> _completePersistedRingInitialization(String deviceId) async {
@@ -3337,6 +3434,27 @@ class AppController extends ChangeNotifier {
     final model = device.model?.trim();
     try {
       if (initializeFirstBinding && api is SayRingFirstBindingApi) {
+        if (api is SayRingBindingDecisionApi) {
+          final operationId = _ringInitializationOperationId;
+          if (operationId == null ||
+              !_ringInitializationGuardReadable ||
+              _ringInitializationOwner != _healthOwnerFor(owner) ||
+              _ringInitializationDeviceId != device.id) {
+            throw StateError('Ring decision request was not persisted');
+          }
+          return await (api as SayRingBindingDecisionApi)
+              .reportFirstRingBindingDecision(
+                expectedSession: owner,
+                deviceId: device.id,
+                operationId: operationId,
+                vendor: device.sdkSource.fullLabel,
+                model: model?.isNotEmpty == true ? model! : device.name,
+                displayName: device.name,
+                firmware: device.firmwareVersion,
+                macAddress: device.verifiedHardwareMacAddress,
+                capabilities: reportedCapabilities,
+              );
+        }
         return await (api as SayRingFirstBindingApi).reportFirstRingBinding(
           expectedSession: owner,
           deviceId: device.id,
@@ -3382,8 +3500,8 @@ class AppController extends ChangeNotifier {
     }
     if (isDeviceSyncing || isDeviceSyncPreparing) return false;
     if (_firstRingBindingPending) {
-      // 同步入口不再因历史确认失败而消失。手动重试仅查询已有绑定证明，
-      // 不重放绑定/清空命令，也不通过重连打断正常链路。
+      // 手动重试先查原决定；仅服务端确认未提交时，复用持久编号补交。
+      // 已发出的清空授权绝不重放，也不通过重连打断正常蓝牙链路。
       final generation = _sessionGeneration;
       errorMessage = null;
       await _recoverExistingMemberBindingDecision(
@@ -3525,10 +3643,17 @@ class AppController extends ChangeNotifier {
       // 同一 SDK 可服务多枚戒指。必须逐条核对目标，再写睡眠明细和会员记录；
       // 混入其他目标时保留已核实的数据，但本次不能推进历史同步检查点。
       final matchingRecords = <HealthRecord>[];
+      final futureHistory = <HealthRecord>[];
+      final historyReceivedAt = DateTime.now();
       var rejectedDevice = false;
       for (final record in _releaseRecords(receivedRecords)) {
         if (!belongsToTarget(record)) {
           rejectedDevice = true;
+          continue;
+        }
+        // 日期错误的原包仍落库隔离，但不进入睡眠明细、展示或已更新条数。
+        if (isFutureWearableHistory(record, receivedAt: historyReceivedAt)) {
+          futureHistory.add(record);
           continue;
         }
         matchingRecords.add(record);
@@ -3548,7 +3673,7 @@ class AppController extends ChangeNotifier {
             .map(sanitizeWearableTransportRecord)
             .where(hasSaneWearableTransportValues),
       );
-      await _healthStore.upsert(records);
+      await _healthStore.upsert([...futureHistory, ...records]);
       await Future.wait(List<Future<void>>.of(_pendingSleepWrites));
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
@@ -3613,6 +3738,8 @@ class AppController extends ChangeNotifier {
       }
       if (error.code == 'COOLWEAR_SYNC_TIMEOUT' && error.details is List) {
         final partial = <HealthRecord>[];
+        final futureHistory = <HealthRecord>[];
+        final historyReceivedAt = DateTime.now();
         var rejectedDevice = false;
         for (final value in error.details as List) {
           if (value is! Map) continue;
@@ -3627,7 +3754,14 @@ class AppController extends ChangeNotifier {
               value.map((key, item) => MapEntry('$key', item)),
             );
             if (belongsToTarget(record)) {
-              partial.add(record);
+              if (isFutureWearableHistory(
+                record,
+                receivedAt: historyReceivedAt,
+              )) {
+                futureHistory.add(record);
+              } else {
+                partial.add(record);
+              }
             } else {
               rejectedDevice = true;
             }
@@ -3640,6 +3774,12 @@ class AppController extends ChangeNotifier {
               .map(sanitizeWearableTransportRecord)
               .where(hasSaneWearableTransportValues),
         );
+        if (futureHistory.isNotEmpty) {
+          await _healthStore.upsert(futureHistory);
+          if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+            return false;
+          }
+        }
         if (records.isNotEmpty) {
           await _healthStore.upsert(records);
           if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
@@ -3736,6 +3876,7 @@ class AppController extends ChangeNotifier {
     _firstRingBindingDecisionPending = false;
     _nativeRingInitializationPending = false;
     _ringInitializationStage = null;
+    _ringInitializationOperationId = null;
     _ringInitializationOwner = null;
     _ringInitializationDeviceId = null;
     _ringInitializationGuardReadable = false;
@@ -8076,7 +8217,7 @@ class AppController extends ChangeNotifier {
             )) {
           return;
         }
-        var record = HealthRecord.fromJson(event.payload);
+        final record = HealthRecord.fromJson(event.payload);
         if (_firstRingBindingPending &&
             record.origin == MeasurementOrigin.watchHistory) {
           return;
@@ -8085,22 +8226,10 @@ class AppController extends ChangeNotifier {
             .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear|qring):'), '')
             .toLowerCase();
         if (nativeId(record.deviceId) != nativeId(connectedDevice!.id)) return;
-        if (!isWellnessOnly &&
-            _activeMeasurementMetric == record.metric &&
-            record.origin == MeasurementOrigin.watchHistory &&
-            // CoolWear v2 distinguishes passive type 61 history from the
-            // current type 60 RRI-HRV measurement. Never promote history.
-            !(record.sourceVendor == 'coolwear' && record.rawVersion >= 2)) {
-          record = record.copyWith(origin: MeasurementOrigin.appMeasurement);
-        }
-        record = sanitizeWearableTransportRecord(record);
-        if (!hasSaneWearableTransportValues(record)) {
-          _finishRejectedWearableMeasurement(record);
-        } else {
-          unawaited(
-            _saveWearableRecord(record, expectedGeneration: eventGeneration),
-          );
-        }
+        // 时间/已隔离主键的检查在任何手测提升或即时展示之前完成。
+        unawaited(
+          _saveWearableRecord(record, expectedGeneration: eventGeneration),
+        );
       } catch (_) {
         errorMessage = '收到无法识别的设备数据';
       }
@@ -8306,6 +8435,16 @@ class AppController extends ChangeNotifier {
         deviceState != DeviceConnectionState.disconnected) {
       return;
     }
+    final owner = _healthOwnerFor(session);
+    bool isCurrentRecovery() =>
+        !_disposed &&
+        !_accountTransitioning &&
+        !_wearableRecoverySuspended &&
+        _wearableAccountRecoveryAllowed &&
+        _isCurrentSessionGeneration(sessionGeneration) &&
+        syncGeneration == _deviceSyncGeneration &&
+        owner == _healthOwnerFor(session) &&
+        (connectedDevice == null || connectedDevice?.id == device.id);
     _latestDeviceDetails = device;
     errorMessage = null;
     try {
@@ -8359,6 +8498,8 @@ class AppController extends ChangeNotifier {
         unawaited(_syncInitialDeviceData(device.id));
       }
     } on PlatformException catch (error) {
+      // 异常也是旧异步任务的回包：换号、换设备或断开后，不能清掉新连接。
+      if (!isCurrentRecovery()) return;
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;
       capabilities = null;
@@ -8369,6 +8510,8 @@ class AppController extends ChangeNotifier {
       }
       notifyListeners();
     } catch (_) {
+      // 当前恢复真正失败仍需报告；只丢弃已失效代次的迟到异常。
+      if (!isCurrentRecovery()) return;
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;
       capabilities = null;
@@ -8421,6 +8564,72 @@ class AppController extends ChangeNotifier {
     HealthRecord record, {
     required int expectedGeneration,
   }) async {
+    if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+    if (isFutureWearableHistory(record, receivedAt: DateTime.now())) {
+      // 不改 id、原始时间或 payload，也不发出“新测量”通知。
+      try {
+        await _healthStore.upsertImmediate(record);
+      } catch (error) {
+        debugPrint(
+          'History quarantine persistence failed: ${error.runtimeType}',
+        );
+      }
+      return;
+    }
+    // 异常历史的时间后来可能已到，但同一条原始历史仍不可成为“新测量”。
+    // 只对原始历史包查隔离状态；原生明确标记的 appMeasurement 保持即时反馈，
+    // 不让加密数据库的后台队列阻塞真正手测的结果或质量提示。
+    final store = _healthStore;
+    final deviceId = connectedDevice?.id;
+    final measurementStartedAt = _measurementStartedAt;
+    final measurementContext = (
+      _activeMeasurementMetric,
+      _activeMeasurementSessionGeneration,
+      measurementStartedAt,
+    );
+    if (record.origin == MeasurementOrigin.watchHistory &&
+        store is HealthRecordQuarantineStore) {
+      try {
+        if (await (store as HealthRecordQuarantineStore)
+            .isHealthRecordQuarantined(record.id)) {
+          return;
+        }
+      } catch (error) {
+        debugPrint(
+          'Health record quarantine lookup failed: ${error.runtimeType}',
+        );
+        return;
+      }
+      if (!_isCurrentSessionGeneration(expectedGeneration) ||
+          deviceId == null ||
+          connectedDevice?.id != deviceId) {
+        return;
+      }
+    }
+    if (record.origin == MeasurementOrigin.appMeasurement &&
+        measurementContext !=
+            (
+              _activeMeasurementMetric,
+              _activeMeasurementSessionGeneration,
+              _measurementStartedAt,
+            )) {
+      // 查询期间用户可能停止并重新测量；旧回包不能结束/报错新一轮测量。
+      return;
+    }
+    if (!isWellnessOnly &&
+        _activeMeasurementMetric == record.metric &&
+        _measurementStartedAt == measurementStartedAt &&
+        record.origin == MeasurementOrigin.watchHistory &&
+        // CoolWear v2 明确区分被动历史与手测，不使用旧 SDK 兼容提升。
+        !(record.sourceVendor == 'coolwear' && record.rawVersion >= 2)) {
+      record = record.copyWith(origin: MeasurementOrigin.appMeasurement);
+    }
+    record = sanitizeWearableTransportRecord(record);
+    if (!hasSaneWearableTransportValues(record)) {
+      _finishRejectedWearableMeasurement(record);
+      if (!_disposed) notifyListeners();
+      return;
+    }
     // A late/unsolicited manual result cannot become a passive history record.
     if (isWellnessOnly &&
         record.origin == MeasurementOrigin.appMeasurement &&
@@ -8514,17 +8723,21 @@ class AppController extends ChangeNotifier {
     if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     final storedLatest = await _healthStore.latestForEachMetric();
     if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+    final receivedAt = DateTime.now();
+    bool validForDisplay(HealthRecord record) =>
+        hasSaneWearableTransportValues(record) &&
+        !isFutureWearableHistory(record, receivedAt: receivedAt);
     final invalidIds = [...storedRecent, ...storedLatest]
         .where((record) => isMetricAvailableInRelease(record.metric))
-        .where((record) => !hasSaneWearableTransportValues(record))
+        .where((record) => !validForDisplay(record))
         .map((record) => record.id)
         .toSet();
     if (invalidIds.isNotEmpty) {
       await _healthStore.markInvalid(invalidIds);
       if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     }
-    final recent = storedRecent.where(hasSaneWearableTransportValues);
-    final latest = storedLatest.where(hasSaneWearableTransportValues);
+    final recent = storedRecent.where(validForDisplay);
+    final latest = storedLatest.where(validForDisplay);
     final byId = <String, HealthRecord>{
       for (final record in recent) record.id: record,
       for (final record in latest) record.id: record,

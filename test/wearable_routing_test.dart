@@ -534,6 +534,200 @@ void main() {
     expect(veepoo.measurementCalls, isEmpty);
   });
 
+  test(
+    'switching transport retires non-exact recovery before new connect',
+    () async {
+      final fixture = await _connectedCoolWearFixture();
+      final bridge = fixture.bridge;
+      addTearDown(bridge.dispose);
+      final oldBinding = fixture.preference.binding;
+      final events = <WearableEvent>[];
+      final subscription = bridge.events.listen(events.add);
+      addTearDown(subscription.cancel);
+      fixture.coolwear.disconnectResult = Completer<void>();
+
+      final switching = bridge.connect('qring:QR-A', profile: _profile);
+      await pumpEventQueue();
+      expect(fixture.coolwear.disconnectCalls, 1);
+      expect(fixture.qring.connectCalls, isEmpty);
+      expect(fixture.preference.binding, same(oldBinding));
+
+      // 普通断开不解绑；旧 SDK 在退出期间的断开/恢复不能夺回路由归属。
+      fixture.coolwear.emit(
+        const WearableEvent(type: 'disconnected', payload: {}),
+      );
+      fixture.coolwear.emit(
+        const WearableEvent(
+          type: 'reconnected',
+          payload: {'id': 'CW-1', 'name': 'R7 Ultra'},
+        ),
+      );
+      await pumpEventQueue();
+      expect(events, isEmpty);
+      fixture.coolwear.disconnectResult!.complete();
+      await switching;
+      expect(fixture.qring.connectCalls, ['QR-A']);
+      expect(fixture.preference.binding?.nativeIdentifier, 'QR-A');
+      expect(fixture.preference.binding?.ownerKey, 'owner-a');
+
+      fixture.coolwear.emit(
+        const WearableEvent(type: 'disconnected', payload: {}),
+      );
+      fixture.qring.emit(
+        const WearableEvent(
+          type: 'deviceDetails',
+          payload: {'id': 'QR-A', 'name': 'R8', 'battery': 80},
+        ),
+      );
+      await pumpEventQueue();
+      expect(events.map((event) => event.type), ['deviceDetails']);
+      expect(events.single.payload['id'], 'qring:QR-A');
+      await bridge.startMeasurement(HealthMetric.heartRate);
+      expect(fixture.qring.measurementCalls, [HealthMetric.heartRate]);
+    },
+  );
+
+  test('same transport reconnect does not retire its non-exact SDK', () async {
+    final fixture = await _connectedCoolWearFixture();
+    addTearDown(fixture.bridge.dispose);
+    final events = <WearableEvent>[];
+    final subscription = fixture.bridge.events.listen(events.add);
+    addTearDown(subscription.cancel);
+    fixture.coolwear.emit(
+      const WearableEvent(
+        type: 'reconnected',
+        payload: {'id': 'CW-1', 'name': 'R7 Ultra'},
+      ),
+    );
+    await pumpEventQueue();
+    expect(events.single.type, 'reconnected');
+    expect(events.single.payload['id'], 'coolwear:CW-1');
+    expect(fixture.coolwear.disconnectCalls, 0);
+    await fixture.bridge.connect('coolwear:CW-1', profile: _profile);
+    expect(fixture.coolwear.disconnectCalls, 0);
+    expect(fixture.coolwear.connectCalls, ['CW-1', 'CW-1']);
+    expect(fixture.preference.binding?.nativeIdentifier, 'CW-1');
+  });
+
+  test(
+    'timed-out transport shutdown keeps its native barrier until completion',
+    () async {
+      final fixture = await _connectedCoolWearFixture(
+        recoveryOperationTimeout: const Duration(milliseconds: 10),
+      );
+      addTearDown(fixture.bridge.dispose);
+      final oldBinding = fixture.preference.binding;
+      fixture.coolwear.disconnectResult = Completer<void>();
+      await expectLater(
+        fixture.bridge.connect('qring:QR-A', profile: _profile),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(fixture.qring.connectCalls, isEmpty);
+      expect(fixture.preference.binding, same(oldBinding));
+      await expectLater(
+        fixture.bridge.connect('coolwear:CW-1', profile: _profile),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            'RECOVERY_PENDING',
+          ),
+        ),
+      );
+      expect(fixture.coolwear.disconnectCalls, 1);
+      expect(fixture.coolwear.connectCalls, ['CW-1']);
+      fixture.coolwear.disconnectResult!.complete();
+      await pumpEventQueue();
+      await fixture.bridge.connect('coolwear:CW-1', profile: _profile);
+      expect(fixture.coolwear.connectCalls, ['CW-1', 'CW-1']);
+      expect(fixture.preference.binding?.nativeIdentifier, 'CW-1');
+    },
+  );
+
+  test('explicit disconnect cancels a waiting transport switch', () async {
+    final fixture = await _connectedCoolWearFixture();
+    addTearDown(fixture.bridge.dispose);
+    final oldBinding = fixture.preference.binding;
+    fixture.coolwear.disconnectResult = Completer<void>();
+    final switching = fixture.bridge.connect('qring:QR-A', profile: _profile);
+    await pumpEventQueue();
+    expect(fixture.coolwear.disconnectCalls, 1);
+    await fixture.bridge.disconnect();
+    fixture.coolwear.disconnectResult!.complete();
+    await switching;
+    expect(fixture.qring.connectCalls, isEmpty);
+    expect(fixture.preference.binding, same(oldBinding));
+  });
+
+  for (final nextOwner in <String?>['owner-b', null]) {
+    test(
+      'transport switch cannot continue after owner becomes $nextOwner',
+      () async {
+        final fixture = await _connectedCoolWearFixture();
+        addTearDown(fixture.bridge.dispose);
+        final oldBinding = fixture.preference.binding;
+        fixture.coolwear.disconnectResult = Completer<void>();
+        final switching = fixture.bridge.connect(
+          'qring:QR-A',
+          profile: _profile,
+        );
+        await pumpEventQueue();
+        expect(fixture.coolwear.disconnectCalls, 1);
+        await fixture.bridge.setRecoveryContext(
+          ownerKey: nextOwner,
+          profile: _profile,
+        );
+        fixture.coolwear.disconnectResult!.complete();
+        await switching;
+        expect(fixture.qring.connectCalls, isEmpty);
+        expect(fixture.preference.binding, same(oldBinding));
+      },
+    );
+  }
+
+  test(
+    'late transport shutdown cannot replace a newer selected target',
+    () async {
+      final fixture = await _connectedCoolWearFixture();
+      addTearDown(fixture.bridge.dispose);
+      fixture.coolwear.disconnectResult = Completer<void>();
+      final switching = fixture.bridge.connect('qring:QR-A', profile: _profile);
+      await pumpEventQueue();
+      expect(fixture.coolwear.disconnectCalls, 1);
+      await fixture.bridge.connect('qring:QR-B', profile: _profile);
+      expect(fixture.preference.binding?.nativeIdentifier, 'QR-B');
+      fixture.coolwear.disconnectResult!.complete();
+      await switching;
+      expect(fixture.qring.connectCalls, ['QR-B']);
+      expect(fixture.preference.binding?.nativeIdentifier, 'QR-B');
+      await fixture.bridge.startMeasurement(HealthMetric.heartRate);
+      expect(fixture.qring.measurementCalls, [HealthMetric.heartRate]);
+    },
+  );
+
+  test(
+    'failed old transport shutdown preserves binding and blocks switching',
+    () async {
+      final fixture = await _connectedCoolWearFixture();
+      addTearDown(fixture.bridge.dispose);
+      final oldBinding = fixture.preference.binding;
+      fixture.coolwear.disconnectError = PlatformException(code: 'STOP_FAILED');
+      await expectLater(
+        fixture.bridge.connect('qring:QR-A', profile: _profile),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            'STOP_FAILED',
+          ),
+        ),
+      );
+      expect(fixture.coolwear.disconnectCalls, 1);
+      expect(fixture.qring.connectCalls, isEmpty);
+      expect(fixture.preference.binding, same(oldBinding));
+    },
+  );
+
   test('hides a Yucheng-prefix ring returned only by Veepoo', () async {
     final bridge = RoutedWearableBridge(
       veepoo: _FakeWearableBridge(
@@ -1190,6 +1384,45 @@ const _profile = WearableUserProfile(
   age: 30,
   targetSteps: 10000,
 );
+
+Future<
+  ({
+    RoutedWearableBridge bridge,
+    _FakeWearableBridge coolwear,
+    _FakeWearableBridge qring,
+    _MemoryBoundPreference preference,
+  })
+>
+_connectedCoolWearFixture({
+  Duration recoveryOperationTimeout = const Duration(seconds: 30),
+}) async {
+  final coolwear = _FakeWearableBridge(
+    scanned: const [DeviceInfo(id: 'CW-1', name: 'R7 Ultra')],
+  );
+  final qring = _FakeWearableBridge(
+    scanned: const [
+      DeviceInfo(id: 'QR-A', name: 'R8'),
+      DeviceInfo(id: 'QR-B', name: 'R21'),
+    ],
+  );
+  final preference = _MemoryBoundPreference(null);
+  final bridge = RoutedWearableBridge(
+    coolwear: coolwear,
+    qring: qring,
+    preferenceStore: preference,
+    requireOwnerScopedBinding: true,
+    recoveryOperationTimeout: recoveryOperationTimeout,
+  );
+  await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+  await bridge.scanDevices();
+  await bridge.connect('coolwear:CW-1', profile: _profile);
+  return (
+    bridge: bridge,
+    coolwear: coolwear,
+    qring: qring,
+    preference: preference,
+  );
+}
 
 class _FakeWearableBridge extends Fake
     implements

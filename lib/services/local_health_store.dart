@@ -9,6 +9,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/models.dart';
+import '../domain/health_record_validation.dart';
 import '../domain/sleep_timeline.dart';
 import 'global_storage_scope.dart';
 import 'notification_inbox.dart';
@@ -112,6 +113,11 @@ abstract interface class HealthStoreRecoveryStatus {
   bool get recoveryPending;
 }
 
+/// 即时 SDK 回调也必须尊重已持久隔离的记录，不能在时钟追上后先展示/提醒。
+abstract interface class HealthRecordQuarantineStore {
+  Future<bool> isHealthRecordQuarantined(String id);
+}
+
 /// Uses the same environment database and captured owner as the health records.
 abstract interface class DeviceHistorySyncStore {
   Future<String?> readDeviceHistorySync(String deviceId);
@@ -213,6 +219,7 @@ class EncryptedHealthStore
     implements
         HealthStore,
         HealthStoreRecoveryStatus,
+        HealthRecordQuarantineStore,
         DeviceHistorySyncStore,
         HealthReminderDeletionStore,
         ReadingReminderSettingsStore,
@@ -251,6 +258,7 @@ class EncryptedHealthStore
   Database? _database;
   Future<void> _databaseQueue = Future<void>.value();
   String _ownerId = 'anonymous';
+  final Set<String> _futureHistoryCheckedOwners = {};
 
   @override
   String? recoveryNotice;
@@ -687,6 +695,8 @@ class EncryptedHealthStore
           whereArgs: [legacyOwner],
         );
       });
+      // 迁入的旧行尚未经过当前账号的时间校验，下一次读取前重新隔离。
+      _futureHistoryCheckedOwners.remove(healthOwner);
     });
   }
 
@@ -876,6 +886,7 @@ class EncryptedHealthStore
   Future<void> upsert(List<HealthRecord> records) async {
     if (records.isEmpty) return;
     final ownerId = _ownerId;
+    final receivedAt = _clock();
     // Device sync may return thousands of samples. Sending every insert over
     // the platform channel while a transaction is open keeps SQLCipher locked
     // long enough to block a freshly completed manual measurement. A batch is
@@ -889,7 +900,9 @@ class EncryptedHealthStore
           'metric': record.metric.wireName,
           'measured_at': record.measuredAt.toUtc().toIso8601String(),
           'payload': record.encode(),
-          'synced': 0,
+          'synced': isFutureWearableHistory(record, receivedAt: receivedAt)
+              ? -1
+              : 0,
         }, conflictAlgorithm: ConflictAlgorithm.ignore);
       }
       await batch.commit(noResult: true);
@@ -904,6 +917,7 @@ class EncryptedHealthStore
     // can safely use sqflite's native command queue without joining the slower
     // background store queue.
     final ownerId = _ownerId;
+    final receivedAt = _clock();
     await _enqueue(
       () => _db.insert('health_records', {
         'owner_id': ownerId,
@@ -911,7 +925,9 @@ class EncryptedHealthStore
         'metric': record.metric.wireName,
         'measured_at': record.measuredAt.toUtc().toIso8601String(),
         'payload': record.encode(),
-        'synced': 0,
+        'synced': isFutureWearableHistory(record, receivedAt: receivedAt)
+            ? -1
+            : 0,
       }, conflictAlgorithm: ConflictAlgorithm.ignore),
     );
   }
@@ -920,6 +936,7 @@ class EncryptedHealthStore
   Future<void> upsertSynced(List<HealthRecord> records) async {
     if (records.isEmpty) return;
     final ownerId = _ownerId;
+    final receivedAt = _clock();
     await _enqueue(() async {
       await _db.transaction((transaction) async {
         final ids = records.map((record) => record.id).toSet().toList();
@@ -937,6 +954,8 @@ class EncryptedHealthStore
         for (final record in records) {
           final payload = record.encode();
           final saved = existing[record.id];
+          final syncState =
+              isFutureWearableHistory(record, receivedAt: receivedAt) ? -1 : 1;
           if (saved == null) {
             batch.insert('health_records', {
               'owner_id': ownerId,
@@ -944,13 +963,14 @@ class EncryptedHealthStore
               'metric': record.metric.wireName,
               'measured_at': record.measuredAt.toUtc().toIso8601String(),
               'payload': payload,
-              'synced': 1,
+              'synced': syncState,
             }, conflictAlgorithm: ConflictAlgorithm.ignore);
           } else if (saved == payload) {
             batch.update(
               'health_records',
-              {'synced': 1},
-              where: 'owner_id = ? AND id = ?',
+              {'synced': syncState},
+              // 云端回声不能复活已隔离记录，即使实际时间后来已经追上。
+              where: 'owner_id = ? AND id = ? AND synced != -1',
               whereArgs: [ownerId, record.id],
             );
           }
@@ -963,16 +983,17 @@ class EncryptedHealthStore
   @override
   Future<List<HealthRecord>> recent({int limit = 200}) async {
     final ownerId = _ownerId;
-    final rows = await _enqueue(
-      () => _db.query(
+    final rows = await _enqueue(() async {
+      await _quarantineFutureHistoryForOwner(ownerId);
+      return _db.query(
         'health_records',
         columns: ['payload'],
         where: 'owner_id = ? AND synced != -1',
         whereArgs: [ownerId],
         orderBy: 'measured_at DESC',
         limit: limit,
-      ),
-    );
+      );
+    });
     return _decodeRows(rows);
   }
 
@@ -983,8 +1004,9 @@ class EncryptedHealthStore
     required DateTime end,
   }) async {
     final ownerId = _ownerId;
-    final rows = await _enqueue(
-      () => _db.query(
+    final rows = await _enqueue(() async {
+      await _quarantineFutureHistoryForOwner(ownerId);
+      return _db.query(
         'health_records',
         columns: ['payload'],
         where:
@@ -996,16 +1018,17 @@ class EncryptedHealthStore
           end.toUtc().toIso8601String(),
         ],
         orderBy: 'measured_at ASC',
-      ),
-    );
+      );
+    });
     return _decodeRows(rows);
   }
 
   @override
   Future<List<HealthRecord>> latestForEachMetric() async {
     final ownerId = _ownerId;
-    final rows = await _enqueue(
-      () => _db.rawQuery(
+    final rows = await _enqueue(() async {
+      await _quarantineFutureHistoryForOwner(ownerId);
+      return _db.rawQuery(
         '''
         SELECT payload
         FROM health_records AS current
@@ -1019,8 +1042,8 @@ class EncryptedHealthStore
         ORDER BY measured_at DESC
       ''',
         [ownerId],
-      ),
-    );
+      );
+    });
     return _decodeRows(rows);
   }
 
@@ -1205,16 +1228,17 @@ class EncryptedHealthStore
   @override
   Future<List<HealthRecord>> pending({int limit = 200}) async {
     final ownerId = _ownerId;
-    final rows = await _enqueue(
-      () => _db.query(
+    final rows = await _enqueue(() async {
+      await _quarantineFutureHistoryForOwner(ownerId);
+      return _db.query(
         'health_records',
         columns: ['payload'],
         where: 'owner_id = ? AND synced = 0',
         whereArgs: [ownerId],
         orderBy: 'measured_at ASC',
         limit: limit,
-      ),
-    );
+      );
+    });
     return _decodeRows(rows);
   }
 
@@ -1227,16 +1251,17 @@ class EncryptedHealthStore
     final ownerId = _ownerId;
     final wires = metrics.map((metric) => metric.wireName).toList();
     final placeholders = List.filled(wires.length, '?').join(',');
-    final rows = await _enqueue(
-      () => _db.query(
+    final rows = await _enqueue(() async {
+      await _quarantineFutureHistoryForOwner(ownerId);
+      return _db.query(
         'health_records',
         columns: ['payload'],
         where: 'owner_id = ? AND synced = 0 AND metric IN ($placeholders)',
         whereArgs: [ownerId, ...wires],
         orderBy: 'measured_at ASC',
         limit: limit,
-      ),
-    );
+      );
+    });
     return _decodeRows(rows);
   }
 
@@ -1250,6 +1275,46 @@ class EncryptedHealthStore
       )
       .toList();
 
+  // 仅在本次打开数据库后首次读取该 owner 时检查旧数据，利用账号/时间索引
+  // 读取未来候选，避免每个页面扫描全库。新数据由所有入库入口即时隔离。
+  // 保留 id、时间和原 payload；-1 是持久状态，不随当前时钟推进自动释放。
+  Future<void> _quarantineFutureHistoryForOwner(String ownerId) async {
+    if (_futureHistoryCheckedOwners.contains(ownerId)) return;
+    final receivedAt = _clock().toUtc();
+    final rows = await _db.query(
+      'health_records',
+      columns: ['id', 'payload'],
+      where: 'owner_id = ? AND synced != -1 AND measured_at > ?',
+      whereArgs: [
+        ownerId,
+        receivedAt.add(wearableHistoryClockTolerance).toIso8601String(),
+      ],
+    );
+    final batch = _db.batch();
+    for (final row in rows) {
+      final HealthRecord record;
+      try {
+        final decoded = jsonDecode('${row['payload']}');
+        if (decoded is! Map) continue;
+        record = HealthRecord.fromJson(
+          decoded.map((key, value) => MapEntry('$key', value)),
+        );
+      } catch (_) {
+        // 此迁移只处理已确认来源的未来历史；不因别的坏行阻断整账号读取。
+        continue;
+      }
+      if (!isFutureWearableHistory(record, receivedAt: receivedAt)) continue;
+      batch.update(
+        'health_records',
+        {'synced': -1},
+        where: 'owner_id = ? AND id = ?',
+        whereArgs: [ownerId, row['id']],
+      );
+    }
+    await batch.commit(noResult: true);
+    _futureHistoryCheckedOwners.add(ownerId);
+  }
+
   @override
   Future<void> markSynced(Iterable<String> ids) async {
     final ownerId = _ownerId;
@@ -1260,7 +1325,7 @@ class EncryptedHealthStore
       () => _db.update(
         'health_records',
         {'synced': 1},
-        where: 'owner_id = ? AND id IN ($placeholders)',
+        where: 'owner_id = ? AND id IN ($placeholders) AND synced != -1',
         whereArgs: [ownerId, ...values],
       ),
     );
@@ -1280,6 +1345,22 @@ class EncryptedHealthStore
         whereArgs: [ownerId, ...values],
       ),
     );
+  }
+
+  @override
+  Future<bool> isHealthRecordQuarantined(String id) async {
+    final ownerId = _ownerId;
+    return _enqueue(() async {
+      await _quarantineFutureHistoryForOwner(ownerId);
+      final rows = await _db.query(
+        'health_records',
+        columns: ['id'],
+        where: 'owner_id = ? AND id = ? AND synced = -1',
+        whereArgs: [ownerId, id],
+        limit: 1,
+      );
+      return rows.isNotEmpty;
+    });
   }
 
   @override
@@ -1368,6 +1449,7 @@ class EncryptedHealthStore
     await _enqueue(() async {
       await _database?.close();
       _database = null;
+      _futureHistoryCheckedOwners.clear();
     });
   }
 
@@ -1536,11 +1618,16 @@ void _validateSleepDateRange(String start, String end) {
 class MemoryHealthStore
     implements
         HealthStore,
+        HealthRecordQuarantineStore,
         SleepDetailStore,
         MetricFilteredPendingHealthStore,
         HealthReminderDeletionStore,
         ReadingReminderSettingsStore,
         DeviceHistorySyncStore {
+  MemoryHealthStore({DateTime Function()? clock})
+    : _clock = clock ?? DateTime.now;
+
+  final DateTime Function() _clock;
   String _ownerId = 'anonymous';
   final Map<String, Map<String, HealthRecord>> _recordsByOwner = {};
   final Map<String, Set<String>> _syncedByOwner = {};
@@ -1660,20 +1747,32 @@ class MemoryHealthStore
 
   @override
   Future<void> upsert(List<HealthRecord> records) async {
+    final receivedAt = _clock();
     for (final record in records) {
-      _records.putIfAbsent(record.id, () => record);
+      if (_records.containsKey(record.id)) continue;
+      _records[record.id] = record;
+      if (isFutureWearableHistory(record, receivedAt: receivedAt)) {
+        _invalid.add(record.id);
+      }
     }
   }
 
   @override
   Future<void> upsertSynced(List<HealthRecord> records) async {
+    final receivedAt = _clock();
     for (final record in records) {
       final existing = _records[record.id];
       if (existing == null) {
         _records[record.id] = record;
         _synced.add(record.id);
+        if (isFutureWearableHistory(record, receivedAt: receivedAt)) {
+          _invalid.add(record.id);
+        }
       } else if (existing.encode() == record.encode()) {
         _synced.add(record.id);
+        if (isFutureWearableHistory(record, receivedAt: receivedAt)) {
+          _invalid.add(record.id);
+        }
       }
     }
   }
@@ -1831,6 +1930,10 @@ class MemoryHealthStore
 
   @override
   Future<void> markInvalid(Iterable<String> ids) async => _invalid.addAll(ids);
+
+  @override
+  Future<bool> isHealthRecordQuarantined(String id) async =>
+      _invalid.contains(id);
 
   @override
   Future<String?> readCursor() async => _cursorByOwner[_ownerId];

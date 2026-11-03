@@ -1556,7 +1556,11 @@ void main() {
         rawVersion: 2,
       ),
     );
-    final store = MemoryHealthStore();
+    // 完整日有 96 个真实 15 分钟槽；将接收时钟固定到当日结束，避免 UTC
+    // 早间运行时把尚未到达的槽当成合法历史，生产日期校验仍保持不变。
+    final store = MemoryHealthStore(
+      clock: () => start.add(const Duration(days: 1)),
+    );
     await store.initialize();
     await store.upsert(records);
     final controller = AppController(
@@ -3980,6 +3984,7 @@ void main() {
             firmwareVersion: '00.20.01',
             quality: 'good',
             source: MeasurementSource.wearable,
+            origin: MeasurementOrigin.appMeasurement,
             rawVersion: 1,
           ).toJson(),
         ),
@@ -4023,7 +4028,7 @@ void main() {
       }
       addTearDown(controller.dispose);
       final now = DateTime.now();
-      final measuredAt = DateTime(now.year, now.month, now.day, 12);
+      final measuredAt = DateTime(now.year, now.month, now.day - 1, 12);
       await store.upsert([
         for (var index = 0; index < 4; index++)
           HealthRecord(
@@ -4047,6 +4052,7 @@ void main() {
           home: HealthTrendPage(
             controller: controller,
             metric: HealthMetric.ecg,
+            initialDate: measuredAt,
             onMeasure: (_) async {
               controller.healthRecords = [
                 HealthRecord(
@@ -4432,6 +4438,7 @@ void main() {
             firmwareVersion: '00.20.01',
             quality: 'device_reported',
             source: MeasurementSource.wearable,
+            origin: MeasurementOrigin.appMeasurement,
             rawVersion: 2,
             samples: List<num>.generate(1000, (index) => index.isEven ? -8 : 8),
           ).toJson(),
@@ -4568,6 +4575,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final now = DateTime.now();
+    final day = DateTime(now.year, now.month, now.day - 1);
     final store = MemoryHealthStore();
     await store.initialize();
     await store.upsert([
@@ -4577,7 +4585,7 @@ void main() {
           metric: HealthMetric.heartRate,
           values: {'value': 68 + index * 4},
           unit: 'bpm',
-          measuredAt: DateTime(now.year, now.month, now.day, 8 + index * 3),
+          measuredAt: day.add(Duration(hours: 8 + index * 3)),
           timezone: '+08:00',
           deviceId: 'ET488',
           firmwareVersion: 'test',
@@ -4600,6 +4608,7 @@ void main() {
         home: HealthTrendPage(
           controller: controller,
           metric: HealthMetric.heartRate,
+          initialDate: day,
         ),
       ),
     );

@@ -269,6 +269,28 @@ abstract interface class SayRingBindingHistoryApi {
   });
 }
 
+enum RingBindingDecisionStatus { preserve, clearIssued, notFound }
+
+/// 持久请求回执只恢复原决定，不把重试时新增的绑定当成“原来无需清空”。
+abstract interface class SayRingBindingDecisionApi {
+  Future<RingBindingDecisionStatus> readRingBindingDecision({
+    required Session expectedSession,
+    required String deviceId,
+    required String operationId,
+  });
+  Future<bool> reportFirstRingBindingDecision({
+    required Session expectedSession,
+    required String deviceId,
+    required String operationId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+  });
+}
+
 abstract interface class SaydianProfileUploadApi {
   Future<String> uploadProfileImage(String filePath);
 }

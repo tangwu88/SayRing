@@ -251,6 +251,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         SaydianDeviceBindingApi,
         SayRingFirstBindingApi,
         SayRingBindingHistoryApi,
+        SayRingBindingDecisionApi,
         SayRingAppDisplayApi,
         SayRingReadOnlyHealthApi,
         SayRingModuleVisibilityApi,
@@ -379,6 +380,95 @@ class GlobalSaydianApiClient extends SaydianApiClient
     return body['priorBindingConfirmed'] == true;
   }
 
+  @override
+  Future<RingBindingDecisionStatus> readRingBindingDecision({
+    required Session expectedSession,
+    required String deviceId,
+    required String operationId,
+  }) async {
+    final id = deviceId.trim();
+    if (id.isEmpty || !isValidRingInitializationOperationId(operationId)) {
+      throw const ApiException('Invalid ring decision request.');
+    }
+    final owner = _stableSessionAccountKey(expectedSession);
+    final body = _data(
+      _decode(
+        await _withAuthorizationRetry((requestSession) {
+          if (_stableSessionAccountKey(requestSession) != owner) {
+            throw const ApiException(
+              'Account changed.',
+              code: 'STALE_DEVICE_SESSION',
+            );
+          }
+          return _performRequest(
+            () => _client.get(
+              _uri(
+                '/api/saydian-app/v2/devices/binding-initialization-status',
+                {
+                  'product': 'say-ring',
+                  'deviceId': id,
+                  'operationId': operationId,
+                },
+              ),
+              headers: _authorizationHeaders(requestSession),
+            ),
+          );
+        }),
+      ),
+    );
+    if (body['product'] != 'say-ring' ||
+        body['deviceId'] != id ||
+        body['operationId'] != operationId) {
+      throw const ApiException('Binding decision is unconfirmed.');
+    }
+    return switch (body['decision']) {
+      'preserve' => RingBindingDecisionStatus.preserve,
+      'clear-issued' => RingBindingDecisionStatus.clearIssued,
+      'not-found' => RingBindingDecisionStatus.notFound,
+      _ => throw const ApiException('Binding decision is unconfirmed.'),
+    };
+  }
+
+  @override
+  Future<bool> reportFirstRingBindingDecision({
+    required Session expectedSession,
+    required String deviceId,
+    required String operationId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+  }) async {
+    if (!isValidRingInitializationOperationId(operationId)) {
+      throw const ApiException('Invalid ring decision request.');
+    }
+    final body = _data(
+      await _reportRingConnection(
+        expectedSession: expectedSession,
+        deviceId: deviceId,
+        vendor: vendor,
+        model: model,
+        displayName: displayName,
+        firmware: firmware,
+        macAddress: macAddress,
+        capabilities: capabilities,
+        initializeFirstBinding: true,
+        initializationOperationId: operationId,
+      ),
+    );
+    final decision = body['firstBindingInitialization'];
+    if (decision is! Map ||
+        decision['product'] != 'say-ring' ||
+        decision['deviceId'] != deviceId.trim() ||
+        decision['operationId'] != operationId ||
+        decision['shouldClear'] is! bool) {
+      throw const ApiException('Binding decision is unconfirmed.');
+    }
+    return decision['shouldClear'] == true;
+  }
+
   Future<Map<String, Object?>> _reportRingConnection({
     required Session expectedSession,
     required String deviceId,
@@ -389,6 +479,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     String? macAddress,
     List<String> capabilities = const [],
     bool initializeFirstBinding = false,
+    String? initializationOperationId,
   }) async {
     final normalizedId = deviceId.trim();
     final normalizedVendor = vendor.trim();
@@ -427,7 +518,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
         }
         return _performRequest(
           () => _client.post(
-            _uri('/api/saydian-app/v2/devices'),
+            _uri(
+              initializationOperationId == null
+                  ? '/api/saydian-app/v2/devices'
+                  : '/api/saydian-app/v2/devices/first-binding-decision',
+            ),
             headers: {
               ..._authorizationHeaders(requestSession),
               'Content-Type': 'application/json',
@@ -445,6 +540,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
               if (initializeFirstBinding) ...{
                 'product': 'say-ring',
                 'initializeFirstBinding': true,
+                'initializationOperationId': ?initializationOperationId,
               },
             }),
           ),
