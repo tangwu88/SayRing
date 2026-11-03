@@ -1,0 +1,67 @@
+# 2026-11-03 连接与同步反复问题独立复查
+
+## 结论与范围
+
+用户要求切换模型后重新检查此前反复出现的连接、同步入口及恢复问题。本轮以真实生产调用链和独立反例复查，未把已有绿测或上一轮结论作为正确性的前提。**确认 4 项仍未关闭的问题；本次为审查记录，不是新修复版或实物验收通过。**
+
+- 客户端运行源码：`25f1b8dbf7ef90445a948e30e71f0f1ba43d2d0b`，审查前 HEAD 为文档提交 `003eae87c9b16b79f8f2d5c1dd3431d1fee79702`。
+- 服务端候选：`a60394996d5894c53045d838eb2d5461a6c7803a`。
+- 两个工作区开始时均干净；客户端再次 fetch 后当前分支与远端一致。没有更改生产源码、清空保护、用户数据或签名配置。
+- 原因与症状必须区分：以下可重现缺陷不能直接解释过去每一次真实无线断线；“按钮存在”也不能替代同步完成。
+
+## OPEN / P1 / RECHECK-01：旧恢复失败清空新的正常连接
+
+**触发与实际：** 自动恢复中的持久状态清理尚未返回，用户连接另一枚戒指并已达到 ready；旧清理操作迟到失败，`_restoreReconnectedDevice` 的两个 catch 无条件清掉当前连接、能力和会话，再设 error。
+
+**证据：** `lib/services/app_controller.dart:8294–8381`。正常 await 后校验登录/同步代次，但 8361、8371 的异常分支没有相同保护。独立测试先断言新 R8 已 ready，再让旧 Future 失败；预期保留新目标，实际 `connectedDevice=null`，测试退出 1。
+
+**修复及关闭要求：** 旧任务的成功和失败都要核对销毁、账号转换、登录/同步代次及目标归属；过期任务不得通知错误或清理新连接。必须分别覆盖 PlatformException、普通异常、换设备、换账号、退出及当前任务真正失败。不能通过吞掉全部异常隐藏真实故障。
+
+## OPEN / P1 / RECHECK-02：绑定未入库，重新登录后仍不能同步
+
+**触发与实际：** 首次确认前已持久 `decisionUnknown`，但请求在前置身份刷新或认证守卫处失败，没有创建目标绑定。重新登录后只读证明可以成功响应，却因目标不存在固定 false；连续 3 次手动重试仍 pending，历史读取为 0。
+
+**证据：** 客户端 `app_controller.dart:2889–2905、3301–3363、3173–3250、3383–3405`；服务端 `apps/api/src/devices/devices.service.ts:50–77`。客户端把未发送、被拒绝及丢回执压成同一 null，后续仅 GET；GET 又要求目标已存在。
+
+**修复及关闭要求：** 对新发生且能证明尚未提交的认证失败，保留可重试状态；对可能已经提交的请求保留未知保护。回归需覆盖“旧会员已有其他绑定，但本次目标没有写入 → 恢复登录 → 正常完成确认与同步”，不能由测试先造一个当前目标行。
+
+## OPEN / P1 / RECHECK-03：只有同一枚旧戒指时，丢响应没有恢复出口
+
+**触发与实际：** 老会员换手机或本机没有记忆绑定，再连原 R8；服务器返回不清空，但响应丢失。只读证明排除目标自身，只有该旧 R8 时仍为 false，重复同步无法解除未知状态。
+
+**证据：** 服务端 `devices.service.ts:67–77` 明确要求“另一条”更早绑定。实际 DevicesService 的纯内存调用验证：同一旧目标独有 false；其他旧绑定但缺当前目标 false；当前目标加另一明确更早绑定 true。后者是现有 1230 修复覆盖的窄场景。
+
+**修复及关闭要求：** 保存可追溯的账号、目标、操作标识对应的绑定决定回执。仅以明确的不清空决定恢复；不能把当前存在绑定、普通重报返回 false 或当前 401 当作旧请求未执行的证据。现有表/事件没有保存原 shouldClear 决定，本地也仅保存枚举，无法安全倒推旧未知状态。已发清空或原生回执不明仍不能重放。
+
+## OPEN / P1 / RECHECK-04：振动款首次初始化 ACK 后界面无可用出口
+
+**触发与实际：** CoolWear 通道收到真正清空 ACK 并保存 `historyClearAcknowledged`，需要下一次成功握手才能同步；当前只给 QRing 初始化事件安排自动重连。1230 又隐藏所有已连接状态的重连按钮，留下可见但禁用的同步按钮。
+
+**证据：** `app_controller.dart:2929–2954、3276–3294、7963–7967` 与 `lib/ui/pages/devices.dart:199`。真实 AppController + DevicePage 的独立夹具输出：仍连接、pending=true、clear 调用 1、自动重连 0、历史读取 0、同步禁用、无重连。旧测试直接调用 disconnect/connect，绕开了用户实际可达操作，因而未发现死路。
+
+**修复及关闭要求：** ACK 且持久保存成功后，异步安排一次现有保绑定重连；不可在连接内部 await 等待同一连接槽的 helper。只安排一次，不重复清空，迟到 ACK、切号、换目标、未确认指令都不触发。验收从首次确认到新握手和可同步完整走通，不能靠测试额外断连补步骤。
+
+## 仍有效的旧修复
+
+- Android QRing 普通重连保留配对，并等待原生连接关闭：`QRingBridge.java:902`。
+- iOS 精确缓存 UUID 优先及厂商服务补查仍在：`QRingWearableBridge.m:350`、`QCCentralManager.m:706`。
+- CoolWear 相同历史包不再延长健康读取等待；运动读取仍独立收尾：`CoolWearRingBridge.java:493`。
+- 相机入口能力与开启遥控回执分离，iOS 扩展能力补读仍在。没有发现这些旧修复被简单撤回的证据。
+
+## 测试、失败和证据
+
+独立夹具位于忽略目录 `build/r8-independent-reaudit-20261103/`，只含合成账号/设备和模拟 SDK/API，不操作手机或生产账号。没有把“复现缺陷”的断言混入主套件计作功能通过。
+
+1. `flutter test build/r8-independent-reaudit-20261103/repeated_connection_defects_test.dart --reporter expanded`：最终 3 项断言通过，含真实 DevicePage。含义为复现 RECHECK-02/03 的客户端 false 分支及 RECHECK-04；不是修复通过。首轮 fake-async 等待停住后取消；第二轮缺 connectivity 插件测试替身；补齐后第三轮成功。三轮日志均保留。
+2. `flutter test --no-pub --reporter expanded build/r8-independent-reaudit-20261103/late_recovery_failure_test.dart --plain-name 'audit late recovery vault failure must retain replacement link'`：退出 1，预期新 R8，实际 null；前置 ready 断言通过，确认 RECHECK-01。
+3. 服务端 `artifacts/ring-binding-recovery-20261103/independent-reaudit/reproduce.cjs` 直接调用已构建 DevicesService，3 组合成行查询断言通过；无数据库、网络或写入，不能冒充生产或真实数据库验收。
+4. 既有 Node 专项 38 项通过：`qring_android_disconnect.test.mjs`、`qring_android_connection_state.test.mjs`、`qring_android_radio_lifecycle.test.mjs`、`test_coolwear_android_sync.mjs`、`ring_scan_lifecycle.test.mjs`、`qring_recovery_state.test.mjs`、`qring_photo_session.test.mjs`。首条命令因 PATH 无 node 退出 127，改用本机已有 Node 24.22.1 绝对路径成功，未改工具链。
+5. 本轮只更新审查文档，不更改应用源码；不重复构建、全量测试或宣称再次完成实机验收。上一轮 1851 项双时区及构建结果保持其原范围，不能关闭本次独立反例。
+
+## 现场与发布状态（北京时间 2026-11-03 13:38）
+
+- 用户已确认本次华为安装并重新登录。安装日志 Success；拉取手机实际 APK，其 SHA-256 与正式 1230 一致：`32f62002cae1c297e693aee744d8aa1e463d00cf7384846994669322f89ea780`。系统版本 1.0.10（1230）、无 DEBUGGABLE 标记，UID 和首次安装时间不变；此前待确认安装状态已被本次证据更新。
+- 正常正式版“我的”页面仍显示 175 条记录及设备在线。该页面的名称和记录数不能替代新的身份有效性证明；本轮没有取得正式版新的认证响应或历史同步结果。镜像能读画面但点击未可靠触发，已请用户在设备页点一次同步核对。保留全部既有备份，不卸载、不解绑、不重置。
+- 配套服务器 verify 已通过，自动中国区部署仍进行中，readiness 仍为 `1b0fca6c724132b0fccd409c9f0fa990cc512670`。部署中与恢复逻辑覆盖不足是两种不同问题，不能混为一谈。
+- 客户端 CI quality 和两组 Harmony 已通过；Android/iOS 仍运行中。本轮不把它们提前记为通过。
+- 审查发现均保持 OPEN。当前正式 1230 和下载页 1229 不会因本记录提交而包含新修复；没有重新发布下载包或执行苹果送审。
