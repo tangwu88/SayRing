@@ -83,6 +83,10 @@ Session _session(String account, {String? memberId}) => Session(
 
 class _UiController extends Fake implements AppController {
   @override
+  bool get isDeviceSyncPreparing => false;
+  @override
+  bool get canRetryDeviceSyncPreparation => false;
+  @override
   bool get isRingInitializationPending => false;
   @override
   bool get isRingInitializationConnecting => false;

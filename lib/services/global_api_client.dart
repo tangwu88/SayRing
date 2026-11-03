@@ -250,6 +250,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         SaydianAvatarProfileApi,
         SaydianDeviceBindingApi,
         SayRingFirstBindingApi,
+        SayRingBindingHistoryApi,
         SayRingAppDisplayApi,
         SayRingReadOnlyHealthApi,
         SayRingModuleVisibilityApi,
@@ -339,6 +340,43 @@ class GlobalSaydianApiClient extends SaydianApiClient
       throw const ApiException('首次绑定记录暂时无法确认，未清空戒指数据');
     }
     return decision['shouldClear'] == true;
+  }
+
+  @override
+  Future<bool> hasPriorBindingBeforeDevice({
+    required Session expectedSession,
+    required String deviceId,
+  }) async {
+    final id = deviceId.trim();
+    if (id.isEmpty) throw const ApiException('No ring selected.');
+    final owner = _stableSessionAccountKey(expectedSession);
+    final body = _data(
+      _decode(
+        await _withAuthorizationRetry((requestSession) {
+          if (_stableSessionAccountKey(requestSession) != owner) {
+            throw const ApiException(
+              'Account changed.',
+              code: 'STALE_DEVICE_SESSION',
+            );
+          }
+          return _performRequest(
+            () => _client.get(
+              _uri('/api/saydian-app/v2/devices/binding-history-status', {
+                'product': 'say-ring',
+                'deviceId': id,
+              }),
+              headers: _authorizationHeaders(requestSession),
+            ),
+          );
+        }),
+      ),
+    );
+    if (body['product'] != 'say-ring' ||
+        body['deviceId'] != id ||
+        body['priorBindingConfirmed'] is! bool) {
+      throw const ApiException('Binding history is unconfirmed.');
+    }
+    return body['priorBindingConfirmed'] == true;
   }
 
   Future<Map<String, Object?>> _reportRingConnection({

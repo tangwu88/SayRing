@@ -260,6 +260,15 @@ abstract interface class SayRingFirstBindingApi {
   });
 }
 
+/// 只读证明：当前会员在精确目标戒指之前已有其他终生绑定。
+/// 这不是清空授权，不能用一次重复绑定返回的 false 代替。
+abstract interface class SayRingBindingHistoryApi {
+  Future<bool> hasPriorBindingBeforeDevice({
+    required Session expectedSession,
+    required String deviceId,
+  });
+}
+
 abstract interface class SaydianProfileUploadApi {
   Future<String> uploadProfileImage(String filePath);
 }

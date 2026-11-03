@@ -114,15 +114,18 @@ class DevicePage extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (!controller.isRingInitializationPending &&
-                        controller.capabilities?.supportsHistorySync !=
-                            false) ...[
+                    if (controller.capabilities?.supportsHistorySync !=
+                        false) ...[
                       SizedBox(
                         child: FilledButton(
                           key: const Key('device-sync-data'),
                           onPressed:
                               connected == null ||
                                   controller.isDeviceSyncing ||
+                                  controller.isDeviceSyncPreparing ||
+                                  (controller.isRingInitializationPending &&
+                                      !controller
+                                          .canRetryDeviceSyncPreparation) ||
                                   controller
                                           .capabilities
                                           ?.supportsHistorySync ==
@@ -155,7 +158,21 @@ class DevicePage extends StatelessWidget {
                                 ? SaydianColors.techBlueSoft
                                 : SaydianColors.line,
                           ),
-                          child: controller.isDeviceSyncing
+                          child: controller.isDeviceSyncPreparing
+                              ? const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox.square(
+                                      dimension: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text('正在准备同步'),
+                                  ],
+                                )
+                              : controller.isDeviceSyncing
                               ? DeviceWaitStatus(
                                   connected: connected != null,
                                   receivedRecords:
@@ -176,8 +193,10 @@ class DevicePage extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                     ],
-                    if (connected == null ||
-                        controller.isRingInitializationPending)
+                    // 初始化待确认只限制历史读取，不代表蓝牙已断开。
+                    // 已连接时不提供重连按钮，避免误导用户主动断开正常链路；
+                    // 真正断开后仍保留重连，已确认初始化的恢复继续由控制器处理。
+                    if (connected == null)
                       OutlinedButton(
                         key: const Key('device-reconnect'),
                         onPressed:

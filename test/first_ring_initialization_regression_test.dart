@@ -46,6 +46,242 @@ void main() {
   }
 
   test(
+    'prior binding proof releases an old unknown decision without a reset',
+    () async {
+      final vault = MemorySessionVault();
+      final api = _RecoverableBindingApi()
+        ..failDecision = true
+        ..priorConfirmed = true;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..rememberConnections = true;
+      final controller = await setup(api, ring, vault: vault);
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(controller.isRingInitializationPending, isFalse);
+      expect(vault.ringInitializationStages, isEmpty);
+      expect(api.firstBindingCalls, 1);
+      expect(api.historyChecks, 1);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 1);
+    },
+  );
+
+  test(
+    'unconfirmed prior history leaves the decision and history closed',
+    () async {
+      final vault = MemorySessionVault();
+      final api = _RecoverableBindingApi()..failDecision = true;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..rememberConnections = true;
+      final controller = await setup(api, ring, vault: vault);
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(controller.isRingInitializationPending, isTrue);
+      expect(vault.ringInitializationStages.values, [
+        RingInitializationStage.decisionUnknown,
+      ]);
+      expect(api.historyChecks, 1);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 0);
+    },
+  );
+
+  test(
+    'manual sync retries only the read-only proof then imports without reconnect',
+    () async {
+      final api = _RecoverableBindingApi()..failDecision = true;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..rememberConnections = true;
+      final controller = await setup(api, ring);
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(controller.canRetryDeviceSyncPreparation, isTrue);
+      api.priorConfirmed = true;
+      expect(await controller.syncDeviceData(), isTrue);
+      expect(controller.isRingInitializationPending, isFalse);
+      expect(api.historyChecks, 2);
+      expect(api.firstBindingCalls, 1);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 1);
+      expect(controller.connectedDevice?.id, _device.id);
+    },
+  );
+
+  test(
+    'manual proof retry reports expired login without disconnecting or importing',
+    () async {
+      final api = _RecoverableBindingApi()..failDecision = true;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..rememberConnections = true;
+      final controller = await setup(api, ring);
+      await controller.connectDevice(_device);
+      await _settle();
+      api.historyError = const ApiException('Expired', statusCode: 401);
+      expect(await controller.syncDeviceData(), isFalse);
+      expect(controller.errorMessage, '登录已过期，请重新登录后同步');
+      expect(controller.isRingInitializationPending, isTrue);
+      expect(controller.connectedDevice?.id, _device.id);
+      expect(api.firstBindingCalls, 1);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 0);
+      expect(controller.isDeviceSyncPreparing, isFalse);
+    },
+  );
+
+  test(
+    'another sync request cannot duplicate an in-flight history proof',
+    () async {
+      final delayed = Completer<bool>();
+      final api = _RecoverableBindingApi()
+        ..failDecision = true
+        ..historyResult = delayed;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..rememberConnections = true;
+      final controller = await setup(api, ring);
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(controller.isDeviceSyncPreparing, isTrue);
+      expect(await controller.syncDeviceData(), isFalse);
+      expect(api.historyChecks, 1);
+      delayed.complete(false);
+      await _settle();
+      expect(controller.isDeviceSyncPreparing, isFalse);
+      expect(controller.isRingInitializationPending, isTrue);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 0);
+    },
+  );
+
+  test(
+    'old proof after an account change cannot release a persisted guard',
+    () async {
+      final vault = MemorySessionVault();
+      final delayed = Completer<bool>();
+      final api = _RecoverableBindingApi()
+        ..failDecision = true
+        ..historyResult = delayed;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..rememberConnections = true;
+      final controller = await setup(api, ring, vault: vault);
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(api.historyChecks, 1);
+      controller.session = Session(
+        accessToken: 'other',
+        refreshToken: 'other',
+        expiresAt: DateTime.utc(2099),
+        memberId: 'other-owner',
+        displayName: 'Other',
+        accountKey: 'global:member:other-owner',
+      );
+      delayed.complete(true);
+      await _settle();
+      expect(vault.ringInitializationStages.values, [
+        RingInitializationStage.decisionUnknown,
+      ]);
+      expect(ring.historyReads, 0);
+      expect(ring.resetCalls, 0);
+    },
+  );
+
+  test(
+    'prior history proof never replaces an ambiguous reset receipt',
+    () async {
+      final vault = MemorySessionVault();
+      final api = _RecoverableBindingApi()..priorConfirmed = true;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..saved = _device;
+      final controller = await setup(api, ring, vault: vault);
+      await vault.writeRingInitializationStage(
+        controller.homeHealthCardOwner,
+        _device.id,
+        RingInitializationStage.resetAttempted,
+      );
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(controller.isRingInitializationPending, isTrue);
+      expect(api.historyChecks, 0);
+      expect(vault.ringInitializationStages.values, [
+        RingInitializationStage.resetAttempted,
+      ]);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 0);
+    },
+  );
+
+  test(
+    'native pending initialization cannot be bypassed by prior history',
+    () async {
+      final api = _RecoverableBindingApi()
+        ..failDecision = true
+        ..priorConfirmed = true;
+      final ring = _PendingInitializationRing();
+      final controller = await setup(api, ring);
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(controller.isRingInitializationPending, isTrue);
+      expect(api.historyChecks, 0);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 0);
+    },
+  );
+
+  test(
+    'automatic recovery can reconcile a previously unknown old-member decision',
+    () async {
+      final api = _RecoverableBindingApi()..failDecision = true;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..rememberConnections = true;
+      final controller = await setup(api, ring);
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(controller.isRingInitializationPending, isTrue);
+      api.priorConfirmed = true;
+      ring.source.add(
+        WearableEvent(type: 'disconnected', payload: {'deviceId': _device.id}),
+      );
+      await _settle();
+      ring.source.add(
+        WearableEvent(type: 'reconnected', payload: _device.toJson()),
+      );
+      await _settle();
+      expect(controller.isRingInitializationPending, isFalse);
+      expect(api.firstBindingCalls, 1);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 1);
+    },
+  );
+
+  test(
+    'unreadable local guard cannot be reconciled as a known lost decision',
+    () async {
+      final api = _RecoverableBindingApi()..priorConfirmed = true;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..saved = _device;
+      final controller = await setup(
+        api,
+        ring,
+        vault: _UnavailableGuardVault(),
+      );
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(controller.isRingInitializationPending, isTrue);
+      expect(api.historyChecks, 0);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 0);
+    },
+  );
+
+  test(
     'lost first decision survives reconnect without replay or import',
     () async {
       final api = _ExistingBindingApi()..failDecision = true;
@@ -534,6 +770,24 @@ class _ExistingBindingApi extends Fake
     beforeDecision?.call();
     if (failDecision) throw TimeoutException('Decision response lost');
     return decision?.future ?? shouldClear;
+  }
+}
+
+class _RecoverableBindingApi extends _ExistingBindingApi
+    implements SayRingBindingHistoryApi {
+  bool priorConfirmed = false;
+  int historyChecks = 0;
+  Completer<bool>? historyResult;
+  Object? historyError;
+
+  @override
+  Future<bool> hasPriorBindingBeforeDevice({
+    required Session expectedSession,
+    required String deviceId,
+  }) async {
+    historyChecks++;
+    if (historyError case final error?) throw error;
+    return historyResult?.future ?? priorConfirmed;
   }
 }
 

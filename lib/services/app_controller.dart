@@ -1236,6 +1236,8 @@ class AppController extends ChangeNotifier {
   Future<void>? _wearableConnectInFlight;
   bool _firstRingBindingPending = false;
   bool _firstRingBindingDecisionPending = false;
+  bool _ringInitializationGuardReadable = false;
+  Object? _bindingHistoryRecoveryToken;
   bool _nativeRingInitializationPending = false;
   RingInitializationStage? _ringInitializationStage;
   String? _ringInitializationOwner;
@@ -1243,6 +1245,15 @@ class AppController extends ChangeNotifier {
   int? _firstRingInitializationReconnectGeneration;
   bool _firstRingInitializationReconnectScheduled = false;
   bool get isRingInitializationPending => _firstRingBindingPending;
+  bool get isDeviceSyncPreparing => _bindingHistoryRecoveryToken != null;
+  bool get canRetryDeviceSyncPreparation =>
+      _ringInitializationGuardReadable &&
+      _ringInitializationStage == RingInitializationStage.decisionUnknown &&
+      !_nativeRingInitializationPending &&
+      _api is SayRingBindingHistoryApi &&
+      session != null &&
+      !isLocalMode &&
+      !isPreviewMode;
   bool get isRingInitializationConnecting =>
       _firstRingBindingPending &&
       (_wearableConnectInFlight != null ||
@@ -2945,6 +2956,7 @@ class AppController extends ChangeNotifier {
           firstRingBindingStatus = '首次绑定记录暂未确认，未清空戒指数据';
           syncStatus = '请重新连接后再同步';
           notifyListeners();
+          unawaited(_recoverExistingMemberBindingDecision());
           return;
         }
         await _clearRingInitializationGuard();
@@ -2963,6 +2975,7 @@ class AppController extends ChangeNotifier {
       if (_firstRingBindingPending) {
         syncStatus = '设备已连接';
         notifyListeners();
+        unawaited(_recoverExistingMemberBindingDecision());
         return;
       }
       if (device.sdkSource == WearableSdkSource.coolwear) {
@@ -3061,8 +3074,13 @@ class AppController extends ChangeNotifier {
     final owner = _healthOwnerFor(session);
     final generation = _sessionGeneration;
     final syncGeneration = _deviceSyncGeneration;
+    if (_ringInitializationOwner != owner ||
+        _ringInitializationDeviceId != device.id) {
+      _bindingHistoryRecoveryToken = null;
+    }
     _ringInitializationOwner = owner;
     _ringInitializationDeviceId = device.id;
+    _ringInitializationGuardReadable = false;
     // Block unsolicited history while the durable owner/target guard loads.
     _firstRingBindingPending = true;
     _firstRingBindingDecisionPending = true;
@@ -3090,6 +3108,7 @@ class AppController extends ChangeNotifier {
         if (!isCurrent()) return;
       }
       _ringInitializationStage = stage;
+      _ringInitializationGuardReadable = true;
       _firstRingBindingDecisionPending =
           stage == RingInitializationStage.decisionRequired ||
           stage == RingInitializationStage.decisionUnknown;
@@ -3148,6 +3167,84 @@ class AppController extends ChangeNotifier {
         owner == _ringInitializationOwner &&
         deviceId == _ringInitializationDeviceId) {
       _ringInitializationStage = null;
+    }
+  }
+
+  Future<void> _recoverExistingMemberBindingDecision({
+    bool startInitialSync = true,
+    bool reportFailure = false,
+  }) async {
+    final api = _api;
+    final ownerSession = session;
+    final deviceId = connectedDevice?.id;
+    if (_bindingHistoryRecoveryToken != null ||
+        api is! SayRingBindingHistoryApi ||
+        ownerSession == null ||
+        deviceId == null ||
+        isLocalMode ||
+        isPreviewMode ||
+        !_ringInitializationGuardReadable ||
+        _ringInitializationStage != RingInitializationStage.decisionUnknown ||
+        _nativeRingInitializationPending) {
+      return;
+    }
+    final generation = _sessionGeneration;
+    final syncGeneration = _deviceSyncGeneration;
+    final owner = _healthOwnerFor(ownerSession);
+    bool isCurrent() =>
+        !_disposed &&
+        !_accountTransitioning &&
+        generation == _sessionGeneration &&
+        syncGeneration == _deviceSyncGeneration &&
+        owner == _healthOwnerFor(session) &&
+        deviceId == connectedDevice?.id &&
+        owner == _ringInitializationOwner &&
+        deviceId == _ringInitializationDeviceId &&
+        deviceState == DeviceConnectionState.ready;
+    if (!isCurrent()) return;
+    final token = Object();
+    _bindingHistoryRecoveryToken = token;
+    notifyListeners();
+    try {
+      // 首次请求丢回执后，不能重放一次性清空授权。
+      // 只有服务端证明这枚戒指入库前已有其他绑定，才解除“决定未知”；
+      // 已发送清空、原生回执不明和新会员仍保持原有保护。
+      final confirmed = await (api as SayRingBindingHistoryApi)
+          .hasPriorBindingBeforeDevice(
+            expectedSession: ownerSession,
+            deviceId: deviceId,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (!confirmed ||
+          !isCurrent() ||
+          !_ringInitializationGuardReadable ||
+          _ringInitializationStage != RingInitializationStage.decisionUnknown ||
+          _nativeRingInitializationPending) {
+        return;
+      }
+      await _clearRingInitializationGuard();
+      if (!isCurrent()) return;
+      _firstRingBindingDecisionPending = false;
+      _firstRingBindingPending = _nativeRingInitializationPending;
+      firstRingBindingStatus = '已有绑定记录，保留戒指数据';
+      notifyListeners();
+      if (startInitialSync && !_firstRingBindingPending && !isDeviceSyncing) {
+        unawaited(_syncInitialDeviceData(deviceId));
+      }
+    } catch (error) {
+      // 离线、旧服务端、不匹配或超时只保留待确认，不断开正常蓝牙。
+      if (reportFailure && isCurrent()) {
+        errorMessage =
+            error is ApiException &&
+                (error.statusCode == 401 || error.code?.toString() == '401')
+            ? '登录已过期，请重新登录后同步'
+            : '暂时无法准备同步，请稍后再试';
+      }
+    } finally {
+      if (identical(_bindingHistoryRecoveryToken, token)) {
+        _bindingHistoryRecoveryToken = null;
+        if (!_disposed) notifyListeners();
+      }
     }
   }
 
@@ -3283,7 +3380,28 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    if (isDeviceSyncing) return false;
+    if (isDeviceSyncing || isDeviceSyncPreparing) return false;
+    if (_firstRingBindingPending) {
+      // 同步入口不再因历史确认失败而消失。手动重试仅查询已有绑定证明，
+      // 不重放绑定/清空命令，也不通过重连打断正常链路。
+      final generation = _sessionGeneration;
+      errorMessage = null;
+      await _recoverExistingMemberBindingDecision(
+        startInitialSync: false,
+        reportFailure: true,
+      );
+      if (_disposed ||
+          generation != _sessionGeneration ||
+          connectedDevice?.id != device.id) {
+        return false;
+      }
+      if (_firstRingBindingPending) {
+        syncStatus = errorMessage ?? '设备正在准备，请稍后再试';
+        errorMessage = syncStatus;
+        notifyListeners();
+        return false;
+      }
+    }
     final succeeded = await _syncDeviceData(device.id, initial: false);
     if (succeeded) {
       unawaited(synchronizeCloud());
@@ -3299,7 +3417,7 @@ class AppController extends ChangeNotifier {
       return false;
     }
     if (_firstRingBindingPending) {
-      syncStatus = '请重新连接后再同步';
+      syncStatus = '设备正在准备，请稍后再试';
       errorMessage = syncStatus;
       notifyListeners();
       return false;
@@ -3620,6 +3738,8 @@ class AppController extends ChangeNotifier {
     _ringInitializationStage = null;
     _ringInitializationOwner = null;
     _ringInitializationDeviceId = null;
+    _ringInitializationGuardReadable = false;
+    _bindingHistoryRecoveryToken = null;
     firstRingBindingStatus = null;
     _readOnlyHealthSyncQueued = false;
     _deviceSyncGeneration++;
@@ -8223,6 +8343,7 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.ready);
       if (_firstRingBindingPending) {
         notifyListeners();
+        unawaited(_recoverExistingMemberBindingDecision());
         return;
       }
       unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));

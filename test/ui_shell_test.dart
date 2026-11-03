@@ -324,11 +324,66 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('connected pending initialization does not advertise reconnect', (
+    tester,
+  ) async {
+    final controller = _PendingInitializationController()
+      ..connectedDevice = const DeviceInfo(id: 'qring:synthetic', name: 'R8')
+      ..capabilities = const DeviceCapabilities(
+        metrics: {},
+        supportsHistorySync: false,
+      );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DevicePage(controller: controller)),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const Key('device-sync-data')), findsNothing);
+    expect(find.byKey(const Key('device-reconnect')), findsNothing);
+    expect(find.text('重新连接'), findsNothing);
+    expect(controller.isRingInitializationPending, isTrue);
+    expect(controller.reconnects, 0);
+    expect(find.textContaining('首次绑定'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
-    'pending first initialization retains a usable reconnect action',
+    'connected ring retains a usable sync retry while history proof is pending',
     (tester) async {
       final controller = _PendingInitializationController()
         ..connectedDevice = const DeviceInfo(id: 'qring:synthetic', name: 'R8')
+        ..capabilities = const DeviceCapabilities(
+          metrics: {},
+          supportsHistorySync: true,
+        );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(body: DevicePage(controller: controller)),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('device-sync-data')), findsOneWidget);
+      expect(find.byKey(const Key('device-reconnect')), findsNothing);
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('device-sync-data')),
+      );
+      expect(button.onPressed, isNotNull);
+      await tester.tap(find.byKey(const Key('device-sync-data')));
+      expect(controller.syncRequests, 1);
+      expect(controller.reconnects, 0);
+    },
+  );
+
+  testWidgets(
+    'disconnected pending initialization retains a usable reconnect action',
+    (tester) async {
+      final controller = _PendingInitializationController()
+        ..rememberedDevice = const DeviceInfo(id: 'qring:synthetic', name: 'R8')
         ..capabilities = const DeviceCapabilities(
           metrics: {},
           supportsHistorySync: false,
@@ -5811,8 +5866,17 @@ class _PendingInitializationController extends AppController {
         _NoopWearable(),
       );
   int reconnects = 0;
+  int syncRequests = 0;
   @override
   bool get isRingInitializationPending => true;
+  @override
+  bool get canRetryDeviceSyncPreparation => true;
+  @override
+  Future<bool> syncDeviceData() async {
+    syncRequests++;
+    return false;
+  }
+
   @override
   Future<void> reconnectDevice() async {
     reconnects++;
