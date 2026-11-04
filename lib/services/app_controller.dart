@@ -25,6 +25,7 @@ import '../domain/heart_rate_reminder_engine.dart';
 import 'health_reminder_notifications.dart';
 import 'health_reminder_report.dart';
 import '../domain/wellness_release_policy.dart';
+import '../domain/health_cloud_upload_policy.dart';
 import '../domain/read_only_health_features.dart';
 import '../domain/module_visibility.dart';
 import '../domain/sleep_timeline.dart';
@@ -123,7 +124,9 @@ class AppController extends ChangeNotifier {
        _syncService = HealthSyncService(
          _healthStore,
          _api,
-         policy: WellnessReleasePolicy(enabled: wellnessOnly),
+         policy: wellnessOnly
+             ? const HealthCloudUploadPolicy()
+             : const WellnessReleasePolicy(),
        ) {
     _notificationInboxRepository = StoredNotificationInboxRepository(
       _healthStore,
@@ -157,6 +160,9 @@ class AppController extends ChangeNotifier {
         vault,
         locale: () => GlobalLocaleController.instance.locale.toLanguageTag(),
         healthReleasePolicy: WellnessReleasePolicy(enabled: wellnessOnly),
+        healthUploadPolicyOverride: wellnessOnly
+            ? const HealthCloudUploadPolicy()
+            : null,
         healthReadPolicyOverride: readPolicy,
         moduleVisibilityPlatform: modulePlatform,
       ),

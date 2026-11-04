@@ -264,6 +264,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     Uri? baseUri,
     String Function()? locale,
     this.healthReleasePolicy = const WellnessReleasePolicy(),
+    this.healthUploadPolicyOverride,
     this.healthReadPolicyOverride,
     this.moduleVisibilityScopeIos = false,
     this.moduleVisibilityPlatform,
@@ -283,6 +284,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
       moduleVisibilityPlatform ?? (moduleVisibilityScopeIos ? 'ios' : null);
   @override
   final WellnessReleasePolicy healthReleasePolicy;
+  final WellnessReleasePolicy? healthUploadPolicyOverride;
+  @override
+  WellnessReleasePolicy get healthUploadPolicy =>
+      healthUploadPolicyOverride ?? healthReleasePolicy;
   final WellnessReleasePolicy? healthReadPolicyOverride;
   @override
   WellnessReleasePolicy get healthReadPolicy =>
