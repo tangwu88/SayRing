@@ -2318,6 +2318,43 @@ void main() {
   });
 
   testWidgets(
+    'an externally stopped HRV dialog ends waiting and does not own a newer round',
+    (tester) async {
+      final ring = _TrackingMeasurementWearable();
+      final app = _measurementController(ring);
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthHistoryPage(controller: app, metric: HealthMetric.hrv),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('health-measure-hrv')));
+      await tester.pump();
+      await tester.pump();
+      expect(app.activeMeasurementMetric, HealthMetric.hrv);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+      await app.stopMeasurement(HealthMetric.hrv);
+      await tester.pump();
+      expect(app.measurementResult, isNull);
+      expect(app.measurementErrorMessage, isNull);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(find.text('测量已停止，请重新开始'), findsOneWidget);
+
+      expect(await app.startMeasurement(HealthMetric.hrv), isTrue);
+      await tester.pump();
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+      expect(app.activeMeasurementMetric, HealthMetric.hrv);
+      expect(ring.stops, 1);
+      await app.stopMeasurement(HealthMetric.hrv);
+    },
+  );
+
+  testWidgets(
     'late HRV start acknowledgement does not restart its total deadline',
     (tester) async {
       final ring = _HeldMeasurementWearable()..holdStart = true;
@@ -2332,6 +2369,67 @@ void main() {
       expect(app.activeMeasurementMetric, isNull);
       expect(app.measurementErrorMessage, contains('长时间未检测到有效结果'));
       expect(ring.stops, 1);
+    },
+  );
+
+  testWidgets(
+    'HRV dialog shows its wait limit and exits on the total deadline',
+    (tester) async {
+      final ring = _HeldMeasurementWearable()..holdStart = true;
+      final app = _measurementController(ring);
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthHistoryPage(controller: app, metric: HealthMetric.hrv),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('health-measure-hrv')));
+      await tester.pump();
+      expect(find.text('已等待 0:00 · 最长 3:00'), findsOneWidget);
+      expect(find.textContaining('测量进度'), findsNothing);
+      expect(app.measurementProgress, 0);
+      await tester.pump(const Duration(seconds: 181));
+      await tester.pump();
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(find.textContaining('长时间未检测到有效结果'), findsOneWidget);
+      expect(find.textContaining('已等待'), findsNothing);
+      expect(app.activeMeasurementMetric, isNull);
+      expect(app.measurementResult, isNull);
+      expect(ring.stops, 1);
+      ring.pendingStarts.single.complete();
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'HRV wait clock is disposed while native start is still pending',
+    (tester) async {
+      final ring = _HeldMeasurementWearable()..holdStart = true;
+      final app = _measurementController(ring);
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthHistoryPage(controller: app, metric: HealthMetric.hrv),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('health-measure-hrv')));
+      await tester.pump();
+      await app.stopMeasurement(HealthMetric.hrv);
+      await tester.pump();
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+      ring.pendingStarts.single.complete();
+      await tester.pump(const Duration(seconds: 181));
+      expect(app.activeMeasurementMetric, isNull);
+      expect(ring.stops, 1);
+      expect(tester.takeException(), isNull);
     },
   );
 
