@@ -6,8 +6,10 @@ const native = readFileSync(new URL('../android/app/src/main/java/cc/saidian/say
 test('history reception never rewrites SDK installation-wide device configuration', () => {
   const sync = native.slice(native.indexOf('private void startSync('), native.indexOf('private void failPendingSync('));
   assert.match(sync, /helper\.setEnableGsDataTrans\(true\)/);
-  assert.match(sync, /getSendDataManager\(\)\.sendAsynInfo\(\)/);
-  assert.doesNotMatch(sync, /helper\.synDevData\(\)|\.success\(|sendClear|unbindDevice/);
+  assert.match(sync, /proxy\.sendData\(new CEDevData\(3, 9\)\)/);
+  assert.match(sync, /proxy\.sendData\(new CEDevData\(3, 4\)\)/);
+  assert.doesNotMatch(sync, /sendAsynInfo\(|sendGetMixInfo\(/);
+  assert.doesNotMatch(sync, /helper\.synDevData\(\)|sendClear|unbindDevice/);
   assert.doesNotMatch(native, /main\.post\(this::completeSync\)/);
 });
 test('sport reader joins health stream and the deadline follows valid packets', () => {
@@ -15,16 +17,18 @@ test('sport reader joins health stream and the deadline follows valid packets', 
   assert.match(native, /syncWindow == null \|\| records == null/);
   assert.match(native, /syncWindow\.received\(SystemClock\.elapsedRealtime\(\)\)/);
   assert.match(native, /syncDeadline != this \|\| syncWindow == null/);
-  assert.match(native, /"COOLWEAR_SYNC_TIMEOUT"\.equals\(code\) \? partialHealth : null/);
+  assert.match(native, /partial\.put\("records", partialHealth\)/);
+  assert.match(native, /partial\.put\("statuses", statuses\)/);
 });
 
 test('passive records are not discarded outside explicit sync or promoted to manual', () => {
   const collect = native.slice(native.indexOf('private void collectHealth('), native.indexOf('private void collectSport('));
   assert.match(collect, /if \(healthProgressWindow == null\)/);
   assert.match(collect, /record.put\("rawVersion", 2\)/);
-  assert.match(collect, /emit\("healthRecord", record\)/);
-  const post = native.slice(native.indexOf('private void postCurrentPacket('), native.indexOf('private void collectHealth('));
-  assert.match(post, /epoch != connectionEpoch/);
+  assert.match(collect, /emitHealthRecordWithReceipt\(record\)/);
+  assert.match(native, /payload\.put\("_nativeReceipt", connectionRecordReceipts\.get/);
+  const post = native.slice(native.indexOf('private void postHistoryPacket('), native.indexOf('private void collectHealth('));
+  assert.match(post, /recoveryTarget\.isCurrent\(ownerTarget\)/);
   assert.match(post, /!target.equals\(connectedId\)/);
 });
 
@@ -44,11 +48,12 @@ test('重复健康回包、晚到运动与共享同步窗口按真实时钟交�
   const directory = mkdtempSync(join(tmpdir(), 'sayring-sync-'));
   try {
     const methods = native.slice(native.indexOf('    private void collectHealth('), native.indexOf('    private void failConnect('));
-    const fixture = readFileSync(new URL('./fixtures/CoolWearSyncTest.java', import.meta.url), 'utf8');
-    const file = join(directory, 'CoolWearSyncTest.java');
+    const fixture = readFileSync(new URL('./fixtures/CoolWearVerifiedSyncTest.java', import.meta.url), 'utf8');
+    const file = join(directory, 'CoolWearVerifiedSyncTest.java');
     writeFileSync(file, fixture.replace('// PRODUCTION_METHODS', methods));
     const window = fileURLToPath(new URL('../android/app/src/main/java/cc/saidian/saydian_app/CoolWearSyncWindow.java', import.meta.url));
-    execFileSync('javac', ['-d', directory, file, window]);
-    execFileSync('java', ['-ea', '-cp', directory, 'cc.saidian.saydian_app.CoolWearSyncTest']);
+    const batch = fileURLToPath(new URL('../android/app/src/main/java/cc/saidian/saydian_app/CoolWearHistoryBatch.java', import.meta.url));
+    execFileSync('javac', ['-encoding', 'UTF-8', '-d', directory, file, window, batch]);
+    execFileSync('java', ['-ea', '-cp', directory, 'cc.saidian.saydian_app.CoolWearVerifiedSyncTest']);
   } finally { rmSync(directory, {recursive:true, force:true}); }
 });

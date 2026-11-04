@@ -2953,7 +2953,8 @@ class AppController extends ChangeNotifier {
         unawaited(_recoverExistingMemberBindingDecision());
         return;
       }
-      if (device.sdkSource == WearableSdkSource.coolwear) {
+      if (device.sdkSource == WearableSdkSource.coolwear &&
+          defaultTargetPlatform != TargetPlatform.android) {
         // HR01 links observed in the field can briefly reconnect before the
         // vendor's 30-second history command completes. Starting that command
         // automatically leaves no stable window for a manual measurement.
@@ -3687,6 +3688,17 @@ class AppController extends ChangeNotifier {
       await _refreshHealthRecordCache(expectedGeneration: sessionGeneration);
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
+      }
+      if (receivedRecords is WearableSyncResult) {
+        await _ackStoredWearableRecords(
+          [...futureHistory, ...records],
+          receivedRecords.receipts,
+          expectedGeneration: sessionGeneration,
+          expectedDeviceId: deviceId,
+        );
+        if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+          return false;
+        }
       }
       // History imports never create current physiological notifications.
       if (_sleepReadFailedDuringSync) {
@@ -8354,7 +8366,13 @@ class AppController extends ChangeNotifier {
         if (nativeId(record.deviceId) != nativeId(connectedDevice!.id)) return;
         // 时间/已隔离主键的检查在任何手测提升或即时展示之前完成。
         unawaited(
-          _saveWearableRecord(record, expectedGeneration: eventGeneration),
+          _saveWearableRecord(
+            record,
+            expectedGeneration: eventGeneration,
+            nativeReceipt: event.payload['_nativeReceipt'] is String
+                ? event.payload['_nativeReceipt'] as String
+                : null,
+          ),
         );
       } catch (_) {
         errorMessage = '收到无法识别的设备数据';
@@ -8624,7 +8642,8 @@ class AppController extends ChangeNotifier {
       }
       unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
       notifyListeners();
-      if (device.sdkSource == WearableSdkSource.coolwear) {
+      if (device.sdkSource == WearableSdkSource.coolwear &&
+          defaultTargetPlatform != TargetPlatform.android) {
         // Do not issue the vendor's long-running history command during a
         // short recovery window. History remains available from the device
         // page and manual measurements can start as soon as the link returns.
@@ -8700,12 +8719,22 @@ class AppController extends ChangeNotifier {
   Future<void> _saveWearableRecord(
     HealthRecord record, {
     required int expectedGeneration,
+    String? nativeReceipt,
   }) async {
     if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+    final receiptTarget = connectedDevice?.id;
     if (isFutureWearableHistory(record, receivedAt: DateTime.now())) {
       // 不改 id、原始时间或 payload，也不发出“新测量”通知。
       try {
         await _healthStore.upsertImmediate(record);
+        if (receiptTarget != null && nativeReceipt != null) {
+          await _ackStoredWearableRecords(
+            [record],
+            {record.id: nativeReceipt},
+            expectedGeneration: expectedGeneration,
+            expectedDeviceId: receiptTarget,
+          );
+        }
       } catch (error) {
         debugPrint(
           'History quarantine persistence failed: ${error.runtimeType}',
@@ -8841,6 +8870,15 @@ class AppController extends ChangeNotifier {
       if (!_isCurrentSessionGeneration(expectedGeneration)) return;
       await _healthStore.upsertImmediate(record);
       if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+      if (receiptTarget != null && nativeReceipt != null) {
+        await _ackStoredWearableRecords(
+          [record],
+          {record.id: nativeReceipt},
+          expectedGeneration: expectedGeneration,
+          expectedDeviceId: receiptTarget,
+        );
+      }
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return;
       await _refreshHealthRecordCache(expectedGeneration: expectedGeneration);
       if (!_isCurrentSessionGeneration(expectedGeneration)) return;
       notifyListeners();
@@ -8849,6 +8887,34 @@ class AppController extends ChangeNotifier {
       debugPrint('Health record persistence failed: ${error.runtimeType}');
       errorMessage = '测量结果已显示，但暂时无法保存到本机';
       if (_isCurrentSessionGeneration(expectedGeneration)) notifyListeners();
+    }
+  }
+
+  Future<void> _ackStoredWearableRecords(
+    Iterable<HealthRecord> records,
+    Map<String, String> receipts, {
+    required int expectedGeneration,
+    required String expectedDeviceId,
+  }) async {
+    if (receipts.isEmpty ||
+        !_isCurrentSessionGeneration(expectedGeneration) ||
+        connectedDevice?.id != expectedDeviceId ||
+        _wearable is! WearableHealthReceiptBridge) {
+      return;
+    }
+    final saved = {
+      for (final record in records)
+        if (receipts[record.id] case final String token) record.id: token,
+    };
+    if (saved.isEmpty) return;
+    try {
+      await (_wearable as WearableHealthReceiptBridge).acknowledgeHealthRecords(
+        saved,
+      );
+    } catch (error) {
+      // The database is already durable. Keeping the native buffer is safe;
+      // a late transport receipt must not turn a saved result into a failure.
+      debugPrint('Wearable local receipt pending: ${error.runtimeType}');
     }
   }
 

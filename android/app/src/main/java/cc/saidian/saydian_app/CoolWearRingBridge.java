@@ -30,6 +30,8 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 import ce.com.cenewbluesdk.CEBC;
+import ce.com.cenewbluesdk.entity.CEDevData;
+import ce.com.cenewbluesdk.proxy.k6AnalysisDevData.AnalysisReceiveDataHelper.BlueProcessBean.SayRingHistoryObserver;
 import ce.com.cenewbluesdk.entity.K6_sleepData;
 import ce.com.cenewbluesdk.entity.MyBleDevice;
 import ce.com.cenewbluesdk.entity.k6.K6_Action;
@@ -171,6 +173,15 @@ public final class CoolWearRingBridge
             new LinkedHashMap<>();
     private final LinkedHashMap<String, Map<String, Object>> syncedSportRecords =
             new LinkedHashMap<>();
+    private final LinkedHashMap<Integer, CoolWearHistoryBatch> historyBatches = new LinkedHashMap<>();
+    private final LinkedHashMap<Integer, CoolWearHistoryBatch> connectionHistoryBatches = new LinkedHashMap<>();
+    private final LinkedHashMap<String, Map<String, Object>> connectionHealthRecords = new LinkedHashMap<>();
+    private final Map<String, String> connectionRecordReceipts = new HashMap<>();
+    private final String receiptNamespace = java.util.UUID.randomUUID().toString();
+    private long receiptSequence;
+    private final java.util.Set<Integer> requestedHistoryTypes = new java.util.HashSet<>();
+    private volatile long historyRequestGeneration;
+    private boolean historyObserverReady;
     private String activeSportMode;
     private boolean sportHeartStreamStarted;
     private Integer activeSportType;
@@ -215,6 +226,18 @@ public final class CoolWearRingBridge
                     return false;
                 });
         registerRemainingListeners();
+        historyObserverReady = SayRingHistoryObserver.install(helper.getRcvDataManager(), packet -> {
+            final long epoch = connectionEpoch;
+            final long request = historyRequestGeneration;
+            final String target = connectedId;
+            final int type = packet.getDataType();
+            final byte[] bytes = packet.getData() == null ? null : packet.getData().clone();
+            main.post(() -> {
+                if (activeBridge != this || epoch != connectionEpoch || request != historyRequestGeneration
+                        || target == null || !target.equals(connectedId) || !linkConnected || !recoveryTarget.isActive()) return;
+                receiveHistoryBatch(type, bytes);
+            });
+        });
     }
 
     private void configureScanCallback(final long generation) {
@@ -321,7 +344,7 @@ public final class CoolWearRingBridge
                 (K6BleDataResult<ArrayList<K6_Sport>>) values -> {
                     if (values != null) {
                         ArrayList<K6_Sport> snapshot = new ArrayList<>(values);
-                        postCurrentPacket(() -> {
+                        postHistoryPacket(() -> {
                             List<Map<String, Object>> records = CoolWearRecordMapper.activityRecords(
                                     connectedId, firmwareVersion, snapshot);
                             Log.i(TAG, "activity packet received; entries=" + snapshot.size()
@@ -346,7 +369,7 @@ public final class CoolWearRingBridge
                 K6_Action.RCVD.RCVD_K6_SLEEP_DATA,
                 (K6BleDataResult<K6_sleepData>) value -> {
                     if (value != null) {
-                        postCurrentPacket(() -> collectHealth(CoolWearRecordMapper.sleepRecords(
+                        postHistoryPacket(() -> collectHealth(CoolWearRecordMapper.sleepRecords(
                                 connectedId, firmwareVersion, value)));
                     }
                     return false;
@@ -545,7 +568,17 @@ public final class CoolWearRingBridge
     }
 
     private void postHealthPacket(Supplier<List<Map<String, Object>>> records) {
-        postCurrentPacket(() -> collectHealth(records.get()));
+        postHistoryPacket(() -> collectHealth(records.get()));
+    }
+
+    private void postHistoryPacket(Runnable receive) {
+        final long ownerTarget = recoveryTarget.generation();
+        final String target = connectedId;
+        main.post(() -> {
+            if (activeBridge != this || !recoveryTarget.isCurrent(ownerTarget) || !recoveryTarget.isActive()
+                    || target == null || !target.equals(connectedId) || !linkConnected) return;
+            receive.run();
+        });
     }
 
     private void postCurrentPacket(Runnable receive) {
@@ -559,26 +592,32 @@ public final class CoolWearRingBridge
     }
 
     private void collectHealth(List<Map<String, Object>> records) {
-        if (!linkConnected || !deviceInfoReceived || records == null) return;
-        boolean received = false, changed = false;
+        if (!linkConnected || records == null) return;
+        boolean changed = false;
         String model = supportedModel(connectedName);
         for (Map<String, Object> record : records) {
             Object id = record.get("id");
             if (id == null || id.toString().trim().isEmpty()) continue;
             if (model != null) record.put("sourceModel", model);
             record.put("rawVersion", 2);
+            // The SDK may push and ACK history before Flutter finishes the
+            // account/connection handshake. Keep it for the explicit read;
+            // early EventChannel delivery alone is not durable acceptance.
+            Map<String, Object> previous = connectionHealthRecords.put(id.toString(), new HashMap<>(record));
+            if (!record.equals(previous) || !connectionRecordReceipts.containsKey(id.toString())) {
+                connectionRecordReceipts.put(id.toString(), receiptNamespace + ":" + (++receiptSequence));
+            }
             if (healthProgressWindow == null) {
-                emit("healthRecord", record);
+                if (deviceInfoReceived) emitHealthRecordWithReceipt(record);
                 continue;
             }
-            received = true;
             if (!record.equals(syncedHealthRecords.put(id.toString(), record))) {
                 changed = true;
                 // 健康读取已返回时，真正晚到的健康记录仍交给现有的被动入库流程。
-                if (pendingHealthSync == null) emit("healthRecord", record);
+                if (pendingHealthSync == null) emitHealthRecordWithReceipt(record);
             }
         }
-        if (received) noteSyncPacket();
+        if (changed) noteSyncPacket();
         if (changed) {
             healthProgressWindow.received(SystemClock.elapsedRealtime());
             if (pendingHealthSync != null) {
@@ -596,8 +635,7 @@ public final class CoolWearRingBridge
         for (Map<String, Object> record : records) {
             Object id = record.get("id");
             if (id == null || id.toString().trim().isEmpty()) continue;
-            syncedSportRecords.put(id.toString(), record);
-            received = true;
+            if (!record.equals(syncedSportRecords.put(id.toString(), record))) received = true;
         }
         if (received) noteSyncPacket();
     }
@@ -607,68 +645,205 @@ public final class CoolWearRingBridge
         syncWindow.received(SystemClock.elapsedRealtime());
     }
 
+    private void requestHistoryType(int type) {
+        CEBluetoothProxyBase proxy = BleFactory.getInstance().getK6Proxy();
+        if (proxy == null || connectedId == null || !connectedId.equalsIgnoreCase(proxy.getBlueAddress())) {
+            throw new IllegalStateException("history target unavailable");
+        }
+        requestedHistoryTypes.add(type);
+        // Same public read-command envelope as SDK getDevInfo(): cmd=3.
+        // No mixed-settings, time, user, reminder, pair or clear writes.
+        proxy.sendData(new CEDevData(3, type));
+        Log.i(TAG, "history read requested; type=" + type);
+    }
+
+    private static String historyMetric(int type) {
+        switch (type) {
+            case 5: return "steps";
+            case 6: return "sleep";
+            case 8: return "heart_rate";
+            case 40: return "blood_oxygen";
+            case 42: return "stress";
+            case 47: return "body_temperature";
+            case 61: return "hrv";
+            default: return "sport";
+        }
+    }
+
+    private void emitHealthRecordWithReceipt(Map<String, Object> record) {
+        Map<String, Object> payload = new HashMap<>(record);
+        payload.put("_nativeReceipt", connectionRecordReceipts.get(String.valueOf(record.get("id"))));
+        emit("healthRecord", payload);
+    }
+
+    private void acknowledgeHealthRecords(Map<String, String> receipts) {
+        if (receipts == null) return;
+        for (Map.Entry<String, String> entry : receipts.entrySet()) {
+            if (entry.getValue() != null && entry.getValue().equals(connectionRecordReceipts.get(entry.getKey()))) {
+                connectionRecordReceipts.remove(entry.getKey());
+                connectionHealthRecords.remove(entry.getKey());
+            }
+        }
+    }
+
+    private void receiveHistoryBatch(int type, byte[] bytes) {
+        if (type == 5 || type == 6 || type == 8 || type == 40 || type == 42 || type == 47 || type == 61) {
+            connectionHistoryBatches.computeIfAbsent(type, ignored -> new CoolWearHistoryBatch()).accept(bytes);
+        }
+        CoolWearHistoryBatch batch = historyBatches.get(type);
+        if (batch == null || !requestedHistoryTypes.contains(type) || syncWindow == null) return;
+        if (batch.accept(bytes)) noteSyncPacket();
+        Log.i(TAG, "history batch; type=" + type + "; bytes=" + (bytes == null ? -1 : bytes.length)
+                + "; remaining=" + (bytes == null || bytes.length < 3 ? -1 : ((bytes[0] & 255) | ((bytes[1] & 255) << 8)))
+                + "; count=" + (bytes == null || bytes.length < 3 ? -1 : (bytes[2] & 255))
+                + "; state=" + batch.status());
+        for (CoolWearHistoryBatch value : historyBatches.values()) if (!value.complete()) return;
+        // SDK parsers enqueue their public listeners before this observer. Those
+        // listeners enqueue the mapped records once more on our main handler.
+        // Drain that turn before returning ranges as complete to Flutter.
+        final long request = historyRequestGeneration;
+        main.post(() -> {
+            if (request != historyRequestGeneration || syncWindow == null) return;
+            for (CoolWearHistoryBatch value : historyBatches.values()) if (!value.complete()) return;
+            finishHistorySync();
+        });
+    }
+
+    private void finishHistorySync() {
+        if (syncDeadline != null) main.removeCallbacks(syncDeadline);
+        syncDeadline = null;
+        syncWindow = null;
+        healthProgressWindow = null;
+        ++historyRequestGeneration;
+        Map<String, String> statuses = new LinkedHashMap<>();
+        for (Map.Entry<Integer, CoolWearHistoryBatch> entry : historyBatches.entrySet()) {
+            if (entry.getKey() != 10) statuses.put(historyMetric(entry.getKey()), entry.getValue().status());
+        }
+        if (statuses.containsKey("steps")) {
+            statuses.put("distance", statuses.get("steps"));
+            statuses.put("calories", statuses.get("steps"));
+        }
+        Map<String, Object> response = new HashMap<>();
+        response.put("records", new ArrayList<>(syncedHealthRecords.values()));
+        response.put("statuses", statuses);
+        response.put("receipts", new HashMap<>(connectionRecordReceipts));
+        MethodChannel.Result health = pendingHealthSync, sport = pendingSportSync;
+        pendingHealthSync = null;
+        pendingSportSync = null;
+        historyBatches.clear();
+        connectionHistoryBatches.clear();
+        requestedHistoryTypes.clear();
+        if (health != null) health.success(response);
+        if (sport != null) sport.success(new ArrayList<>(syncedSportRecords.values()));
+        Log.i(TAG, "history ranges confirmed; health records=" + syncedHealthRecords.size()
+                + "; sport records=" + syncedSportRecords.size());
+    }
+
     private void startSync(MethodChannel.Result result, boolean sportOnly) {
         if (!linkConnected || !deviceInfoReceived) {
             result.error("NOT_CONNECTED", "请先连接戒指", null);
             return;
         }
-        // Both readers receive the same SDK stream. Join an active health read
-        // rather than starting a second transfer or discarding its sports.
+        if (!historyObserverReady) {
+            result.error("COOLWEAR_HISTORY_UNAVAILABLE", "当前版本无法核验戒指历史数据", null);
+            return;
+        }
         if (sportOnly && syncWindow != null && pendingSportSync == null) {
             pendingSportSync = result;
+            if (!historyBatches.containsKey(10)) {
+                historyBatches.put(10, new CoolWearHistoryBatch());
+                requestHistoryType(10);
+            }
             return;
         }
         if (pendingHealthSync != null || pendingSportSync != null) {
             result.error("SYNC_BUSY", "戒指数据正在同步", null);
             return;
         }
-        // 新的健康请求可接替上一轮的收尾窗口；保留此前收到、尚可被运动读取者领取的记录。
         if (syncDeadline != null) main.removeCallbacks(syncDeadline);
-        if (syncWindow == null) syncedSportRecords.clear();
+        final long request = ++historyRequestGeneration;
+        historyBatches.clear();
+        requestedHistoryTypes.clear();
         syncedHealthRecords.clear();
-        if (sportOnly) pendingSportSync = result;
-        else pendingHealthSync = result;
+        syncedHealthRecords.putAll(connectionHealthRecords);
+        syncedSportRecords.clear();
+        if (sportOnly) {
+            pendingSportSync = result;
+            historyBatches.put(10, new CoolWearHistoryBatch());
+        } else {
+            pendingHealthSync = result;
+            historyBatches.put(5, new CoolWearHistoryBatch());
+            historyBatches.put(6, new CoolWearHistoryBatch());
+            K6_DATA_TYPE_FUNCTION_CONTROL flags = functionControl;
+            if (flags != null) {
+                if (flags.isHasHR24H() || flags.isHr_measure_button()) historyBatches.put(8, new CoolWearHistoryBatch());
+                if (flags.isHasO2()) historyBatches.put(40, new CoolWearHistoryBatch());
+                if (flags.isHasHrvSupported()) {
+                    historyBatches.put(61, new CoolWearHistoryBatch());
+                    historyBatches.put(42, new CoolWearHistoryBatch());
+                }
+                if (flags.isHasTemperature()) historyBatches.put(47, new CoolWearHistoryBatch());
+            }
+        }
         long started = SystemClock.elapsedRealtime();
         syncWindow = new CoolWearSyncWindow(started);
         healthProgressWindow = sportOnly ? null : new CoolWearSyncWindow(started);
+        // Include spontaneous batches initiated by the foreground command,
+        // including packets that arrive before the individual query is sent.
+        requestedHistoryTypes.addAll(historyBatches.keySet());
+        for (Integer type : new ArrayList<>(historyBatches.keySet())) {
+            CoolWearHistoryBatch early = connectionHistoryBatches.get(type);
+            if (early != null) historyBatches.put(type, early);
+        }
+        connectionHistoryBatches.clear();
         syncDeadline = new Runnable() {
             @Override public void run() {
-                if (syncDeadline != this || syncWindow == null) return;
-                long now = SystemClock.elapsedRealtime();
-                long remaining = syncWindow.remaining(now);
+                if (syncDeadline != this || syncWindow == null || request != historyRequestGeneration) return;
+                long remaining = syncWindow.remaining(SystemClock.elapsedRealtime());
                 if (remaining == 0) {
+                    for (Map.Entry<Integer, CoolWearHistoryBatch> entry : historyBatches.entrySet()) {
+                        Log.w(TAG, "history not confirmed; type=" + entry.getKey() + "; state=" + entry.getValue().status());
+                    }
                     failPendingSync("COOLWEAR_SYNC_TIMEOUT", "戒指未返回完整同步确认，已保留收到的记录");
                     return;
                 }
-                // 重复健康包不延长用户等待。运动没有被动入库回调，已加入的读取者或已到的
-                // 运动记录仍保留原传输时限；仅健康先返回时也继续接收，供稍后加入的运动读取领取。
-                if (pendingHealthSync != null && pendingSportSync == null && syncedSportRecords.isEmpty()) {
-                    long healthRemaining = healthProgressWindow.remaining(now);
-                    if (healthRemaining > 0) {
-                        remaining = Math.min(remaining, healthRemaining);
-                    } else {
-                        MethodChannel.Result health = pendingHealthSync;
-                        pendingHealthSync = null;
-                        health.error("COOLWEAR_SYNC_TIMEOUT", "戒指未返回完整同步确认，已保留收到的记录",
-                                new ArrayList<>(syncedHealthRecords.values()));
-                    }
-                }
-                main.postDelayed(this, remaining);
+                main.postDelayed(this, Math.min(remaining, 1000));
             }
         };
-        main.postDelayed(syncDeadline, CoolWearSyncWindow.IDLE_MS);
+        main.postDelayed(syncDeadline, 1000);
         try {
-            // Official guide sections 8/9: enable reception and request device
-            // information. synDevData() also writes time/user/notification
-            // configuration and is not a read-only history request.
             helper.setEnableGsDataTrans(true);
-            helper.getSendDataManager().sendAsynInfo();
+            // LuckRing requestDataSync(): REQUEST DEV_SYNC(9), REQUEST REAL_SPORT(4).
+            // The bundled SDK lacks these named wrappers. Use the same public
+            // transport, without the unrelated settings writes of sendAsynInfo.
+            CEBluetoothProxyBase proxy = BleFactory.getInstance().getK6Proxy();
+            if (proxy == null || connectedId == null || !connectedId.equalsIgnoreCase(proxy.getBlueAddress())) {
+                throw new IllegalStateException("history target unavailable");
+            }
+            proxy.sendData(new CEDevData(3, 9));
+            proxy.sendData(new CEDevData(3, 4));
+            int index = 0;
+            for (Integer type : new ArrayList<>(historyBatches.keySet())) {
+                main.postDelayed(() -> {
+                    if (request != historyRequestGeneration || !linkConnected || syncWindow == null) return;
+                    try { requestHistoryType(type); }
+                    catch (RuntimeException error) { failPendingSync("COOLWEAR_SYNC_FAILED", "戒指数据同步启动失败，请重试"); }
+                }, 450L * index++);
+            }
         } catch (RuntimeException error) {
             failPendingSync("COOLWEAR_SYNC_FAILED", "戒指数据同步启动失败，请重试");
         }
     }
 
     private void failPendingSync(String code, String message) {
+        Map<String, String> statuses = new LinkedHashMap<>();
+        for (Map.Entry<Integer, CoolWearHistoryBatch> entry : historyBatches.entrySet()) {
+            if (entry.getKey() != 10) statuses.put(historyMetric(entry.getKey()), entry.getValue().status());
+        }
+        ++historyRequestGeneration;
+        historyBatches.clear();
+        connectionHistoryBatches.clear();
+        requestedHistoryTypes.clear();
         if (syncDeadline != null) main.removeCallbacks(syncDeadline);
         syncDeadline = null;
         syncWindow = null;
@@ -687,8 +862,15 @@ public final class CoolWearRingBridge
         }
         syncedHealthRecords.clear();
         syncedSportRecords.clear();
-        if (healthResult != null) healthResult.error(code, message,
-                "COOLWEAR_SYNC_TIMEOUT".equals(code) ? partialHealth : null);
+        if (healthResult != null && "COOLWEAR_SYNC_TIMEOUT".equals(code)) {
+            Map<String, Object> partial = new HashMap<>();
+            partial.put("records", partialHealth);
+            partial.put("statuses", statuses);
+            partial.put("receipts", new HashMap<>(connectionRecordReceipts));
+            // Method delivery succeeded; range statuses remain incomplete.
+            // Flutter persists the partial records, then returns false.
+            healthResult.success(partial);
+        } else if (healthResult != null) healthResult.error(code, message, null);
         if (sportResult != null) sportResult.error(code, message,
                 "COOLWEAR_SYNC_TIMEOUT".equals(code) ? partialSport : null);
     }
@@ -744,7 +926,12 @@ public final class CoolWearRingBridge
             return;
         }
         if (status == K6_Action.RCVD.BLUE_CONNECTED) {
-            if (!linkConnected) connectionEpoch++;
+            if (!linkConnected) {
+                connectionEpoch++;
+                connectionHealthRecords.clear();
+                connectionRecordReceipts.clear();
+                connectionHistoryBatches.clear();
+            }
             if (connectedId == null) {
                 pauseSdkRecovery();
                 return;
@@ -786,6 +973,9 @@ public final class CoolWearRingBridge
             activeSportType = null;
             sportHeartStreamStarted = false;
             failPendingSync("CONNECTION_DROPPED", "戒指连接中断，请靠近手机后重试");
+            connectionHealthRecords.clear();
+            connectionRecordReceipts.clear();
+            connectionHistoryBatches.clear();
             if (pendingConnect != null) {
                 failConnect("COOLWEAR_DISCONNECTED", "戒指连接中断，请靠近手机后重试");
             } else if (retiredId != null) {
@@ -1345,7 +1535,8 @@ public final class CoolWearRingBridge
     private void postHrvPacket(ArrayList<k6_RRI_HRV_DATA> values, boolean realtime) {
         final long generation = measurementGeneration;
         final List<k6_RRI_HRV_DATA> snapshot = values == null ? null : new ArrayList<>(values);
-        postCurrentPacket(() -> onHrvValues(snapshot, realtime, generation));
+        if (realtime) postCurrentPacket(() -> onHrvValues(snapshot, true, generation));
+        else postHistoryPacket(() -> onHrvValues(snapshot, false, generation));
     }
 
     private void hrvDiagnostic(String event, String reason) {
@@ -1707,6 +1898,9 @@ public final class CoolWearRingBridge
                     finishScan();
                     resetGesture("CONNECT_CANCELLED", "连接目标已更换");
                     failPendingSync("CONNECT_CANCELLED", "连接目标已更换");
+                    connectionHealthRecords.clear();
+                    connectionRecordReceipts.clear();
+                    connectionHistoryBatches.clear();
                     connectedId = id;
                     connectedName = (String) candidate.get("name");
                     connectedVendorId = (String) candidate.get("vendorId");
@@ -1782,6 +1976,11 @@ public final class CoolWearRingBridge
                         if (functionControl == null) helper.getSendDataManager().sendAsynInfo();
                         result.success(capabilities());
                     }
+                    break;
+                case "acknowledgeHealthRecords":
+                    Map<String, String> receipts = call.argument("receipts");
+                    acknowledgeHealthRecords(receipts);
+                    result.success(null);
                     break;
                 case "syncHealthData":
                     startSync(result, false);

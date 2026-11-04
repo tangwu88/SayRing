@@ -571,7 +571,53 @@ void main() {
     }
   });
 
-  test('CoolWear connection leaves history sync as a manual action', () async {
+  test(
+    'Android CoolWear synchronizes history after connect and every reconnect',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const ring = DeviceInfo(
+        id: 'coolwear:42:57:50:04:AB:4C',
+        name: 'R7 Ultra',
+        model: 'R7 Ultra',
+        rssi: -40,
+      );
+      final wearable = _QaWearable(scannedDevice: ring);
+      final controller = _controller(wearable: wearable);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      final scan = controller.scanDevices();
+      await Future<void>.delayed(Duration.zero);
+      await controller.connectDevice(ring);
+      await scan;
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(wearable.syncCount, 1);
+      expect(controller.isDeviceSyncing, isFalse);
+
+      wearable.emitEvent(
+        const WearableEvent(
+          type: 'disconnected',
+          payload: {'deviceId': 'coolwear:42:57:50:04:AB:4C'},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      wearable.emitEvent(
+        WearableEvent(type: 'reconnected', payload: ring.toJson()),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.deviceState, DeviceConnectionState.ready);
+      expect(wearable.syncCount, 2);
+      expect(controller.isDeviceSyncing, isFalse);
+    },
+  );
+
+  test('iOS CoolWear retains its existing manual history scope', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     const ring = DeviceInfo(
       id: 'coolwear:42:57:50:04:AB:4C',
       name: 'HR01',
@@ -668,7 +714,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await controller.connectDevice(ring);
       await scan;
-      final sync = controller.syncDeviceData();
+      expect(controller.isDeviceSyncing, isTrue);
+      // The automatic read owns this connection; a manual call cannot overlap.
+      expect(await controller.syncDeviceData(), isFalse);
       await Future<void>.delayed(Duration.zero);
       wearable.emitEvent(
         WearableEvent(
@@ -691,7 +739,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(controller.deviceSyncReceivedRecords, 12);
       wearable.reply.complete([]);
-      await sync;
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.isDeviceSyncing, isFalse);
       wearable.emitEvent(
         WearableEvent(
           type: 'syncRecords',
@@ -767,6 +817,81 @@ void main() {
         } else {
           expect(controller.syncStatus, isNotEmpty);
           expect(controller.errorMessage, isNotNull);
+        }
+      },
+    );
+  }
+
+  for (final failure in [false, true]) {
+    test(
+      'native receipt waits for durable history write (failure=$failure)',
+      () async {
+        const ring = DeviceInfo(
+          id: 'coolwear:42:57:50:04:AB:4C',
+          name: 'R7 Ultra',
+        );
+        final record = HealthRecord(
+          id: 'receipt-history',
+          metric: HealthMetric.heartRate,
+          values: const {'value': 72},
+          unit: 'bpm',
+          measuredAt: DateTime.now().toUtc().subtract(
+            const Duration(minutes: 1),
+          ),
+          timezone: '+08:00',
+          deviceId: ring.id,
+          firmwareVersion: 'test',
+          quality: 'device_reported',
+          source: MeasurementSource.wearable,
+          sourceVendor: 'coolwear',
+          rawVersion: 2,
+        );
+        final store = _DelayedReceiptStore();
+        final wearable = _ReceiptWearable(
+          scannedDevice: ring,
+          syncRecords: WearableSyncResult(
+            [record],
+            const {'heart_rate': 'complete'},
+            receipts: const {'receipt-history': 'opaque-revision-1'},
+          ),
+        );
+        final controller = _controller(wearable: wearable, store: store);
+        await controller.initialize();
+        addTearDown(controller.dispose);
+        controller.connectedDevice = ring;
+        for (final state in const [
+          DeviceConnectionState.scanning,
+          DeviceConnectionState.connecting,
+          DeviceConnectionState.authenticating,
+          DeviceConnectionState.syncing,
+          DeviceConnectionState.ready,
+        ]) {
+          controller.deviceMachine.transition(state);
+        }
+        store.hold = true;
+        final sync = controller.syncDeviceData();
+        await store.started.future;
+        expect(wearable.received, isEmpty);
+        expect(await store.recent(), isEmpty);
+        if (failure) {
+          store.saved.completeError(StateError('storage unavailable'));
+        } else {
+          store.saved.complete();
+        }
+        expect(await sync, !failure);
+        expect(
+          wearable.received,
+          failure
+              ? isEmpty
+              : [
+                  const {'receipt-history': 'opaque-revision-1'},
+                ],
+        );
+        final rows = await store.recent();
+        expect(rows.length, failure ? 0 : 1);
+        if (rows.isNotEmpty) {
+          expect(rows.single.toJson().containsKey('_nativeReceipt'), isFalse);
+          expect(rows.single.values.keys, ['value']);
         }
       },
     );
@@ -2437,6 +2562,30 @@ class _CarePreviewFailureApi extends _QaApi {
     int? memberId,
   }) async {
     throw const ApiException('成员健康数据查询失败', statusCode: 500);
+  }
+}
+
+class _DelayedReceiptStore extends MemoryHealthStore {
+  bool hold = false;
+  final started = Completer<void>();
+  final saved = Completer<void>();
+  @override
+  Future<void> upsert(List<HealthRecord> records) async {
+    if (hold) {
+      if (!started.isCompleted) started.complete();
+      await saved.future;
+    }
+    await super.upsert(records);
+  }
+}
+
+class _ReceiptWearable extends _QaWearable
+    implements WearableHealthReceiptBridge {
+  _ReceiptWearable({super.scannedDevice, super.syncRecords});
+  final received = <Map<String, String>>[];
+  @override
+  Future<void> acknowledgeHealthRecords(Map<String, String> receipts) async {
+    received.add(Map.of(receipts));
   }
 }
 

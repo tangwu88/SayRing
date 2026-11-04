@@ -40,7 +40,7 @@ test('原 AAR 的公开地址 setter 只触及 RAM 和独立安装缓存', () =>
   const directory = mkdtempSync(join(tmpdir(), 'sayring-coolwear-cache-contract-'));
   try {
     execFileSync(java('jar'), ['xf', fileURLToPath(new URL('../android/app/libs/coolwear_bluesdk-release.aar', import.meta.url)), 'classes.jar'], {cwd: directory});
-    const decompile = name => execFileSync(java('javap'), ['-classpath', 'classes.jar', '-c', '-p', name], {cwd: directory, encoding: 'utf8'});
+    const decompile = name => execFileSync(java('javap'), ['-classpath', 'classes.jar', '-c', '-p', name], {cwd: directory, encoding: 'utf8'}).replaceAll('\r\n', '\n');
     const proxy = decompile('ce.com.cenewbluesdk.proxy.CEBluetoothProxyBase');
     const setter = proxy.slice(proxy.indexOf('  public void setBlueAddress('), proxy.indexOf('  public android.os.Message createMessage(int, int)'));
     const calls = [...setter.matchAll(/\/\/ Method ([^\n]+)/g)].map(match => match[1]);

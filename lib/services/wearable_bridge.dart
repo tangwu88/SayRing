@@ -12,6 +12,12 @@ abstract interface class WearableRecentHistoryBridge {
   Future<List<HealthRecord>> syncRecentHealthData({required int days});
 }
 
+/// Local transport buffers may be released only after encrypted persistence.
+/// Receipts are opaque, connection-scoped metadata, never health-server fields.
+abstract interface class WearableHealthReceiptBridge {
+  Future<void> acknowledgeHealthRecords(Map<String, String> receipts);
+}
+
 /// A second boundary before parsing native records: the legacy model parser
 /// defaults unknown metric names to steps. Never apply that fallback on iOS.
 WellnessReleasePolicy get wearableHealthReleasePolicy => WellnessReleasePolicy(

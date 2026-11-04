@@ -253,12 +253,12 @@ void main() {
       expect(ring.connectCalls, 2);
       expect(ring.disconnectCalls, 1);
       expect(ring.forgetCalls, 0);
-      expect(ring.historyReads, 0);
+      expect(ring.historyReads, 1);
       expect(controller.connectedDevice?.id, _coolwear.id);
       expect(controller.deviceState, DeviceConnectionState.ready);
       expect(controller.isRingInitializationPending, isFalse);
       expect(await controller.syncDeviceData(), isTrue);
-      expect(ring.historyReads, 1);
+      expect(ring.historyReads, 2);
       expect(ring.clearCalls, 1);
       expect(api.posts, hasLength(2));
     },

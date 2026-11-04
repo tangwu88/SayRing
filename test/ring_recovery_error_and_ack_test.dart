@@ -234,7 +234,7 @@ void main() {
       expect(controller.deviceState, DeviceConnectionState.ready);
       expect(controller.isRingInitializationPending, isFalse);
       expect(vault.ringInitializationStages, isEmpty);
-      expect(ring.historyReads, 0);
+      expect(ring.historyReads, 1);
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(body: DevicePage(controller: controller)),
@@ -249,7 +249,7 @@ void main() {
         expect(await controller.syncDeviceData(), isTrue);
         await _settle();
       });
-      expect(ring.historyReads, 1);
+      expect(ring.historyReads, 2);
       expect(ring.connectCalls, 2);
       expect(ring.clearCalls, 1);
       expect(tester.takeException(), isNull);

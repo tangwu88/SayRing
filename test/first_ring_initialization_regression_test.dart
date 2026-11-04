@@ -510,13 +510,13 @@ void main() {
       await controller.connectDevice(coolwear);
       await _settle();
       // 真实 ACK 后由控制器完成新握手，不再由测试额外断连补齐用户流程。
-      // CoolWear 仍只开放手动同步，不能在旧握手上导入缓存。
+      // Android 在新握手后自动同步，不能在旧握手上导入缓存。
       expect(controller.connectedDevice?.id, coolwear.id);
       expect(controller.deviceState, DeviceConnectionState.ready);
       expect(controller.isRingInitializationPending, isFalse);
-      expect(ring.historyReads, 0);
-      expect(await controller.syncDeviceData(), isTrue);
       expect(ring.historyReads, 1);
+      expect(await controller.syncDeviceData(), isTrue);
+      expect(ring.historyReads, 2);
       expect(ring.resetCalls, 1);
       expect(api.firstBindingCalls, 1);
       expect(vault.ringInitializationStages, isEmpty);

@@ -8,11 +8,14 @@ class WearableSyncResult extends ListBase<HealthRecord> {
     List<HealthRecord> records,
     Map<String, String> statuses, {
     this.historyDays,
+    Map<String, String> receipts = const {},
   }) : _records = List.of(records),
-       statuses = Map.unmodifiable(statuses);
+       statuses = Map.unmodifiable(statuses),
+       receipts = Map.unmodifiable(receipts);
 
   final List<HealthRecord> _records;
   final Map<String, String> statuses;
+  final Map<String, String> receipts;
 
   /// Actual SDK day range; completeness still requires per-metric evidence.
   final int? historyDays;

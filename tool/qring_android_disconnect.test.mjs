@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
 
-const read = p => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
+const read = p => readFileSync(new URL('../' + p, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 let javaHome = process.env.JAVA_HOME;
 if (!javaHome && process.platform === 'darwin') {
   javaHome = execFileSync('/usr/libexec/java_home', ['-v', '17'], {encoding: 'utf8'}).trim();

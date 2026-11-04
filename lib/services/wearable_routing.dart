@@ -173,6 +173,7 @@ class RoutedWearableBridge
     implements
         WearableBridge,
         WearableRecentHistoryBridge,
+        WearableHealthReceiptBridge,
         WearableDeviceDetailsBridge,
         WearableWatchFaceProfileBridge,
         WearableNativeWatchFaceBridge,
@@ -1310,6 +1311,19 @@ class RoutedWearableBridge
       _syncHistory(cursor: cursor);
 
   @override
+  Future<void> acknowledgeHealthRecords(Map<String, String> receipts) async {
+    if (_activeTransport == null) return;
+    final source = _activeBridge;
+    if (source is WearableHealthReceiptBridge) {
+      final generation = _connectionGeneration;
+      await (source as WearableHealthReceiptBridge).acknowledgeHealthRecords(
+        receipts,
+      );
+      _requireCurrentConnection(generation, message: '戒指连接已变化');
+    }
+  }
+
+  @override
   bool get supportsRecentHistorySync {
     if (_activeTransport != WearableTransport.qring) return false;
     final source = _activeBridge;
@@ -1378,6 +1392,7 @@ class RoutedWearableBridge
             scoped,
             records.statuses,
             historyDays: records.historyDays,
+            receipts: records.receipts,
           )
         : scoped;
   }

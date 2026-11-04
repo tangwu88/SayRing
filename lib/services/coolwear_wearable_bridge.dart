@@ -13,12 +13,19 @@ class CoolWearAndroidWearableBridge extends CoolWearWearableBridge
     implements
         WearableOwnedSystemTargetBridge,
         WearableBoundDeviceLookupBridge,
-        WearableBoundTargetDiscoveryBridge {
+        WearableBoundTargetDiscoveryBridge,
+        WearableHealthReceiptBridge {
   CoolWearAndroidWearableBridge({
     super.methods,
     super.events,
     super.healthReleasePolicy,
   });
+
+  @override
+  Future<void> acknowledgeHealthRecords(Map<String, String> receipts) =>
+      _invoke<void>('acknowledgeHealthRecords', {
+        'receipts': receipts,
+      }, const Duration(seconds: 3));
 
   @override
   Future<List<DeviceInfo>> scanForBoundDevice(String nativeIdentifier) async {
@@ -311,12 +318,22 @@ class CoolWearWearableBridge
       healthReleasePolicy: healthReleasePolicy,
     );
     if (response is Map && response['statuses'] is Map) {
-      return WearableSyncResult(records, {
-        for (final entry in (response['statuses'] as Map).entries)
-          if ((healthReleasePolicy ?? wearableHealthReleasePolicy)
-              .allowsWireMetric('${entry.key}'))
-            '${entry.key}': '${entry.value}',
-      });
+      return WearableSyncResult(
+        records,
+        {
+          for (final entry in (response['statuses'] as Map).entries)
+            if ((healthReleasePolicy ?? wearableHealthReleasePolicy)
+                .allowsWireMetric('${entry.key}'))
+              '${entry.key}': '${entry.value}',
+        },
+        receipts: response['receipts'] is Map
+            ? {
+                for (final entry in (response['receipts'] as Map).entries)
+                  if (entry.key is String && entry.value is String)
+                    entry.key as String: entry.value as String,
+              }
+            : const {},
+      );
     }
     return records;
   }
