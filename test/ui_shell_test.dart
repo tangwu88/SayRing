@@ -1484,6 +1484,8 @@ void main() {
     tester,
   ) async {
     final now = DateTime.now();
+    final dayStart = DateTime(now.year, now.month, now.day);
+    final elapsed = now.difference(dayStart).inMicroseconds;
     HealthRecord steps(String id, DateTime measuredAt, int value) =>
         HealthRecord(
           id: id,
@@ -1500,13 +1502,13 @@ void main() {
         );
     final records = [
       steps('old', DateTime(now.year, now.month, now.day - 1, 23), 999),
+      steps('legacy', now, 777).copyWith(sourceVendor: 'qring'),
+      steps('today', dayStart.add(Duration(microseconds: elapsed ~/ 3)), 155),
       steps(
-        'legacy',
-        DateTime(now.year, now.month, now.day, 10),
-        777,
-      ).copyWith(sourceVendor: 'qring'),
-      steps('today', DateTime(now.year, now.month, now.day, 8), 155),
-      steps('today-later', DateTime(now.year, now.month, now.day, 9), 45),
+        'today-later',
+        dayStart.add(Duration(microseconds: elapsed * 2 ~/ 3)),
+        45,
+      ),
     ];
     final store = MemoryHealthStore();
     await store.initialize();
@@ -1586,7 +1588,8 @@ void main() {
     tester,
   ) async {
     final now = DateTime.now();
-    final recordedAt = DateTime(now.year, now.month, now.day, 7);
+    // 使用已结束的一天；UTC 凌晨不能把尚未发生的 07:00 当成真实睡眠。
+    final recordedAt = now.subtract(const Duration(days: 1));
     final record = HealthRecord(
       id: 'sleep-home',
       metric: HealthMetric.sleep,
@@ -4945,7 +4948,7 @@ void main() {
           'wakeCount': 2,
         },
         unit: 'h',
-        measuredAt: DateTime(now.year, now.month, now.day, 7),
+        measuredAt: now,
         timezone: '+08:00',
         deviceId: 'HR01',
         firmwareVersion: 'test',
@@ -4999,7 +5002,7 @@ void main() {
           'efficiency': 92,
         },
         unit: 'h',
-        measuredAt: DateTime(now.year, now.month, now.day, 7),
+        measuredAt: now,
         timezone: '+08:00',
         deviceId: 'qring:test',
         firmwareVersion: 'test',

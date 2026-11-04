@@ -6,9 +6,9 @@ const native = readFileSync(new URL('../android/app/src/main/java/cc/saidian/say
 test('history reception never rewrites SDK installation-wide device configuration', () => {
   const sync = native.slice(native.indexOf('private void startSync('), native.indexOf('private void failPendingSync('));
   assert.match(sync, /helper\.setEnableGsDataTrans\(true\)/);
-  assert.match(sync, /proxy\.sendData\(new CEDevData\(3, 9\)\)/);
+  assert.match(sync, /requestRingInfo\(CoolWearReadRequests\.Kind\.MIXED_INFO\)/);
   assert.match(sync, /proxy\.sendData\(new CEDevData\(3, 4\)\)/);
-  assert.doesNotMatch(sync, /sendAsynInfo\(|sendGetMixInfo\(/);
+  assert.doesNotMatch(native, /\.(?:sendAsynInfo|sendGetMixInfo|synDevData|startPairSynData)\s*\(/);
   assert.doesNotMatch(sync, /helper\.synDevData\(\)|sendClear|unbindDevice/);
   assert.doesNotMatch(native, /main\.post\(this::completeSync\)/);
 });

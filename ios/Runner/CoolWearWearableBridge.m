@@ -193,6 +193,25 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (void)initializeSDK {
     if (self.product) return;
     self.product = [CEProductK6 shareInstance];
+#if DEBUG
+    // 仅看当前 HRV 会话的帧头类别，不保存/打印原始包或健康数值。
+    // 用于区分“固件未回结果头”和“SDK 解析后没有生成有效样本”。
+    __weak typeof(self) transportObserver = self;
+    self.product.receiveOriginalDataHandler = ^(NSData *data) {
+        if (data.length < 10) return;
+        const uint8_t *header = data.bytes;
+        if (header[0] != 0) return; // 后续分片不包含完整类型头，不猜测其内容。
+        NSInteger command = header[4], type = header[5];
+        NSUInteger length = data.length, measurement = transportObserver.measurementGeneration;
+        CoolWearOnMain(^{
+            CoolWearWearableBridge *observer = transportObserver;
+            if (!observer || measurement != observer.measurementGeneration ||
+                ![observer.activeMetric isEqualToString:@"hrv"] || ![observer isResolved]) return;
+            [observer hrvDiagnostic:@"transport_rx" type:type sampleCount:0
+                reason:[NSString stringWithFormat:@"header_cmd%ld_length%lu", (long)command, (unsigned long)length]];
+        });
+    };
+#endif
     [self disableVendorRecovery];
     [self.product cleanCmdQueue];
     [self.product.connect cancel];

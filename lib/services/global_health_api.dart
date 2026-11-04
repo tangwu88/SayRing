@@ -8,6 +8,7 @@ mixin GlobalHealthApi on SaydianApiClient {
   WellnessReleasePolicy get healthReleasePolicy =>
       const WellnessReleasePolicy();
   WellnessReleasePolicy get healthReadPolicy => healthReleasePolicy;
+  WellnessReleasePolicy get healthUploadPolicy => healthReleasePolicy;
 
   Future<http.Response> _globalHealthRequest(
     String owner,
@@ -76,7 +77,7 @@ mixin GlobalHealthApi on SaydianApiClient {
           }
         : null;
     for (final original in batch.records) {
-      final record = healthReleasePolicy.projectRecord(original);
+      final record = healthUploadPolicy.projectRecord(original);
       if (record == null) {
         rejected[original.id] =
             'This record is retained locally in this release.';
@@ -96,11 +97,16 @@ mixin GlobalHealthApi on SaydianApiClient {
       if (record.origin == MeasurementOrigin.remoteMember) {
         reason =
             'Shared records cannot be uploaded to your own health history.';
-      } else if (record.samples.isNotEmpty) {
+      } else if (original.samples.isNotEmpty) {
         // HealthRecord does not retain the manufacturer's sample rate or a
         // verified uploaded ECG artifact. Never discard its waveform and then
         // mark the summary as fully synchronized; leave the whole record queued.
         reason = 'This waveform is saved on this device and is not yet synced.';
+      } else if (healthUploadPolicy is HealthCloudUploadPolicy &&
+          (!hasSaneWearableTransportValues(original) ||
+              isFutureWearableHistory(original, receivedAt: DateTime.now()))) {
+        // 直接调用上传 API 也不能绕过同步队列的数值、质量和未来历史校验。
+        reason = 'This record is retained locally until its data is valid.';
       } else if (platform == null ||
           offset == null ||
           record.id.isEmpty ||

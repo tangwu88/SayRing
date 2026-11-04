@@ -35,6 +35,7 @@ import ce.com.cenewbluesdk.proxy.k6AnalysisDevData.AnalysisReceiveDataHelper.Blu
 import ce.com.cenewbluesdk.entity.K6_sleepData;
 import ce.com.cenewbluesdk.entity.MyBleDevice;
 import ce.com.cenewbluesdk.entity.k6.K6_Action;
+import ce.com.cenewbluesdk.entity.k6.K6_CESyncTime;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_BATTERY_INFO;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FUNCTION_CONTROL;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FIND_PHONE_OR_DEVICE;
@@ -91,6 +92,7 @@ public final class CoolWearRingBridge
     private final Handler main = new Handler(Looper.getMainLooper());
     private final LinkedHashMap<String, Map<String, Object>> scanned = new LinkedHashMap<>();
     private BluetoothHelper helper;
+    private long clockSynchronizationEpoch = -1L;
     private final CoolWearRecoveryTarget recoveryTarget = new CoolWearRecoveryTarget();
     private final CoolWearRecoveryTarget.Sdk recoverySdk = new CoolWearRecoveryTarget.Sdk() {
         @Override public void clearTarget() {
@@ -253,6 +255,15 @@ public final class CoolWearRingBridge
     }
 
     private void registerRemainingListeners() {
+        helper.getRcvDataManager().addBleDataResultListener(
+                K6_Action.RCVD.RCVD_TIME_TYPE,
+                (K6BleDataResult<K6_CESyncTime>) time -> {
+                    if (time != null) {
+                        final int format = time.getFormat(), mdFormat = time.getMdFormat();
+                        postCurrentPacket(() -> synchronizeConnectionClock(format, mdFormat));
+                    }
+                    return false;
+                });
         helper.getRcvDataManager().addBleDataResultListener(
                 K6_Action.RCVD.RCVD_DATA_TYPE_FUNCTION_CONTROL,
                 (K6BleDataResult<K6_DATA_TYPE_FUNCTION_CONTROL>) control -> {
@@ -646,10 +657,7 @@ public final class CoolWearRingBridge
     }
 
     private void requestHistoryType(int type) {
-        CEBluetoothProxyBase proxy = BleFactory.getInstance().getK6Proxy();
-        if (proxy == null || connectedId == null || !connectedId.equalsIgnoreCase(proxy.getBlueAddress())) {
-            throw new IllegalStateException("history target unavailable");
-        }
+        CEBluetoothProxyBase proxy = currentReadProxy();
         requestedHistoryTypes.add(type);
         // Same public read-command envelope as SDK getDevInfo(): cmd=3.
         // No mixed-settings, time, user, reminder, pair or clear writes.
@@ -816,11 +824,8 @@ public final class CoolWearRingBridge
             // LuckRing requestDataSync(): REQUEST DEV_SYNC(9), REQUEST REAL_SPORT(4).
             // The bundled SDK lacks these named wrappers. Use the same public
             // transport, without the unrelated settings writes of sendAsynInfo.
-            CEBluetoothProxyBase proxy = BleFactory.getInstance().getK6Proxy();
-            if (proxy == null || connectedId == null || !connectedId.equalsIgnoreCase(proxy.getBlueAddress())) {
-                throw new IllegalStateException("history target unavailable");
-            }
-            proxy.sendData(new CEDevData(3, 9));
+            requestRingInfo(CoolWearReadRequests.Kind.MIXED_INFO);
+            CEBluetoothProxyBase proxy = currentReadProxy();
             proxy.sendData(new CEDevData(3, 4));
             int index = 0;
             for (Integer type : new ArrayList<>(historyBatches.keySet())) {
@@ -947,8 +952,8 @@ public final class CoolWearRingBridge
                 if (connectedVendorId != null && !connectedVendorId.isEmpty()) {
                     helper.getPersistent().setDeviceId(connectedVendorId);
                 }
-                helper.getSendDataManager().sendAsynInfo();
                 helper.getSendDataManager().getDevInfo();
+                requestRingInfo(CoolWearReadRequests.Kind.MIXED_INFO);
             } catch (RuntimeException error) {
                 Log.e(TAG, "vendor handshake rejected: " + error.getClass().getSimpleName());
                 failConnect("COOLWEAR_HANDSHAKE_FAILED", "戒指信息读取失败，请重试");
@@ -1005,6 +1010,38 @@ public final class CoolWearRingBridge
             emit("reconnected", deviceDetails());
         }
         if (pendingConnect == null && linkConnected) emit("deviceDetails", deviceDetails());
+    }
+
+    private CEBluetoothProxyBase currentReadProxy() {
+        CEBluetoothProxyBase proxy = BleFactory.getInstance().getK6Proxy();
+        if (!linkConnected || connectedId == null
+                || !connectedId.equalsIgnoreCase(proxy.getBlueAddress())) {
+            throw new IllegalStateException("Read target changed");
+        }
+        return proxy;
+    }
+
+    private void requestRingInfo(CoolWearReadRequests.Kind... kinds) {
+        CEBluetoothProxyBase proxy = currentReadProxy();
+        for (CoolWearReadRequests.Kind kind : kinds) {
+            proxy.sendData(CoolWearReadRequests.query(kind));
+        }
+    }
+
+    private void synchronizeConnectionClock(int format, int mdFormat) {
+        if (!linkConnected || !deviceInfoReceived || clockSynchronizationEpoch == connectionEpoch) return;
+        clockSynchronizationEpoch = connectionEpoch;
+        // 每条新连接最多一次；可选校时不插队干扰测量/同步，不阻塞握手，
+        // 未回读到真实格式时不使用安装缓存猜测，更不重发整包默认设置。
+        if (activeMeasurement != null || pendingHealthSync != null || pendingSportSync != null
+                || pendingReminders != null || pendingAutoSettings != null || gesture.pending()) return;
+        try {
+            CEDevData clock = CoolWearReadRequests.connectionClockUpdate(
+                    K6_CESyncTime.getCurrentTime(), format, mdFormat);
+            currentReadProxy().sendData(clock);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "optional clock synchronization skipped");
+        }
     }
 
     private void onFunctionControl(K6_DATA_TYPE_FUNCTION_CONTROL control) {
@@ -1186,7 +1223,13 @@ public final class CoolWearRingBridge
             return;
         }
         pendingReminders = result;
-        helper.getSendDataManager().sendAsynInfo();
+        try {
+            requestRingInfo(CoolWearReadRequests.Kind.SEDENTARY, CoolWearReadRequests.Kind.DRINKING);
+        } catch (RuntimeException error) {
+            pendingReminders = null;
+            result.error("READ_FAILED", "戒指提醒设置读取未开始，请重试", null);
+            return;
+        }
         remindersDeadline = () -> {
             MethodChannel.Result pending = pendingReminders;
             pendingReminders = null;
@@ -1961,11 +2004,12 @@ public final class CoolWearRingBridge
                     sportHeartStreamStarted = false;
                     break;
                 case "getDeviceDetails":
-                    // Battery is part of this SDK's non-destructive info read.
+                    // 电量只查询电量；不得为了刷新状态重发 SDK 的整包设置。
                     if (linkConnected && deviceInfoReceived && !gesture.pending() && pendingHealthSync == null && pendingSportSync == null &&
                             activeMeasurement == null && android.os.SystemClock.elapsedRealtime() - batteryQueryAt >= 8_000L) {
                         batteryQueryAt = android.os.SystemClock.elapsedRealtime();
-                        helper.getSendDataManager().sendAsynInfo();
+                        try { requestRingInfo(CoolWearReadRequests.Kind.BATTERY); }
+                        catch (RuntimeException error) { Log.w(TAG, "optional battery query skipped"); }
                     }
                     result.success(linkConnected && deviceInfoReceived ? deviceDetails() : null);
                     break;
@@ -1973,7 +2017,10 @@ public final class CoolWearRingBridge
                     if (!linkConnected || !deviceInfoReceived) {
                         result.error("NOT_CONNECTED", "请先连接戒指", null);
                     } else {
-                        if (functionControl == null) helper.getSendDataManager().sendAsynInfo();
+                        if (functionControl == null) {
+                            try { requestRingInfo(CoolWearReadRequests.Kind.CAPABILITIES); }
+                            catch (RuntimeException error) { Log.w(TAG, "optional capability query skipped"); }
+                        }
                         result.success(capabilities());
                     }
                     break;
@@ -1999,7 +2046,11 @@ public final class CoolWearRingBridge
                         return;
                     }
                     pendingAutoSettings = result;
-                    helper.getSendDataManager().sendAsynInfo();
+                    try { requestRingInfo(CoolWearReadRequests.Kind.AUTO_MONITORING); }
+                    catch (RuntimeException error) {
+                        failPendingAutoSettings("AUTO_MEASURE_READ_FAILED", "戒指监测设置读取未开始，请重试");
+                        return;
+                    }
                     settingsDeadline = () -> failPendingAutoSettings(
                             "AUTO_MEASURE_READ_FAILED", "暂时未收到戒指自动检测设置");
                     main.postDelayed(settingsDeadline, SETTINGS_MS);

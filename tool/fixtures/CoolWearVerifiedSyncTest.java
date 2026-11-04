@@ -43,6 +43,12 @@ public final class CoolWearVerifiedSyncTest {
         }
     }
     static final class Helper { void setEnableGsDataTrans(boolean enabled) { assert enabled; } }
+    static final class CoolWearReadRequests { enum Kind { MIXED_INFO } }
+    CEBluetoothProxyBase currentReadProxy() { return BleFactory.instance.proxy; }
+    void requestRingInfo(CoolWearReadRequests.Kind kind) {
+        assert kind == CoolWearReadRequests.Kind.MIXED_INFO;
+        currentReadProxy().sendData(new CEDevData(3,9));
+    }
     static final class CEDevData {
         final int cmd, type;
         CEDevData(int cmd, int type) { this.cmd = cmd; this.type = type; }

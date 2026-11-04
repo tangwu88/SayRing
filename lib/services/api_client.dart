@@ -8,6 +8,8 @@ import 'package:http_parser/http_parser.dart' as http_parser;
 
 import '../domain/models.dart';
 import '../domain/wellness_release_policy.dart';
+import '../domain/health_cloud_upload_policy.dart';
+import '../domain/health_record_validation.dart';
 import '../domain/read_only_health_features.dart';
 import '../domain/module_visibility.dart';
 import '../domain/global_account.dart';

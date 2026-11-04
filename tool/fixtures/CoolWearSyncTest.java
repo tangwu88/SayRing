@@ -13,6 +13,9 @@ public final class CoolWearSyncTest {
     boolean linkConnected = true, deviceInfoReceived = true;
     final Main main = new Main();
     final Helper helper = new Helper();
+    // 本夹具只验收同步时钟；实际 SDK 请求帧由 CoolWearReadRequestsSdkTest 验收。
+    static final class CoolWearReadRequests { enum Kind { MIXED_INFO } }
+    void requestRingInfo(CoolWearReadRequests.Kind... ignored) { helper.reads++; }
     int progress, passive;
     String supportedModel(String name) { return name; }
     void emit(String type, Map<String, Object> payload) {
@@ -35,8 +38,6 @@ public final class CoolWearSyncTest {
     static final class Helper {
         int reads;
         void setEnableGsDataTrans(boolean ignored) {}
-        Helper getSendDataManager() { return this; }
-        void sendAsynInfo() { reads++; }
     }
     static final class MethodChannel {
         static final class Result {

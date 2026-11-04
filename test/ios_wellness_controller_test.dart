@@ -314,7 +314,7 @@ void main() {
       );
       expect(
         fixture.api.uploads.where((r) => r.metric == HealthMetric.heartRate),
-        isEmpty,
+        isNotEmpty,
       );
     },
   );

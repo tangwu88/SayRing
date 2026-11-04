@@ -146,12 +146,20 @@ test('connection completion requires metadata and flags from the exact real targ
 test('installation-wide recovery and raw health logging are not imported', () => {
   assert.doesNotMatch(bridge, /\[(?:self\.|weakSelf\.)?product (?:startAutoConnect|saveConnectedUUid|releaseBind)\]/);
   const diagnostic = bridge.slice(bridge.indexOf('- (void)hrvDiagnostic:'), bridge.indexOf('- (void)publishPendingHrvRecord:'));
-  // Only this DEBUG-only aggregate diagnostic is permitted. Every other raw
-  // log, installation-wide recovery and vendor raw-packet hook stays banned.
+  // DEBUG 诊断只允许类别/计数；新原厂入口只读取帧头，绝不转存包或输出数值。
   assert.match(diagnostic, /#if DEBUG[\s\S]*NSLog\([\s\S]*#else[\s\S]*#endif/);
   assert.doesNotMatch(diagnostic, /sample\[|values\[|deviceInfo|target|UUID|timestamp|payload|record\[/);
   assert.equal((diagnostic.match(/NSLog\(/g) ?? []).length, 1);
-  assert.doesNotMatch(bridge.replace(diagnostic, ''), /NSLog\(|NSUserDefaults|receiveOriginalDataHandler\s*=|sendOriginalDataHandler\s*=/);
+  const transport = bridge.match(/#if DEBUG\n[^]*?receiveOriginalDataHandler\s*=[^]*?\n#endif/)?.[0];
+  assert.ok(transport);
+  assert.match(transport, /data.length < 10/);
+  assert.deepEqual([...transport.matchAll(/header\[(\d+)\]/g)].map(match => Number(match[1])), [0, 4, 5]);
+  assert.match(transport, /measurement != observer.measurementGeneration/);
+  assert.match(transport, /activeMetric isEqualToString:@"hrv"/);
+  assert.match(transport, /!\[observer isResolved\]/);
+  assert.match(transport, /hrvDiagnostic:@"transport_rx"/);
+  assert.doesNotMatch(transport, /NSLog\(|%@|description|base64|writeTo|subdata|payload/);
+  assert.doesNotMatch(bridge.replace(diagnostic, '').replace(transport, ''), /NSLog\(|NSUserDefaults|receiveOriginalDataHandler\s*=|sendOriginalDataHandler\s*=/);
   assert.match(bridge, /lastConnectUUId = nil/);
   assert.match(bridge, /UUIDStr = nil/);
 });
