@@ -50,3 +50,11 @@
 - 新上传规则依赖1236或之后的新二进制；公开政策说明不会让仍安装旧商店版的手机自动获得新代码。当前没有执行App Store或TestFlight提交。
 
 私有真机证据：`xr/cloud-verification-final/proof.json`、`xr/profile-restoration/proof.json`、原加密容器及签名构建报告。只保存计数/校验摘要到Git，不包含真实值、Token、密钥、记录ID或设备地址。
+
+## Git与线上说明验收
+
+运行源码和上述验证已提交并推送 `460c94f5abcfd1783582a84cf5cc9a16b7f14dfc`，已fetch核对同树、同父提交，工作区干净。构建先于Git提交完成，原产物报告中的sourceCommit为构建时基线7854168；新增私有 `commit-artifact-attestation.json` 重新计算并核对Android/iOS运行源码哈希与签名构件相同，确认实际构件对应460c94f的运行源码，没有重打包或修改二进制签名。
+
+服务端运行41774622006的verify、resolve、China deploy均成功，美国发布按 `[deploy cn only]` 跳过。正式 `/health/ready`、`/global/health/ready`均返回129baa8、database=ok；公开 `/say-ring/privacy`、`/say-ring/terms`均HTTP200并显示1236自动同步、无额外开关范围。升级前后两份v3正文哈希、文档类型、语言及配对同意版本全部相同，不触发新协议配对或登录修改。公开说明校验最初误写1181区块的id，导致该布尔检查为false；改用页面实际min-build元数据后，1062/1110/1181旧说明与1236新说明均已确认保留，未改线上正文来迎合校验。
+
+客户端远端[mobile-ci 41775399725](https://github.com/tangwu88/SayRing/actions/runs/41775399725)已启动；收尾时两时区Harmony作业通过，quality仍在执行，不将其记作完整远端通过。源码、全量本机验证、实际云端补传和普通版恢复均已完成；本轮不推进客户端main或商店发布，不把尚未解决的R7 Ultra手动HRV计作已验收。
