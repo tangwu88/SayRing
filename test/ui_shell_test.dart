@@ -5040,7 +5040,8 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final now = DateTime.now();
+    // 固定同一SDK自然日，避免宿主UTC傍晚与记录+08:00跨日混用。
+    final now = DateTime.utc(2026, 10, 29);
     final store = MemoryHealthStore();
     await store.initialize();
     await store.upsert([
@@ -5078,6 +5079,7 @@ void main() {
         home: HealthTrendPage(
           controller: controller,
           metric: HealthMetric.sleep,
+          initialDate: DateTime(2026, 10, 29),
         ),
       ),
     );
@@ -5092,7 +5094,7 @@ void main() {
   testWidgets('QRing sleep stages and score display only returned values', (
     tester,
   ) async {
-    final now = DateTime.now();
+    final now = DateTime.utc(2026, 10, 29);
     final store = MemoryHealthStore();
     await store.initialize();
     await store.upsert([
@@ -5132,6 +5134,7 @@ void main() {
         home: HealthTrendPage(
           controller: controller,
           metric: HealthMetric.sleep,
+          initialDate: DateTime(2026, 10, 29),
         ),
       ),
     );

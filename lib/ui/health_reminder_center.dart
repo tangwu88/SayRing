@@ -406,12 +406,12 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
     ),
   );
 
-  Widget _ringReminderSettings() {
+  Widget? _ringReminderSettings() {
     final controller = widget.controller;
     final available =
         controller.connectedDevice != null &&
         controller.availabilityFor(DeviceFeature.healthReminders).isReady;
-    if (!available) return const SizedBox.shrink();
+    if (!available) return null;
     final raw =
         controller.deviceFeatureData[DeviceFeature.healthReminders]?['items'];
     final items = raw is List
@@ -423,7 +423,7 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
         : const <Map<String, Object?>>[];
     final sedentary = items.any((item) => item['id'] == 'sedentary');
     final other = items.any((item) => item['id'] != 'sedentary');
-    if (!sedentary && !other) return const SizedBox.shrink();
+    if (!sedentary && !other) return null;
     void open(RingReminderView view) => Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: 'health-reminder-ring-${view.name}'),
@@ -460,118 +460,138 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
     );
   }
 
+  void _openUrgentHelp() => Navigator.of(
+    context,
+  ).push(MaterialPageRoute<void>(builder: (_) => const EmergencyHelpPage()));
+
+  Widget _notificationControl() {
+    final controller = widget.controller;
+    final permission = controller.healthReminderNotificationPermission;
+    final granted = permission == ReminderNotificationPermission.granted;
+    return ListTile(
+      key: const Key('health-reminder-notification-permission'),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      leading: Icon(
+        granted
+            ? Icons.notifications_active_outlined
+            : Icons.notifications_off_outlined,
+        color: SaydianColors.techBlue,
+        size: 24,
+      ),
+      title: Text(
+        _copy(context, '手机通知', 'Phone notifications'),
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            granted
+                ? _copy(context, '已允许', 'Allowed')
+                : _copy(context, '去设置', 'Set up'),
+            style: const TextStyle(fontSize: 13, color: SaydianColors.muted),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right, size: 20),
+        ],
+      ),
+      onTap: () async {
+        if (permission == ReminderNotificationPermission.denied || granted) {
+          final opened = await openAppSettings();
+          if (!opened && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  _copy(
+                    context,
+                    '无法打开设置，请在系统设置中管理通知',
+                    'Open system settings to manage notifications.',
+                  ),
+                ),
+              ),
+            );
+          }
+        } else {
+          await controller.refreshHealthReminderPermissions(request: true);
+        }
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final events = controller.healthReminderEvents;
-    final permission = controller.healthReminderNotificationPermission;
+    final ringReminders = _ringReminderSettings();
     return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.healthAlerts)),
+      appBar: AppBar(
+        title: Text(context.l10n.healthAlerts),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: MediaQuery.textScalerOf(context).scale(14) > 20
+                ? IconButton(
+                    key: const Key('health-reminder-urgent-help'),
+                    tooltip: _copy(context, '急症求助', 'Urgent help'),
+                    onPressed: _openUrgentHelp,
+                    icon: const Icon(
+                      Icons.emergency_outlined,
+                      color: SaydianColors.danger,
+                    ),
+                  )
+                : TextButton.icon(
+                    key: const Key('health-reminder-urgent-help'),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(48, 48),
+                      foregroundColor: SaydianColors.danger,
+                    ),
+                    onPressed: _openUrgentHelp,
+                    icon: const Icon(Icons.emergency_outlined, size: 19),
+                    label: Text(
+                      _copy(context, '急症求助', 'Urgent help'),
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+          ),
+        ],
+      ),
       body: ListView(
         key: const Key('health-reminder-center'),
         padding: const EdgeInsets.all(16),
         children: [
-          const UrgentHelpCard(compact: true, terse: true),
-          const SizedBox(height: 12),
           ReadingReminderSettingsPanel(
             controller: controller,
-            onHelp: () => Navigator.of(context).push(
+            onHelp: _openUrgentHelp,
+            notificationControl: _notificationControl(),
+            dailyReminders: ringReminders,
+            onRecordSymptoms: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => const EmergencyHelpPage(),
+                builder: (_) =>
+                    HealthReminderSymptomsPage(controller: controller),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          _ringReminderSettings(),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final twoColumns =
-                  constraints.maxWidth >= 340 &&
-                  MediaQuery.textScalerOf(context).scale(14) <= 20;
-              final width = twoColumns
-                  ? (constraints.maxWidth - 10) / 2
-                  : constraints.maxWidth;
-              return Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  SizedBox(
-                    width: width,
-                    child: OutlinedButton.icon(
-                      key: const Key('health-reminder-notification-permission'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(46),
-                      ),
-                      onPressed: () async {
-                        if (permission ==
-                                ReminderNotificationPermission.denied ||
-                            permission ==
-                                ReminderNotificationPermission.granted) {
-                          final opened = await openAppSettings();
-                          if (!opened && context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  _copy(
-                                    context,
-                                    '无法打开设置，请在系统设置中管理通知',
-                                    'Open system settings to manage notifications.',
-                                  ),
-                                ),
-                              ),
-                            );
-                          }
-                        } else {
-                          await controller.refreshHealthReminderPermissions(
-                            request: true,
-                          );
-                        }
-                      },
-                      icon: Icon(
-                        permission == ReminderNotificationPermission.granted
-                            ? Icons.notifications_active_outlined
-                            : Icons.notifications_off_outlined,
-                        size: 18,
-                      ),
-                      label: Text(
-                        permission == ReminderNotificationPermission.granted
-                            ? _copy(context, '通知已允许', 'Notifications on')
-                            : _copy(context, '手机通知', 'Phone notifications'),
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: OutlinedButton.icon(
-                      key: const Key('health-reminder-record-symptoms'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(46),
-                      ),
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => HealthReminderSymptomsPage(
-                            controller: controller,
-                          ),
-                        ),
-                      ),
-                      icon: const Icon(Icons.edit_note, size: 18),
-                      label: Text(_copy(context, '记录不适', 'Record symptoms')),
-                    ),
-                  ),
-                ],
-              );
-            },
           ),
           const SizedBox(height: 20),
           Text(
             _copy(context, '本机记录', 'Local records'),
-            style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 10),
           if (events.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Text(_copy(context, '暂无提醒记录', 'No reminder records yet')),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+              leading: const Icon(
+                Icons.history_rounded,
+                size: 22,
+                color: SaydianColors.muted,
+              ),
+              title: Text(
+                _copy(context, '暂无提醒记录', 'No reminder records yet'),
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: SaydianColors.muted,
+                ),
+              ),
             ),
           for (final event in events)
             Card(
@@ -590,6 +610,8 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
                 title: Text(event.title),
                 subtitle: Text(
                   '${_time(event.reminder!.recordedAt)}\n${event.message}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _openEvent(event.id),
