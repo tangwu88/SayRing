@@ -4374,7 +4374,7 @@ class AppController extends ChangeNotifier {
       final cancellation = Completer<void>();
       _measurementStartCancellation = cancellation;
       // 从发送命令开始计时；原生未确认启动也必须有结束上限，进度不能重置总窗。
-      final timeout = _measurementTimeoutFor(metric);
+      final timeout = measurementTimeLimitFor(metric);
       _measurementTimeout = Timer(timeout, () {
         if (isCurrent()) unawaited(_handleMeasurementTimeout(metric));
       });
@@ -4714,7 +4714,8 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Duration _measurementTimeoutFor(HealthMetric metric) => switch (metric) {
+  // 界面和控制器共用同一个总等待上限；此时长不是设备测量进度或完成承诺。
+  Duration measurementTimeLimitFor(HealthMetric metric) => switch (metric) {
     HealthMetric.hrv => const Duration(seconds: 180),
     // Native owns the 150-second W9S result timeout. This longer Flutter
     // watchdog prevents a race while the 500 Hz stream is settling at 100%.

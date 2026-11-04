@@ -213,6 +213,8 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
   String? _startFailure;
   int _startRequest = 0;
   int? _ownedOperation;
+  Timer? _waitTicker;
+  Stopwatch? _waitStopwatch;
 
   bool get _ownsMeasurement =>
       _ownedOperation == widget.controller.measurementOperationToken;
@@ -230,6 +232,18 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
     if (!mounted || _stopping) return;
     final request = ++_startRequest;
     setState(() => _startFailure = null);
+    _stopWaitClock();
+    _waitStopwatch = Stopwatch()..start();
+    // 只刷新已用时间，不把时间推移伪装成设备百分比或有效 HRV 样本。
+    _waitTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted ||
+          !_ownsMeasurement ||
+          widget.controller.activeMeasurementMetric != widget.metric) {
+        _stopWaitClock();
+        return;
+      }
+      setState(() {});
+    });
     final previousOperation = widget.controller.measurementOperationToken;
     final pending = widget.controller.startMeasurement(widget.metric);
     final operation = widget.controller.measurementOperationToken;
@@ -250,6 +264,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
 
   Future<void> _finish() async {
     if (_stopping) return;
+    _stopWaitClock();
     _startRequest++;
     setState(() => _stopping = true);
     final record = widget.controller.measurementResult;
@@ -270,6 +285,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
 
   Future<void> _retry() async {
     if (_stopping) return;
+    _stopWaitClock();
     _startRequest++;
     setState(() => _stopping = true);
     if (_ownsMeasurement &&
@@ -279,6 +295,19 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
     if (!mounted) return;
     setState(() => _stopping = false);
     await _start();
+  }
+
+  void _stopWaitClock() {
+    _waitTicker?.cancel();
+    _waitTicker = null;
+    _waitStopwatch?.stop();
+  }
+
+  @override
+  void dispose() {
+    _startRequest++;
+    _stopWaitClock();
+    super.dispose();
   }
 
   @override
@@ -306,8 +335,18 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
               _ownsMeasurement &&
               record != null &&
               record.metric == widget.metric;
+          // 会话清理或其他入口停止后可能没有错误文本。旧窗口失去操作归属时
+          // 必须进入终态，不能继续等，更不能显示/停止另一轮的进度和结果。
+          final interrupted =
+              _ownedOperation != null &&
+              (!_ownsMeasurement ||
+                  widget.controller.activeMeasurementMetric != widget.metric);
           final failure =
-              _startFailure ?? widget.controller.measurementErrorMessage;
+              _startFailure ??
+              (_ownsMeasurement
+                  ? widget.controller.measurementErrorMessage
+                  : null) ??
+              (interrupted ? '测量已停止，请重新开始' : null);
           final failed = !isNew && failure != null;
           final waitingMessage = !widget.controller.measurementWearConfirmed
               ? switch (widget.metric) {
@@ -447,6 +486,29 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                           ? widget.controller.measurementProgress / 100
                           : null,
                     ),
+                    if (widget.metric == HealthMetric.hrv) ...[
+                      const SizedBox(height: 8),
+                      Builder(
+                        builder: (context) {
+                          final limit = widget.controller
+                              .measurementTimeLimitFor(widget.metric);
+                          final elapsed =
+                              (_waitStopwatch?.elapsed.inSeconds ?? 0).clamp(
+                                0,
+                                limit.inSeconds,
+                              );
+                          String clock(int seconds) =>
+                              '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+                          return Text(
+                            '已等待 ${clock(elapsed)} · 最长 ${clock(limit.inSeconds)}',
+                            style: const TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 13,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                     if (widget.controller.measurementProgress > 0) ...[
                       const SizedBox(height: 6),
                       Text(
