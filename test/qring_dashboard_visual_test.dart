@@ -446,13 +446,14 @@ void main() {
     final store = MemoryHealthStore();
     final controller = _Controller(store);
     final day = _today();
+    final elapsed = DateTime.now().difference(day).inMicroseconds;
     final records = [
       for (var i = 0; i < 256; i++)
         _record(
           'today-$i',
           HealthMetric.steps,
           1,
-          day.add(Duration(minutes: i + 1)),
+          day.add(Duration(microseconds: elapsed * (i + 1) ~/ 257)),
         ),
     ];
     await store.upsert(records);
