@@ -211,7 +211,7 @@ void main() {
         whereArgs: ['index', 'notification_inbox_time'],
       );
       expect(schema, hasLength(1));
-      expect(await verified.getVersion(), 6);
+      expect(await verified.getVersion(), 7);
       await verified.close();
     },
   );

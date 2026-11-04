@@ -1454,7 +1454,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
         @"unit": @{@"heart_rate":@"bpm", @"blood_oxygen":@"%", @"hrv":@"ms", @"body_temperature":@"℃", @"steps":@"steps", @"sleep":@"h"}[metric] ?: @"", @"measuredAt": timestamp, @"timezone": offset,
         @"deviceId": [@"coolwear:" stringByAppendingString:self.target.identifier.UUIDString], @"firmwareVersion": self.deviceInfo[@"version"] ?: @"",
         @"quality": @"device_reported", @"source": @"wearable", @"origin": origin, @"rawVersion": @2,
-        @"sourceModel": CoolWearModel(self.targetName), @"sourceVendor": @"coolwear", @"sourceDeviceCategory": @"ring", @"sourceApp": @"say-ring"};
+        @"sourceModel": CoolWearModel(self.targetName), @"sourceVendor": @"coolwear", @"sourceDeviceCategory": @"ring", @"sourceApp": @"say-ring",
+        @"provenance": @{ @"timeBasis": @"sdk", @"captureMode": [origin isEqual:@"watch_history"] ? @"history" : @"manual", @"temperatureKind": [metric isEqual:@"body_temperature"] ? @"skin" : @"unknown", @"algorithm": values[@"sdnn"] ? @"sdnn" : @"unknown" }};
 }
 
 - (void)emitPassiveRecord:(NSDictionary *)record {

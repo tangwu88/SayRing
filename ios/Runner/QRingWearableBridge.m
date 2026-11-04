@@ -1152,6 +1152,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         @"sourceVendor": @"qring",
         @"sourceDeviceCategory": @"ring",
         @"sourceApp": @"say-ring",
+        @"provenance": @{ @"captureMode": [origin isEqual:@"watch_history"] ? @"history" : @"manual", @"timeBasis": @"sdk", @"temperatureKind": @"unknown", @"algorithm": @"unknown" },
     };
 }
 

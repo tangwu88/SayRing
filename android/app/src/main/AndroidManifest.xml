@@ -63,6 +63,7 @@
         android:required="false"
         tools:replace="android:required" />
 
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application
         android:label="Say Ring"
         android:name="${applicationName}"
@@ -155,6 +156,10 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <receiver android:name=".CycleReminderReceiver" android:exported="false" />
+        <receiver android:name=".CycleRescheduleReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/><action android:name="android.intent.action.TIMEZONE_CHANGED"/><action android:name="android.intent.action.TIME_SET"/></intent-filter>
+        </receiver>
     </application>
     <queries>
         <package android:name="com.tencent.mm" />

@@ -832,6 +832,78 @@ struct IOSWechatAuthState {
 
 // This local channel does not enable APNs/JPush, device sampling or any
 // physiological release grant. It accepts only the current owner's event IDs.
+// 独立周期计划，不写戒指、不触发异常提醒通道。
+private final class RingCycleNotificationBridge {
+ static let prefix="sayring-cycle."
+ private let defaults=UserDefaults.standard
+ private let key="cn.saydian.ring.cycle-owner"
+ private let openedKey="cn.saydian.ring.cycle-open"
+ private var revision=0
+ private let channel:FlutterMethodChannel
+ private var owner:String?{defaults.string(forKey:key)}
+ init(messenger:FlutterBinaryMessenger){
+  channel=FlutterMethodChannel(name:"cn.saydian.ring/cycle",binaryMessenger:messenger)
+  channel.setMethodCallHandler{[weak self]call,result in
+   guard let self else{result(nil);return}
+   let args=call.arguments as? [String:Any] ?? [:],center=UNUserNotificationCenter.current()
+   switch call.method{
+   case "owner":
+    self.revision += 1
+    let next=(args["owner"]as? String).flatMap{$0.range(of:"^[a-f0-9]{64}$",options:.regularExpression)==nil ? nil:$0}
+    if next != self.owner{self.defaults.removeObject(forKey:self.openedKey)}
+    self.defaults.set(next,forKey:self.key)
+    // 系统查询异步返回时可能已经换号，旧清理不能删除新账号刚创建的计划。
+    center.getPendingNotificationRequests{rs in
+     DispatchQueue.main.async{
+      guard self.owner == next else{return}
+      center.removePendingNotificationRequests(withIdentifiers:rs.filter{$0.identifier.hasPrefix(Self.prefix) && $0.content.userInfo["cycle-owner"]as? String != next}.map(\.identifier))
+     }
+    }
+    center.getDeliveredNotifications{rs in
+     DispatchQueue.main.async{
+      guard self.owner == next else{return}
+      center.removeDeliveredNotifications(withIdentifiers:rs.filter{$0.request.identifier.hasPrefix(Self.prefix) && $0.request.content.userInfo["cycle-owner"]as? String != next}.map{$0.request.identifier})
+     }
+    }
+    result(nil)
+   case "schedule":
+    guard let owner=args["owner"]as? String,owner==self.owner,let plans=args["plans"]as? [[String:Any]],plans.count<=40 else{result(false);return}
+    self.revision += 1
+    let revision=self.revision
+    let schedule={
+     center.getPendingNotificationRequests{rs in
+      DispatchQueue.main.async{
+       guard owner==self.owner,revision==self.revision else{result(false);return}
+       center.removePendingNotificationRequests(withIdentifiers:rs.filter{$0.identifier.hasPrefix(Self.prefix+owner+".")}.map(\.identifier))
+       var accepted=true
+       let group=DispatchGroup()
+       for p in plans{
+        guard let id=p["id"]as? String,id.range(of:"^cycle-[a-f0-9]{64}$",options:.regularExpression) != nil,let date=p["date"]as? String,let hour=p["hour"]as? Int,let minute=p["minute"]as? Int,(0...23).contains(hour),(0...59).contains(minute) else{accepted=false;continue}
+        let parts=date.split(separator:"-").compactMap{Int($0)}
+        guard parts.count==3 else{accepted=false;continue}
+        var components=DateComponents();components.year=parts[0];components.month=parts[1];components.day=parts[2];components.hour=hour;components.minute=minute
+        guard let at=Calendar.current.date(from:components),at>Date() else{continue}
+        let content=UNMutableNotificationContent();content.title="记录提醒";content.body="您有一条记录提醒，请打开查看。";content.sound = .default;content.userInfo=["cycle-owner":owner,"cycle-plan":id]
+        // 带代次的标识确保迟到add回调只撤销自己，不能误撤销后续同一天的新计划。
+        let request=UNNotificationRequest(identifier:Self.prefix+owner+"."+String(revision)+"."+id,content:content,trigger:UNCalendarNotificationTrigger(dateMatching:components,repeats:false))
+        group.enter();center.add(request){error in DispatchQueue.main.async{if error != nil{accepted=false};if owner != self.owner || revision != self.revision{center.removePendingNotificationRequests(withIdentifiers:[request.identifier]);accepted=false};group.leave()}}
+       }
+       group.notify(queue:.main){center.getNotificationSettings{settings in DispatchQueue.main.async{result(accepted && (settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional))}}}
+      }
+     }
+    }
+    if args["request"]as? Bool == true{center.requestAuthorization(options:[.alert,.sound]){_,_ in schedule()}}else{schedule()}
+   case "consumeOpen":
+    let valid=self.defaults.string(forKey:self.openedKey)==self.owner && self.owner==args["owner"]as? String
+    self.defaults.removeObject(forKey:self.openedKey);result(valid)
+   default:result(FlutterMethodNotImplemented)
+   }
+  }
+ }
+ func owns(_ request:UNNotificationRequest)->Bool{request.identifier.hasPrefix(Self.prefix) && owner != nil && request.content.userInfo["cycle-owner"]as? String==owner}
+ func opened(_ response:UNNotificationResponse){if owns(response.notification.request){defaults.set(owner,forKey:openedKey)}}
+}
+
 private final class RingHealthReminderNotificationBridge {
   static let prefix = "sayring.health."
   private let channel: FlutterMethodChannel
@@ -1043,6 +1115,7 @@ private final class RingHealthReminderSoundBridge: NSObject, AVAudioPlayerDelega
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, WXApiDelegate {
+  private var cycleNotifications: RingCycleNotificationBridge?
   private var healthReminderNotifications: RingHealthReminderNotificationBridge?
   private var healthReminderSound: RingHealthReminderSoundBridge?
   private(set) var flutterEngine: FlutterEngine?
@@ -1092,6 +1165,10 @@ private final class RingHealthReminderSoundBridge: NSObject, AVAudioPlayerDelega
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    if notification.request.identifier.hasPrefix(RingCycleNotificationBridge.prefix) {
+      if cycleNotifications?.owns(notification.request) == true { completionHandler([.alert, .sound]) } else { completionHandler([]) }
+      return
+    }
     if notification.request.identifier.hasPrefix(RingHealthReminderNotificationBridge.prefix) {
       guard healthReminderNotifications?.owns(notification.request) == true else {
         completionHandler([])
@@ -1111,6 +1188,9 @@ private final class RingHealthReminderSoundBridge: NSObject, AVAudioPlayerDelega
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
+    if response.notification.request.identifier.hasPrefix(RingCycleNotificationBridge.prefix) {
+      cycleNotifications?.opened(response); completionHandler(); return
+    }
     if response.notification.request.identifier.hasPrefix(RingHealthReminderNotificationBridge.prefix) {
       healthReminderNotifications?.opened(response)
       completionHandler()
@@ -1125,6 +1205,7 @@ private final class RingHealthReminderSoundBridge: NSObject, AVAudioPlayerDelega
       return
     }
     healthReminderNotifications = RingHealthReminderNotificationBridge(messenger: registrar.messenger())
+    cycleNotifications = RingCycleNotificationBridge(messenger: registrar.messenger())
     healthReminderSound = RingHealthReminderSoundBridge(
       messenger: registrar.messenger(),
       assetKey: registrar.lookupKey(forAsset: "assets/audio/health_reminder_alarm.wav")

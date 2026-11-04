@@ -48,6 +48,13 @@ abstract interface class HealthStore implements NotificationInboxStorage {
   Future<void> close();
 }
 
+/// 周期行显式捕获owner，异步队列不能写进后来切换的账号。
+abstract interface class CycleStore {
+  Future<List<Map<String, Object?>>> cycleRows(String owner);
+  Future<void> putCycleRow(String owner, String id, Map<String, Object?> row);
+  Future<void> clearCycleRows(String owner);
+}
+
 // 与 Android CoolWearRecordMapper.sportRecords 的 Java nameUUIDFromBytes 一致。
 // 除了格式，还要核对本轮连接的 MAC、运动类型和开始时刻，防止旧目标回包写入当前记录。
 final _coolWearMac = RegExp(r'^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$');
@@ -223,6 +230,7 @@ class EncryptedHealthStore
         DeviceHistorySyncStore,
         HealthReminderDeletionStore,
         ReadingReminderSettingsStore,
+        CycleStore,
         SleepDetailStore,
         MetricFilteredPendingHealthStore {
   EncryptedHealthStore(
@@ -267,6 +275,38 @@ class EncryptedHealthStore
   bool recoveryPending = false;
 
   HealthStoreFileOperations get _fileOperations => fileOperations;
+
+  static Future<void> _createCycleTable(Database database) => database.execute(
+    'CREATE TABLE IF NOT EXISTS cycle_rows(owner_id TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(owner_id,id))',
+  );
+  @override
+  Future<List<Map<String, Object?>>> cycleRows(String owner) => _enqueue(
+    () async =>
+        (await _db.query(
+              'cycle_rows',
+              where: 'owner_id = ?',
+              whereArgs: [owner],
+            ))
+            .map(
+              (r) => Map<String, Object?>.from(
+                jsonDecode(r['payload'] as String) as Map,
+              ),
+            )
+            .toList(),
+  );
+  @override
+  Future<void> putCycleRow(String owner, String id, Map<String, Object?> row) =>
+      _enqueue(() async {
+        await _db.insert('cycle_rows', {
+          'owner_id': owner,
+          'id': id,
+          'payload': jsonEncode(row),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      });
+  @override
+  Future<void> clearCycleRows(String owner) => _enqueue(() async {
+    await _db.delete('cycle_rows', where: 'owner_id = ?', whereArgs: [owner]);
+  });
 
   Future<T> _enqueue<T>(Future<T> Function() operation) {
     final completer = Completer<T>();
@@ -325,7 +365,7 @@ class EncryptedHealthStore
     Future<Database> open() => _databaseOpener(
       file,
       password: password,
-      version: 6,
+      version: 7,
       onConfigure: (database) async {
         await database.execute('PRAGMA foreign_keys = ON');
       },
@@ -370,6 +410,7 @@ class EncryptedHealthStore
           CREATE INDEX sport_records_time
           ON sport_records(owner_id, started_at DESC)
         ''');
+        await _createCycleTable(database);
         await _createHealthWarningTable(database);
         await _createNotificationInboxTable(database);
       },
@@ -400,6 +441,7 @@ class EncryptedHealthStore
         if (oldVersion < 6) {
           await _migrateHealthDataToAccountScope(database);
         }
+        if (oldVersion < 7) await _createCycleTable(database);
       },
     );
     try {
@@ -1623,7 +1665,32 @@ class MemoryHealthStore
         MetricFilteredPendingHealthStore,
         HealthReminderDeletionStore,
         ReadingReminderSettingsStore,
+        CycleStore,
         DeviceHistorySyncStore {
+  final Map<String, Map<String, Map<String, Object?>>> _cycleRows = {};
+  @override
+  Future<List<Map<String, Object?>>> cycleRows(String owner) async =>
+      (_cycleRows[owner] ?? {}).values
+          .map(
+            (r) => Map<String, Object?>.from(jsonDecode(jsonEncode(r)) as Map),
+          )
+          .toList();
+  @override
+  Future<void> putCycleRow(
+    String owner,
+    String id,
+    Map<String, Object?> row,
+  ) async {
+    (_cycleRows[owner] ??= {})[id] = Map<String, Object?>.from(
+      jsonDecode(jsonEncode(row)) as Map,
+    );
+  }
+
+  @override
+  Future<void> clearCycleRows(String owner) async {
+    _cycleRows.remove(owner);
+  }
+
   MemoryHealthStore({DateTime Function()? clock})
     : _clock = clock ?? DateTime.now;
 

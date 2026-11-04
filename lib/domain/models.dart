@@ -790,6 +790,8 @@ class HealthRecord {
     this.sourceVendor = '',
     this.sourceDeviceCategory = '',
     this.sourceApp = '',
+    this.provenance = const {},
+    this.nightWindows = const [],
     this.sleepTimeline,
   }) : origin = origin ?? MeasurementOrigin.fromWire(null, source: source);
 
@@ -810,6 +812,10 @@ class HealthRecord {
   final String sourceVendor;
   final String sourceDeviceCategory;
   final String sourceApp;
+
+  /// 厂商确实提供的算法、时间和质量，不用默认值升级旧记录。
+  final Map<String, Object?> provenance;
+  final List<Map<String, Object?>> nightWindows;
   final SleepTimeline? sleepTimeline;
 
   factory HealthRecord.fromJson(Map<String, Object?> json) {
@@ -846,6 +852,12 @@ class HealthRecord {
       sourceVendor: '${json['sourceVendor'] ?? ''}'.trim(),
       sourceDeviceCategory: '${json['sourceDeviceCategory'] ?? ''}'.trim(),
       sourceApp: '${json['sourceApp'] ?? ''}'.trim(),
+      nightWindows: (json['nightWindows'] as List? ?? const [])
+          .map((w) => Map<String, Object?>.from(w as Map))
+          .toList(),
+      provenance: json['provenance'] is Map
+          ? Map<String, Object?>.from(json['provenance'] as Map)
+          : const {},
       sleepTimeline: json['sleepTimeline'] is Map
           ? SleepTimeline.fromJson(
               (json['sleepTimeline'] as Map).map(
@@ -875,6 +887,8 @@ class HealthRecord {
     if (sourceDeviceCategory.isNotEmpty)
       'sourceDeviceCategory': sourceDeviceCategory,
     if (sourceApp.isNotEmpty) 'sourceApp': sourceApp,
+    if (provenance.isNotEmpty) 'provenance': provenance,
+    if (nightWindows.isNotEmpty) 'nightWindows': nightWindows,
     if (sleepTimeline != null) 'sleepTimeline': sleepTimeline!.toJson(),
   };
 
@@ -891,6 +905,8 @@ class HealthRecord {
     String? sourceVendor,
     String? sourceDeviceCategory,
     String? sourceApp,
+    Map<String, Object?>? provenance,
+    List<Map<String, Object?>>? nightWindows,
     SleepTimeline? sleepTimeline,
   }) => HealthRecord(
     id: id,
@@ -910,6 +926,8 @@ class HealthRecord {
     sourceVendor: sourceVendor ?? this.sourceVendor,
     sourceDeviceCategory: sourceDeviceCategory ?? this.sourceDeviceCategory,
     sourceApp: sourceApp ?? this.sourceApp,
+    provenance: provenance ?? this.provenance,
+    nightWindows: nightWindows ?? this.nightWindows,
     sleepTimeline: sleepTimeline ?? this.sleepTimeline,
   );
 

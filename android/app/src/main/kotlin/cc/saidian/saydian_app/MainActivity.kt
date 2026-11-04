@@ -250,6 +250,7 @@ class MainActivity : FlutterActivity() {
         if (!::adapter.isInitialized) adapter = VeepooWearableAdapter(applicationContext)
         super.configureFlutterEngine(flutterEngine)
         healthReminderNotifications = HealthReminderNotifications(this, flutterEngine.dartExecutor.binaryMessenger)
+        CycleNotifications(this, flutterEngine.dartExecutor.binaryMessenger)
         healthReminderSound?.dispose()
         healthReminderSound = HealthReminderSound(this, flutterEngine.dartExecutor.binaryMessenger)
         coolWearBridge = CoolWearRingBridge(this, flutterEngine.dartExecutor.binaryMessenger)

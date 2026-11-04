@@ -130,7 +130,7 @@ void main() {
             (await database.rawQuery(
               'PRAGMA user_version',
             )).single['user_version'],
-            6,
+            7,
           );
           await database.close();
           final reopened = _encrypted(file);

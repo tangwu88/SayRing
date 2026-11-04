@@ -1196,6 +1196,15 @@ void main() {
               as BoxDecoration;
       expect(profileHeaderDecoration.color, Colors.white);
       expect(find.byKey(const Key('profile-orders-card')), findsOneWidget);
+      // 新周期入口让下面的快捷操作进入懒加载区，先按真实滚动流程定位。
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('profile-quick-actions-card')),
+        180,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('my-page')),
+          matching: find.byType(Scrollable),
+        ),
+      );
       expect(
         find.byKey(const Key('profile-quick-actions-card')),
         findsOneWidget,

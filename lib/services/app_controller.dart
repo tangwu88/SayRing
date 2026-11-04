@@ -23,6 +23,7 @@ import '../domain/health_reminder.dart';
 import '../domain/reading_reminder.dart';
 import '../domain/heart_rate_reminder_engine.dart';
 import 'health_reminder_notifications.dart';
+import 'cycle_tracking_service.dart';
 import 'health_reminder_report.dart';
 import '../domain/wellness_release_policy.dart';
 import '../domain/health_cloud_upload_policy.dart';
@@ -94,6 +95,7 @@ class AppController extends ChangeNotifier {
     AppNotificationService? notificationService,
     HealthReminderNotifications? healthReminderNotifications,
     HeartRateReminderEngine? heartRateReminders,
+    this.cycleNotifications,
     List<Duration>? pushRegistrationRetryDelays,
     this._allowAutomaticWearableRestore = true,
     this.generalAiEnabled = true,
@@ -1197,6 +1199,35 @@ class AppController extends ChangeNotifier {
     });
   }
 
+  Future<void> loadCycleHealth() async {
+    final generation = _sessionGeneration;
+    if (session == null) return;
+    final rows = <HealthRecord>[];
+    for (final metric in [
+      HealthMetric.sleep,
+      HealthMetric.bodyTemperature,
+      HealthMetric.heartRate,
+      HealthMetric.hrv,
+    ]) {
+      if (!shouldShowHealthMetric(metric)) continue;
+      rows.addAll(
+        await _healthStore.range(
+          metric: metric,
+          start: DateTime.now().subtract(const Duration(days: 180)),
+          end: DateTime.now(),
+        ),
+      );
+      if (!_isCurrentSessionGeneration(generation)) return;
+    }
+    cycles.updateHealth(rows);
+  }
+
+  final CycleNotifications? cycleNotifications;
+  late final CycleTrackingService cycles = CycleTrackingService(
+    _healthStore is CycleStore ? _healthStore as CycleStore : null,
+    remote: _api is CycleRemote ? _api as CycleRemote : null,
+    notifications: cycleNotifications,
+  );
   final HealthStore _healthStore;
   final WearableBridge _wearable;
   final AppPaymentBridge _paymentBridge;
@@ -1668,6 +1699,7 @@ class AppController extends ChangeNotifier {
     scannedDevices = const [];
     deviceScanIssue = null;
     _activeHealthOwner = _healthOwnerFor(value);
+    cycles.setOwner(value == null ? null : _activeHealthOwner);
     _heartRateReminders.reset();
     _readingReminderEngine.reset();
     readingReminderSettings = const ReadingReminderSettings();
@@ -1740,6 +1772,8 @@ class AppController extends ChangeNotifier {
   }) async {
     try {
       await _healthStore.switchOwner(_healthOwnerFor(value));
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
+      unawaited(cycles.load().catchError((Object _) {}));
       if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
       await _loadReadingReminderSettings(expectedGeneration);
       if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
@@ -6303,6 +6337,19 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> handleAppResumed() async {
+    final cycleGeneration = _sessionGeneration;
+    final cycleOwner = cycles.owner;
+    if (cycleOwner != null &&
+        await cycles.notifications.opened(cycleOwner) &&
+        _isCurrentSessionGeneration(cycleGeneration) &&
+        cycles.settings.enabled) {
+      pendingNotificationRoute = const NotificationRouteIntent(
+        target: NotificationRouteTarget.cycleTracking,
+        eventId: 'cycle-local',
+      );
+      if (!_disposed) notifyListeners();
+    }
+    if (cycles.available) unawaited(cycles.sync().catchError((Object _) {}));
     if (_disposed) return;
     unawaited(refreshHealthReminderPermissions());
     unawaited(_consumeHealthReminderOpen());
@@ -8929,6 +8976,7 @@ class AppController extends ChangeNotifier {
     unawaited(_pushPermissionEvents?.cancel());
     unawaited(_pushRegistrationReadyEvents?.cancel());
     unawaited(_notificationService.dispose());
+    cycles.dispose();
     deviceMachine.dispose();
     unawaited(_healthStore.close());
     super.dispose();

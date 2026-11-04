@@ -35,6 +35,7 @@ import 'global_legal_page.dart';
 import 'global_care_page.dart';
 import 'health_reports_page.dart';
 import 'health_reminder_center.dart';
+import 'cycle_tracking_page.dart';
 import 'health_trend_page.dart';
 import 'home_health_cards_page.dart';
 import 'prototype_pages.dart';

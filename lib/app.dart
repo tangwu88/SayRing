@@ -15,6 +15,7 @@ import 'services/app_update_service.dart';
 import 'ui/app_theme.dart';
 import 'ui/app_update_gate_scope.dart';
 import 'ui/pages.dart';
+import 'ui/cycle_tracking_page.dart';
 import 'ui/prototype_pages.dart';
 import 'ui/global_code_login_page.dart';
 import 'ui/review_demo_page.dart';
@@ -277,6 +278,9 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         NotificationRouteTarget.healthWarningHistory => HealthWarningPage(
           controller: controller,
           targetReminderId: intent.entityId,
+        ),
+        NotificationRouteTarget.cycleTracking => CycleTrackingPage(
+          controller: controller,
         ),
         NotificationRouteTarget.notificationInbox => NotificationsPage(
           controller: controller,

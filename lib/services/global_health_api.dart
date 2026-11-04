@@ -137,6 +137,25 @@ mixin GlobalHealthApi on SaydianApiClient {
           if (record.firmwareVersion.isNotEmpty)
             'firmware': record.firmwareVersion,
           'sourceApp': GlobalEnvironment.productId,
+          if (record.sourceModel.isNotEmpty) 'model': record.sourceModel,
+          if (record.provenance.isNotEmpty) 'provenance': record.provenance,
+          if (record.sleepTimeline == null && record.nightWindows.isNotEmpty)
+            'sleepWindows': record.nightWindows,
+          if (record.sleepTimeline != null)
+            'sleepWindows': [
+              for (final s in record.sleepTimeline!.sessions.where(
+                (s) =>
+                    s.startedAt != null &&
+                    s.endedAt != null &&
+                    s.kind.name != 'unknown',
+              ))
+                {
+                  'startAt': s.startedAt!.toUtc().toIso8601String(),
+                  'endAt': s.endedAt!.toUtc().toIso8601String(),
+                  'kind': s.kind.name,
+                  'date': record.sleepTimeline!.sdkDate,
+                },
+            ],
           if (record.source == MeasurementSource.wearable && transport != null)
             'vendor': transport.name,
           if (record.source == MeasurementSource.wearable && transport != null)
@@ -394,6 +413,12 @@ mixin GlobalHealthApi on SaydianApiClient {
       sourceVendor: vendor,
       sourceDeviceCategory: category,
       sourceApp: sourceApp,
+      nightWindows: (source['sleepWindows'] as List? ?? const [])
+          .map((w) => Map<String, Object?>.from(w as Map))
+          .toList(),
+      provenance: source['provenance'] is Map
+          ? Map<String, Object?>.from(source['provenance'] as Map)
+          : const {},
     );
   }
 
