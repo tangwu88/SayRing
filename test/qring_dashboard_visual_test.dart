@@ -202,12 +202,13 @@ void main() {
           await _mount(tester, controller, width: 332, textScale: textScale);
           await tester.pumpAndSettle();
           expect(_activityText('1234'), findsOneWidget);
-          expect(_activityText('单位待确认'), findsOneWidget);
+          expect(_activityText('单位待确认'), findsNothing);
+          expect(_activityText('热量'), findsNothing);
           expect(_activityText('98760'), findsNothing);
-          final ring = tester.widget<CircularProgressIndicator>(
+          expect(
             find.byKey(const ValueKey('activity-goal-ring-2')),
+            findsNothing,
           );
-          expect(ring.value, 0);
           expect(
             (await store.recent())
                 .singleWhere((r) => r.metric == HealthMetric.calories)
@@ -251,7 +252,7 @@ void main() {
     );
   }
 
-  testWidgets('364dp activity keeps rings left of all three live values', (
+  testWidgets('364dp activity keeps two values compact and calories stored', (
     tester,
   ) async {
     final store = MemoryHealthStore();
@@ -264,7 +265,7 @@ void main() {
     await _mount(tester, controller, width: 364, shell: true);
     await tester.pumpAndSettle();
     final ring = find.byKey(const Key('home-activity-rings'));
-    for (final text in ['239', '0.18', '8920']) {
+    for (final text in ['239', '0.18']) {
       final value = _activityText(text);
       expect(value, findsOneWidget);
       expect(
@@ -272,7 +273,23 @@ void main() {
         greaterThan(tester.getCenter(ring).dx),
       );
     }
-    expect(tester.getSize(_activity).height, lessThan(350));
+    expect(_activityText('8920'), findsNothing);
+    expect(_activityText('热量'), findsNothing);
+    expect(find.byKey(const ValueKey('activity-goal-ring-2')), findsNothing);
+    expect(tester.getSize(_activity).height, lessThan(220));
+    final semantics = tester.ensureSemantics();
+    final summary = tester.getSemantics(
+      find.bySemanticsLabel('今日活动目标进度，点击查看步数趋势'),
+    );
+    expect(summary.value, contains('步数 239'));
+    expect(summary.value, isNot(contains('热量')));
+    semantics.dispose();
+    expect(
+      (await store.recent())
+          .singleWhere((r) => r.metric == HealthMetric.calories)
+          .values['value'],
+      8920,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -433,9 +450,9 @@ void main() {
       await _mount(tester, controller);
       await tester.pumpAndSettle();
       expect(_activityText('1234'), findsOneWidget);
-      expect(_activityText('单位待确认'), findsOneWidget);
+      expect(_activityText('单位待确认'), findsNothing);
       expect(_activityText('98760'), findsNothing);
-      expect(_activityText('--'), findsNWidgets(2));
+      expect(_activityText('--'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -464,7 +481,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(_activityText('256'), findsOneWidget);
     expect(_activityText('200'), findsNothing);
-    expect(_activityText('--'), findsNWidgets(2));
+    expect(_activityText('--'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -500,12 +517,22 @@ void main() {
   testWidgets('missing activity remains unknown rather than zero', (
     tester,
   ) async {
-    final controller = _Controller(MemoryHealthStore());
+    final store = MemoryHealthStore();
+    final controller = _Controller(store);
+    final calories = _record(
+      'calories-only',
+      HealthMetric.calories,
+      125,
+      _today(),
+    );
+    await store.upsert([calories]);
     await _mount(tester, controller);
     await tester.pumpAndSettle();
     expect(_activityText('暂无今日活动数据'), findsOneWidget);
-    expect(_activityText('--'), findsNWidgets(3));
+    expect(_activityText('--'), findsNWidgets(2));
     expect(_activityText('0'), findsNothing);
+    expect(_activityText('125'), findsNothing);
+    expect((await store.recent()).single.toJson(), calories.toJson());
     expect(tester.takeException(), isNull);
   });
 

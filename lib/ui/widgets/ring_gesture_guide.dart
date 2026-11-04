@@ -4,6 +4,78 @@ import 'package:flutter/foundation.dart';
 import '../../domain/feature_models.dart';
 import '../app_theme.dart';
 
+/// 原厂敲击控制在 iPhone 上需要系统指针设置。这里只展示路径，不能读取
+/// 系统开关，也不能把模式回读成功当作系统设置或实际手势已经生效。
+class RingGestureIosSetup extends StatelessWidget {
+  const RingGestureIosSetup({super.key});
+
+  @override
+  Widget build(BuildContext context) => Card(
+    key: const ValueKey('gesture-ios-setup'),
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'iPhone 短视频设置',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '设置 → 辅助功能 → 触控 → 辅助触控',
+            style: TextStyle(fontSize: 14, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          for (final step in const [
+            (Icons.accessibility_new_rounded, '辅助触控', '需开启'),
+            (Icons.touch_app_outlined, '执行触控手势', '需开启'),
+            (Icons.speed_rounded, '跟踪灵敏度', '调至最高'),
+          ])
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(step.$1, size: 20, color: SaydianColors.techBlue),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(text: step.$2),
+                          TextSpan(
+                            text: ' · ${step.$3}',
+                            style: const TextStyle(color: SaydianColors.muted),
+                          ),
+                        ],
+                      ),
+                      style: const TextStyle(fontSize: 15, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const Text(
+            '打开短视频 App，用佩戴戒指的手指敲击操作。敲击次数以这枚戒指的说明为准。',
+            style: TextStyle(fontSize: 15, height: 1.5),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '请在系统中核对以上设置；部分手机、固件或 App 可能不支持。',
+            key: ValueKey('gesture-phone-compatibility'),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: SaydianColors.muted,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class RingGestureQuickStart extends StatelessWidget {
   const RingGestureQuickStart({super.key});
 
@@ -100,7 +172,10 @@ class RingGestureQuickStart extends StatelessWidget {
 /// Read-only instructions. Opening this guide never pairs a device, grants a
 /// permission or changes its gesture mode. OEM touch mappings vary by firmware.
 class RingGestureGuide extends StatelessWidget {
-  const RingGestureGuide({super.key});
+  const RingGestureGuide({this.tapControl = false, super.key});
+
+  /// 来自当前连接的真实控制类型；不按蓝牙名称推广至其他通道／触摸固件。
+  final bool tapControl;
 
   static String modeHint(int mode) => switch (mode) {
     0 => '用完后关闭，避免误操作和额外耗电',
@@ -127,9 +202,20 @@ class RingGestureGuide extends StatelessWidget {
       expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _GuideSection('操作方法', [
-          '按这枚戒指的说明操作。不同型号的触控次数和动作可能不同。',
+          if (tapControl)
+            '用佩戴戒指的手指敲击操作，次数以这枚戒指的说明为准。'
+          else
+            '按这枚戒指的说明操作。不同型号的触控次数和动作可能不同。',
           'App 内拍照：到设备页打开“${DeviceFeature.camera.label}”，允许相机与照片保存权限，并保持拍照页在前台。',
           '用完可选择“关闭”，减少误操作。',
+        ]),
+        if (tapControl && defaultTargetPlatform == TargetPlatform.iOS)
+          const _GuideSection('iPhone 短视频设置', [
+            '设置 → 辅助功能 → 触控 → 辅助触控：开启“辅助触控”和“执行触控手势”，将“跟踪灵敏度”调至最高。',
+            'App 不能读取这些系统开关；请在系统中核对后，再打开目标 App 实际试用。',
+          ]),
+        const _GuideSection('阅读翻页', [
+          '若阅读 App 提供“音量键翻页”，请先开启；部分 App 还需要切换翻页方式。',
         ]),
         _GuideSection('没有反应？', [
           '先确认戒指仍已连接、场景已确认，目标 App 在前台。',

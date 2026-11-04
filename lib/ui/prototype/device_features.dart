@@ -889,6 +889,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       busy: busy,
       requiresReconnect: reconnect,
       readbackConfirmed: qring && ready,
+      tapControl: qring && ready && _featureData['touch'] == false,
       error:
           _featureData['errorMessage'] as String? ??
           widget.controller.errorMessage,

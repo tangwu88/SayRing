@@ -805,7 +805,6 @@ class _DashboardActivityState extends State<_DashboardActivity>
   bool _reloadQueued = false;
   bool _loading = true;
   bool _failed = false;
-  bool _calorieUnitPending = false;
 
   @override
   void initState() {
@@ -823,7 +822,6 @@ class _DashboardActivityState extends State<_DashboardActivity>
     _readFence = Completer<void>();
     _activeRead = null;
     _reloadQueued = false;
-    _calorieUnitPending = false;
     _refresh?.cancel();
     _refresh = null;
   }
@@ -909,7 +907,6 @@ class _DashboardActivityState extends State<_DashboardActivity>
           for (final metric in const [
             HealthMetric.steps,
             HealthMetric.distance,
-            HealthMetric.calories,
           ])
             widget.controller.loadHealthRecords(
               metric: metric,
@@ -925,9 +922,6 @@ class _DashboardActivityState extends State<_DashboardActivity>
       }
       setState(() {
         _values = _todayActivityValues(batches.expand((batch) => batch), now);
-        _calorieUnitPending =
-            !_values.containsKey(HealthMetric.calories) &&
-            batches.expand((batch) => batch).any(hasUnconfirmedCalorieUnit);
         _loading = false;
         _failed = false;
       });
@@ -973,8 +967,6 @@ class _DashboardActivityState extends State<_DashboardActivity>
         latest: _values,
         stepTarget: widget.controller.stepGoal.toDouble(),
         distanceTarget: widget.controller.distanceGoal,
-        calorieTarget: widget.controller.calorieGoal.toDouble(),
-        calorieUnitPending: _calorieUnitPending,
         onSetGoal: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
             settings: const RouteSettings(name: 'activity-goals'),
@@ -1009,16 +1001,13 @@ class _TodayHealthOverview extends StatelessWidget {
     required this.latest,
     required this.stepTarget,
     required this.distanceTarget,
-    required this.calorieTarget,
     required this.onSetGoal,
     required this.onOpenMetric,
-    this.calorieUnitPending = false,
   });
   final Map<HealthMetric, num> latest;
-  final double stepTarget, distanceTarget, calorieTarget;
+  final double stepTarget, distanceTarget;
   final VoidCallback onSetGoal;
   final ValueChanged<HealthMetric> onOpenMetric;
-  final bool calorieUnitPending;
 
   @override
   Widget build(BuildContext context) {
@@ -1033,7 +1022,7 @@ class _TodayHealthOverview extends StatelessWidget {
           color: SaydianColors.techBlue,
           onTap: () => onOpenMetric(HealthMetric.steps),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         _GoalProgressRow(
           metric: HealthMetric.distance,
           value: latest[HealthMetric.distance],
@@ -1041,22 +1030,13 @@ class _TodayHealthOverview extends StatelessWidget {
           color: SaydianColors.activity,
           onTap: () => onOpenMetric(HealthMetric.distance),
         ),
-        const SizedBox(height: 12),
-        _GoalProgressRow(
-          metric: HealthMetric.calories,
-          value: latest[HealthMetric.calories],
-          target: calorieTarget,
-          color: SaydianColors.energy,
-          unavailableReason: calorieUnitPending ? '单位待确认' : null,
-          onTap: () => onOpenMetric(HealthMetric.calories),
-        ),
       ],
     );
     final rings = Semantics(
       label: '今日活动目标进度，点击查看步数趋势',
       value: latest.isEmpty
           ? '暂无数据'
-          : '步数 ${step ?? '--'}，距离 ${latest[HealthMetric.distance] ?? '--'} 公里，热量 ${calorieUnitPending ? '单位待确认' : '${latest[HealthMetric.calories] ?? '--'} 千卡'}',
+          : '步数 ${step ?? '--'}，距离 ${latest[HealthMetric.distance] ?? '--'} 公里',
       button: true,
       excludeSemantics: true,
       onTap: () => onOpenMetric(HealthMetric.steps),
@@ -1065,7 +1045,7 @@ class _TodayHealthOverview extends StatelessWidget {
         onTap: () => onOpenMetric(HealthMetric.steps),
         borderRadius: BorderRadius.circular(100),
         child: SizedBox.square(
-          dimension: 164,
+          dimension: 136,
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -1077,15 +1057,9 @@ class _TodayHealthOverview extends StatelessWidget {
                   distanceTarget,
                   SaydianColors.activity,
                 ),
-                (
-                  2,
-                  latest[HealthMetric.calories],
-                  calorieTarget,
-                  SaydianColors.energy,
-                ),
               ])
                 SizedBox.square(
-                  dimension: 148 - index * 34.0,
+                  dimension: 128 - index * 32.0,
                   child: CircularProgressIndicator(
                     key: ValueKey('activity-goal-ring-$index'),
                     value: value == null || !target.isFinite || target <= 0
@@ -1095,12 +1069,12 @@ class _TodayHealthOverview extends StatelessWidget {
                     strokeCap: StrokeCap.round,
                     color: color,
                     backgroundColor: color.withValues(alpha: .10),
-                    semanticsLabel: '${["步数", "距离", "热量"][index]}目标',
+                    semanticsLabel: '${["步数", "距离"][index]}目标',
                   ),
                 ),
               const Icon(
                 Icons.directions_walk_rounded,
-                size: 29,
+                size: 26,
                 color: SaydianColors.ink,
               ),
             ],
@@ -1111,7 +1085,7 @@ class _TodayHealthOverview extends StatelessWidget {
     return Card(
       key: const Key('dashboard-today-health'),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 8, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1132,18 +1106,20 @@ class _TodayHealthOverview extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 4),
             LayoutBuilder(
               builder: (context, constraints) {
                 final stack =
                     constraints.maxWidth < 240 ||
                     MediaQuery.textScalerOf(context).scale(1) > 1.2;
-                final ringWidth = (constraints.maxWidth * .49)
-                    .clamp(112.0, 164.0)
+                // 今日活动只呈现步数／距离；缩小图形与留白，不压缩文字或点击区。
+                // 热量原始记录、同步和详情仍由原来的数据链路保留。
+                final ringWidth = (constraints.maxWidth * .43)
+                    .clamp(104.0, 136.0)
                     .toDouble();
                 return stack
                     ? Column(
-                        children: [rings, const SizedBox(height: 18), rows],
+                        children: [rings, const SizedBox(height: 12), rows],
                       )
                     : Row(
                         children: [
@@ -1180,14 +1156,12 @@ class _GoalProgressRow extends StatelessWidget {
     required this.target,
     required this.color,
     required this.onTap,
-    this.unavailableReason,
   });
   final HealthMetric metric;
   final num? value;
   final double target;
   final Color color;
   final VoidCallback onTap;
-  final String? unavailableReason;
   String _format(num number) => metric == HealthMetric.distance
       ? number.toStringAsFixed(2)
       : number.round().toString();
@@ -1252,7 +1226,7 @@ class _GoalProgressRow extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          unavailableReason ?? '/${_format(target)}$unit',
+                          '/${_format(target)}$unit',
                           style: const TextStyle(
                             fontSize: 14,
                             color: SaydianColors.muted,

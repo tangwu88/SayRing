@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../app_theme.dart';
 import 'ring_gesture_guide.dart';
@@ -22,6 +23,7 @@ class RingGesturePanel extends StatelessWidget {
     this.onStrengthChanged,
     this.onStop,
     this.uncertainControl = false,
+    this.tapControl = false,
     super.key,
   });
 
@@ -37,6 +39,7 @@ class RingGesturePanel extends StatelessWidget {
   final ValueChanged<int>? onStrengthChanged;
   final VoidCallback? onStop;
   final bool uncertainControl;
+  final bool tapControl;
 
   static const modes = <(int, String, IconData, String)>[
     (0, '关闭', Icons.power_settings_new_rounded, '暂停手势控制'),
@@ -173,7 +176,18 @@ class RingGesturePanel extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        const RingGestureQuickStart(),
+        // 仅真实读回且支持的敲击短视频模式展示专属引导；不以说明卡绕过
+        // 未确认／断线状态，也不替用户修改 iOS 辅助功能或戒指灵敏度。
+        if (tapControl &&
+            defaultTargetPlatform == TargetPlatform.iOS &&
+            enabled &&
+            !uncertainControl &&
+            readbackConfirmed &&
+            confirmedMode == 1 &&
+            availableModes.contains(1))
+          const RingGestureIosSetup()
+        else
+          const RingGestureQuickStart(),
         const SizedBox(height: 12),
         Row(
           children: [
@@ -332,7 +346,7 @@ class RingGesturePanel extends StatelessWidget {
             child: Text('戒指尚未上报可开启的控制模式，目前仅可关闭。'),
           ),
         const SizedBox(height: 12),
-        const RingGestureGuide(),
+        RingGestureGuide(tapControl: tapControl),
       ],
     );
   }
