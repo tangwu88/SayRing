@@ -897,6 +897,73 @@ void main() {
     );
   }
 
+  test('progressive history is durable before the full SDK reply', () async {
+    const ring = DeviceInfo(id: 'coolwear:42:57:50:04:AB:4C', name: 'R7 Ultra');
+    final record = HealthRecord(
+      id: 'progressive-history',
+      metric: HealthMetric.heartRate,
+      values: const {'value': 72},
+      unit: 'bpm',
+      measuredAt: DateTime.now().toUtc().subtract(const Duration(minutes: 1)),
+      timezone: '+08:00',
+      deviceId: ring.id,
+      firmwareVersion: 'test',
+      quality: 'device_reported',
+      source: MeasurementSource.wearable,
+      origin: MeasurementOrigin.watchHistory,
+      sourceVendor: 'coolwear',
+      rawVersion: 2,
+    );
+    final store = _DelayedReceiptStore();
+    final wearable = _ProgressReceiptWearable(scannedDevice: ring);
+    final controller = _controller(wearable: wearable, store: store);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    controller.connectedDevice = ring;
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+    store.hold = true;
+    var returned = false;
+    final sync = controller.syncDeviceData().then((result) {
+      returned = true;
+      return result;
+    });
+    await wearable.started.future;
+    wearable.emitEvent(
+      WearableEvent(
+        type: 'healthRecord',
+        payload: {
+          ...record.toJson(),
+          'type': 'heart_rate',
+          '_nativeReceipt': 'progressive-token',
+        },
+      ),
+    );
+    await store.started.future;
+    expect(wearable.received, isEmpty);
+    store.saved.complete();
+    for (var turn = 0; turn < 8; turn++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(returned, isFalse);
+    expect((await store.recent()).single.id, record.id);
+    expect(wearable.received, [
+      const {'progressive-history': 'progressive-token'},
+    ]);
+    wearable.reply.complete(
+      WearableSyncResult([], const {'heart_rate': 'partial'}),
+    );
+    expect(await sync, isFalse);
+    expect((await store.recent()).single.id, record.id);
+  });
+
   test('CoolWear timeout rejects packets from another ring', () async {
     const ring = DeviceInfo(
       id: 'coolwear:42:57:50:04:AB:4C',
@@ -2586,6 +2653,17 @@ class _ReceiptWearable extends _QaWearable
   @override
   Future<void> acknowledgeHealthRecords(Map<String, String> receipts) async {
     received.add(Map.of(receipts));
+  }
+}
+
+class _ProgressReceiptWearable extends _ReceiptWearable {
+  _ProgressReceiptWearable({super.scannedDevice});
+  final started = Completer<void>();
+  final reply = Completer<List<HealthRecord>>();
+  @override
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) {
+    if (!started.isCompleted) started.complete();
+    return reply.future;
   }
 }
 

@@ -31,6 +31,7 @@ public final class CoolWearHistorySdkTest {
         ProcessDATA_TYPE_SPORT parser = new ProcessDATA_TYPE_SPORT(null);
         check(parser.isMy(5) && parser.isMy(4), "audit SDK history/current types again");
         byte[] payload = new byte[3 + K6_Sport.getItemSize()];
+        payload[0] = 1;
         payload[2] = 1;
         check(parser.realProcess(payload).size() == 1, "actual sport parser disagrees with count header");
         check(parser.realProcess(new byte[]{0, 0, 0}).isEmpty(), "explicit empty batch is not empty");

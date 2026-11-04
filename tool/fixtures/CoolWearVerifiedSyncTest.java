@@ -65,9 +65,12 @@ public final class CoolWearVerifiedSyncTest {
         CEBluetoothProxyBase getK6Proxy() { return proxy; }
     }
     static final class K6_DATA_TYPE_FUNCTION_CONTROL {
-        boolean isHasHR24H() { return true; } boolean isHr_measure_button() { return true; }
-        boolean isHasO2() { return true; } boolean isHasHrvSupported() { return true; }
-        boolean isHasTemperature() { return true; }
+        final boolean extras;
+        K6_DATA_TYPE_FUNCTION_CONTROL() { this(true); }
+        K6_DATA_TYPE_FUNCTION_CONTROL(boolean extras) { this.extras=extras; }
+        boolean isHasHR24H() { return extras; } boolean isHr_measure_button() { return extras; }
+        boolean isHasO2() { return extras; } boolean isHasHrvSupported() { return extras; }
+        boolean isHasTemperature() { return extras; }
     }
     static final class MethodChannel {
         static final class Result {
@@ -81,9 +84,13 @@ public final class CoolWearVerifiedSyncTest {
         Map<String,Object> r = new HashMap<>(); r.put("id",id); r.put("values", Map.of("value",value)); return List.of(r);
     }
     static CoolWearVerifiedSyncTest start() {
-        SystemClock.now=0; BleFactory.instance.proxy.requests.clear(); return new CoolWearVerifiedSyncTest();
+        SystemClock.now=0; BleFactory.instance.proxy.requests.clear();
+        CoolWearVerifiedSyncTest instance=new CoolWearVerifiedSyncTest();
+        instance.functionControl=new K6_DATA_TYPE_FUNCTION_CONTROL(false);
+        return instance;
     }
-    static byte[] packet(int remaining, int... rows) {
+    static byte[] packet(int remainingAfterPacket, int... rows) {
+        int remaining=remainingAfterPacket+rows.length;
         byte[] result=new byte[3+rows.length]; result[0]=(byte)remaining; result[1]=(byte)(remaining >> 8); result[2]=(byte)rows.length;
         for(int i=0;i<rows.length;i++)result[i+3]=(byte)rows[i]; return result;
     }
@@ -92,6 +99,7 @@ public final class CoolWearVerifiedSyncTest {
         s.startSync(health,false); s.main.advance(1000);
         assert BleFactory.instance.proxy.requests.equals(List.of(9,4,5,6));
         s.main.advance(2000); s.collectHealth(record("steps",30)); s.receiveHistoryBatch(5,packet(1,1));
+        assert s.passive==1 : "valid packet withheld until whole transfer ended";
         s.main.advance(5000); s.collectHealth(record("steps",30)); s.receiveHistoryBatch(5,packet(1,1));
         s.main.advance(12000); s.collectHealth(record("steps",30)); s.receiveHistoryBatch(5,packet(1,1));
         s.main.advance(32000);
@@ -99,7 +107,7 @@ public final class CoolWearVerifiedSyncTest {
         assert ((Map<?,?>)((Map<?,?>)health.value).get("statuses")).get("sleep").equals("not_received") : "missing range claimed complete";
         assert ((List<?>)((Map<?,?>)health.value).get("records")).size()==1;
         assert s.progress==1 : "duplicates inflated progress";
-        s.collectHealth(record("late",31)); assert s.passive==1 : "late history lost";
+        s.collectHealth(record("late",31)); assert s.passive==2 : "late history lost or duplicate emitted";
 
         s=start(); health=new MethodChannel.Result();
         // A real early callback is cached before Flutter starts its explicit read.
@@ -131,6 +139,21 @@ public final class CoolWearVerifiedSyncTest {
         assert health.calls==0 : "HRV read was silently skipped";
         s.receiveHistoryBatch(61,packet(0)); s.main.advance(5000);
         assert health.calls==1 && health.code==null;
+
+        s=start(); s.functionControl=null; health=new MethodChannel.Result();
+        s.startSync(health,false); s.main.advance(1000);
+        s.receiveHistoryBatch(5,packet(0)); s.receiveHistoryBatch(6,packet(0));
+        s.main.advance(1000); assert health.calls==0 : "unknown capabilities claimed full transfer";
+        s.functionControl=new K6_DATA_TYPE_FUNCTION_CONTROL(); s.includeCapabilityHistory(true);
+        assert BleFactory.instance.proxy.requests.containsAll(List.of(8,40,61,42,47)) : "late capabilities lost health queries";
+        for(int type:new int[]{8,40,61,42,47}) s.receiveHistoryBatch(type,packet(0));
+        s.main.advance(1000); assert health.calls==1;
+
+        s=start(); s.functionControl=null; health=new MethodChannel.Result();
+        s.startSync(health,false); s.main.advance(1000);
+        s.receiveHistoryBatch(5,packet(0)); s.receiveHistoryBatch(6,packet(0));
+        s.main.advance(32000);
+        assert ((Map<?,?>)((Map<?,?>)health.value).get("statuses")).get("_capabilities").equals("not_received");
 
         s=start(); health=new MethodChannel.Result(); s.startSync(health,false);
         s.failPendingSync("CONNECT_CANCELLED","cancel"); int before=BleFactory.instance.proxy.requests.size();

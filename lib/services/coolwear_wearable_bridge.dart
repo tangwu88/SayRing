@@ -322,8 +322,9 @@ class CoolWearWearableBridge
         records,
         {
           for (final entry in (response['statuses'] as Map).entries)
-            if ((healthReleasePolicy ?? wearableHealthReleasePolicy)
-                .allowsWireMetric('${entry.key}'))
+            if (entry.key == '_capabilities' ||
+                (healthReleasePolicy ?? wearableHealthReleasePolicy)
+                    .allowsWireMetric('${entry.key}'))
               '${entry.key}': '${entry.value}',
         },
         receipts: response['receipts'] is Map

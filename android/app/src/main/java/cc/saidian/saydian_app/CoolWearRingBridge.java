@@ -155,7 +155,7 @@ public final class CoolWearRingBridge
     private int hrvLegacyPackets;
     private int hrvStressPackets;
     private volatile boolean linkConnected;
-    private long connectionEpoch;
+    private volatile long connectionEpoch;
     private long cameraSession;
     private long clearAttemptEpoch = -1;
     private volatile boolean deviceInfoReceived;
@@ -624,8 +624,10 @@ public final class CoolWearRingBridge
             }
             if (!record.equals(syncedHealthRecords.put(id.toString(), record))) {
                 changed = true;
-                // 健康读取已返回时，真正晚到的健康记录仍交给现有的被动入库流程。
-                if (pendingHealthSync == null) emitHealthRecordWithReceipt(record);
+                // Persist each validated packet while the transfer is active.
+                // A later disconnect must not discard all records merely
+                // because another metric has not reached its terminal yet.
+                if (deviceInfoReceived) emitHealthRecordWithReceipt(record);
             }
         }
         if (changed) noteSyncPacket();
@@ -678,6 +680,22 @@ public final class CoolWearRingBridge
         }
     }
 
+    private void includeCapabilityHistory(boolean requestNow) {
+        K6_DATA_TYPE_FUNCTION_CONTROL flags = functionControl;
+        if (flags == null || (requestNow && (pendingHealthSync == null || syncWindow == null))) return;
+        int[] types = {
+                flags.isHasHR24H() || flags.isHr_measure_button() ? 8 : -1,
+                flags.isHasO2() ? 40 : -1,
+                flags.isHasHrvSupported() ? 61 : -1,
+                flags.isHasHrvSupported() ? 42 : -1,
+                flags.isHasTemperature() ? 47 : -1};
+        for (int type : types) {
+            if (type < 0 || historyBatches.containsKey(type)) continue;
+            historyBatches.put(type, new CoolWearHistoryBatch());
+            if (requestNow) requestHistoryType(type);
+        }
+    }
+
     private void emitHealthRecordWithReceipt(Map<String, Object> record) {
         Map<String, Object> payload = new HashMap<>(record);
         payload.put("_nativeReceipt", connectionRecordReceipts.get(String.valueOf(record.get("id"))));
@@ -686,12 +704,15 @@ public final class CoolWearRingBridge
 
     private void acknowledgeHealthRecords(Map<String, String> receipts) {
         if (receipts == null) return;
+        int released = 0;
         for (Map.Entry<String, String> entry : receipts.entrySet()) {
             if (entry.getValue() != null && entry.getValue().equals(connectionRecordReceipts.get(entry.getKey()))) {
                 connectionRecordReceipts.remove(entry.getKey());
                 connectionHealthRecords.remove(entry.getKey());
+                released++;
             }
         }
+        if (released > 0) Log.i(TAG, "history local persistence confirmed; records=" + released);
     }
 
     private void receiveHistoryBatch(int type, byte[] bytes) {
@@ -700,11 +721,12 @@ public final class CoolWearRingBridge
         }
         CoolWearHistoryBatch batch = historyBatches.get(type);
         if (batch == null || !requestedHistoryTypes.contains(type) || syncWindow == null) return;
-        if (batch.accept(bytes)) noteSyncPacket();
+        if (bytes != null && bytes.length == 0 ? batch.acceptEmptyReply() : batch.accept(bytes)) noteSyncPacket();
         Log.i(TAG, "history batch; type=" + type + "; bytes=" + (bytes == null ? -1 : bytes.length)
                 + "; remaining=" + (bytes == null || bytes.length < 3 ? -1 : ((bytes[0] & 255) | ((bytes[1] & 255) << 8)))
                 + "; count=" + (bytes == null || bytes.length < 3 ? -1 : (bytes[2] & 255))
                 + "; state=" + batch.status());
+        if (pendingHealthSync != null && functionControl == null) return;
         for (CoolWearHistoryBatch value : historyBatches.values()) if (!value.complete()) return;
         // SDK parsers enqueue their public listeners before this observer. Those
         // listeners enqueue the mapped records once more on our main handler.
@@ -712,6 +734,7 @@ public final class CoolWearRingBridge
         final long request = historyRequestGeneration;
         main.post(() -> {
             if (request != historyRequestGeneration || syncWindow == null) return;
+            if (pendingHealthSync != null && functionControl == null) return;
             for (CoolWearHistoryBatch value : historyBatches.values()) if (!value.complete()) return;
             finishHistorySync();
         });
@@ -782,16 +805,7 @@ public final class CoolWearRingBridge
             pendingHealthSync = result;
             historyBatches.put(5, new CoolWearHistoryBatch());
             historyBatches.put(6, new CoolWearHistoryBatch());
-            K6_DATA_TYPE_FUNCTION_CONTROL flags = functionControl;
-            if (flags != null) {
-                if (flags.isHasHR24H() || flags.isHr_measure_button()) historyBatches.put(8, new CoolWearHistoryBatch());
-                if (flags.isHasO2()) historyBatches.put(40, new CoolWearHistoryBatch());
-                if (flags.isHasHrvSupported()) {
-                    historyBatches.put(61, new CoolWearHistoryBatch());
-                    historyBatches.put(42, new CoolWearHistoryBatch());
-                }
-                if (flags.isHasTemperature()) historyBatches.put(47, new CoolWearHistoryBatch());
-            }
+            includeCapabilityHistory(false);
         }
         long started = SystemClock.elapsedRealtime();
         syncWindow = new CoolWearSyncWindow(started);
@@ -804,6 +818,9 @@ public final class CoolWearRingBridge
             if (early != null) historyBatches.put(type, early);
         }
         connectionHistoryBatches.clear();
+        for (Map<String, Object> record : syncedHealthRecords.values()) {
+            emitHealthRecordWithReceipt(record);
+        }
         syncDeadline = new Runnable() {
             @Override public void run() {
                 if (syncDeadline != this || syncWindow == null || request != historyRequestGeneration) return;
@@ -842,6 +859,7 @@ public final class CoolWearRingBridge
 
     private void failPendingSync(String code, String message) {
         Map<String, String> statuses = new LinkedHashMap<>();
+        if (pendingHealthSync != null && functionControl == null) statuses.put("_capabilities", "not_received");
         for (Map.Entry<Integer, CoolWearHistoryBatch> entry : historyBatches.entrySet()) {
             if (entry.getKey() != 10) statuses.put(historyMetric(entry.getKey()), entry.getValue().status());
         }
@@ -931,6 +949,10 @@ public final class CoolWearRingBridge
             return;
         }
         if (status == K6_Action.RCVD.BLUE_CONNECTED) {
+            if (linkConnected) {
+                Log.i(TAG, "duplicate connected callback ignored");
+                return;
+            }
             if (!linkConnected) {
                 connectionEpoch++;
                 connectionHealthRecords.clear();
@@ -1047,6 +1069,8 @@ public final class CoolWearRingBridge
     private void onFunctionControl(K6_DATA_TYPE_FUNCTION_CONTROL control) {
         if (connectedId == null || control == null) return;
         functionControl = control;
+        try { includeCapabilityHistory(true); }
+        catch (RuntimeException error) { failPendingSync("COOLWEAR_SYNC_FAILED", "戒指数据同步启动失败，请重试"); }
         Log.i(TAG, "vendor function flags received: heart="
                 + (control.isHasHR24H() || control.isHr_measure_button())
                 + ", oxygen=" + control.isHasO2()

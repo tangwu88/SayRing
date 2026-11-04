@@ -200,6 +200,19 @@ void main() {
         channel,
         (call) async => {
           'records': [],
+          'statuses': {
+            'heart_rate': 'no_data',
+            '_capabilities': 'not_received',
+          },
+        },
+      );
+      final unresolved = await bridge.syncHealthData() as WearableSyncResult;
+      expect(unresolved.complete, isFalse);
+      expect(unresolved.statuses['_capabilities'], 'not_received');
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => {
+          'records': [],
           'statuses': {'sleep': 'partial'},
         },
       );

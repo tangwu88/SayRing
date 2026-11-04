@@ -4,8 +4,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoolWearHistoryBatchTest {
-    private fun packet(remaining: Int, vararg rows: Int): ByteArray =
-        byteArrayOf(remaining.toByte(), (remaining ushr 8).toByte(), rows.size.toByte(), *rows.map { it.toByte() }.toByteArray())
+    private fun packet(remainingAfterPacket: Int, vararg rows: Int): ByteArray {
+        val remainingIncludingPacket = remainingAfterPacket + rows.size
+        return byteArrayOf(remainingIncludingPacket.toByte(), (remainingIncludingPacket ushr 8).toByte(), rows.size.toByte(), *rows.map { it.toByte() }.toByteArray())
+    }
+
+    @Test fun vendorFinalTwoOfTwoIsCompleteWithoutAnInventedZeroTerminal() {
+        val batch = CoolWearHistoryBatch()
+        batch.accept(byteArrayOf(2, 0, 2, 11, 12))
+        assertTrue(batch.complete())
+        assertEquals("complete", batch.status())
+        val empty = CoolWearHistoryBatch()
+        empty.accept(byteArrayOf())
+        assertFalse(empty.complete())
+        assertTrue(empty.acceptEmptyReply())
+        assertEquals("no_data", empty.status())
+    }
 
     @Test fun onlyExplicitEmptyPacketProvesNoData() {
         val batch = CoolWearHistoryBatch()

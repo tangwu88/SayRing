@@ -4,8 +4,9 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-/** Exact batch accounting: remaining(u16 LE), count(u8), fixed-size records.
- * Only an explicit terminal and every unique record can prove completion.
+/** Android SDK batch accounting: remaining including this packet(u16 LE), count(u8).
+ * The vendor guide's remaining item total includes the current packet; a final
+ * two-item packet therefore carries 2/2, not 0/2. Never add count twice.
  */
 final class CoolWearHistoryBatch {
     private int expected;
@@ -24,9 +25,9 @@ final class CoolWearHistoryBatch {
         if (count == 0 ? body != 0 : body == 0 || body % count != 0) {
             malformed = true; return false;
         }
-        if (remaining + count > 16384) { malformed = true; return false; }
-        expected = Math.max(expected, remaining + count);
-        terminal |= remaining == 0;
+        if (remaining > 16384 || remaining < count) { malformed = true; return false; }
+        expected = Math.max(expected, remaining);
+        terminal |= remaining == count;
         if (count > 0) {
             int size = body / count;
             for (int index = 0; index < count; index++) {
@@ -35,6 +36,13 @@ final class CoolWearHistoryBatch {
         }
         if (rows.size() > expected) malformed = true;
         return !malformed && (beforeRows != rows.size() || beforeExpected != expected || beforeTerminal != terminal);
+    }
+    boolean acceptEmptyReply() {
+        // Called only for a requested type's decoded DATA response, never a
+        // command ACK, silence, or arbitrary zero bytes from an inactive stream.
+        if (malformed || expected != 0 || !rows.isEmpty() || terminal) return false;
+        terminal = true;
+        return true;
     }
     boolean complete() { return !malformed && terminal && rows.size() == expected; }
     String status() { return complete() ? (rows.isEmpty() ? "no_data" : "complete") : rows.isEmpty() ? "not_received" : "partial"; }
