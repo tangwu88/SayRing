@@ -1,3 +1,4 @@
+import 'widgets/adaptive_action_pair.dart';
 import 'widgets/safe_network_image.dart';
 import '../l10n/global_locale_controller.dart';
 import '../services/global_environment.dart';
@@ -5,6 +6,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../services/user_message.dart';
 import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
@@ -526,7 +528,9 @@ class _ShopProductPageState extends State<ShopProductPage> {
       );
       if (mounted) _showMessage('已加入购物车');
     } on ApiException catch (error) {
-      if (mounted) _showMessage(error.message);
+      if (mounted) {
+        _showMessage(userFacingMessage(error.message, fallback: '未能加入购物车，请重试'));
+      }
     }
   }
 
@@ -1378,22 +1382,31 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                         ),
                         const SizedBox(height: 10),
                         for (final product in _products)
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: SizedBox.square(
-                              dimension: 62,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: ShopNetworkImage(
-                                  url: '${product['product_picture'] ?? ''}',
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: AdaptiveActionPair(
+                              minInlineWidth: 320,
+                              leading: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: SizedBox.square(
+                                  dimension: 62,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: ShopNetworkImage(
+                                      url:
+                                          '${product['product_picture'] ?? ''}',
+                                    ),
+                                  ),
                                 ),
+                                title: Text(
+                                  '${product['product_name'] ?? '商品'}',
+                                ),
+                                subtitle: Text('${product['sku_name'] ?? ''}'),
                               ),
-                            ),
-                            title: Text('${product['product_name'] ?? '商品'}'),
-                            subtitle: Text('${product['sku_name'] ?? ''}'),
-                            trailing: Text(
-                              '¥${_money(product['product_money'])}\n×${product['num'] ?? 1}',
-                              textAlign: TextAlign.right,
+                              action: Text(
+                                '¥${_money(product['product_money'])}  ×${product['num'] ?? 1}',
+                                textAlign: TextAlign.end,
+                              ),
                             ),
                           ),
                         TextField(
@@ -1445,23 +1458,20 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
           : SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 9, 12, 10),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '合计 ¥${_money(_total)}',
-                        style: const TextStyle(
-                          color: SaydianColors.orange,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
+                child: AdaptiveActionPair(
+                  minInlineWidth: 300,
+                  leading: Text(
+                    '合计 ¥${_money(_total)}',
+                    style: const TextStyle(
+                      color: SaydianColors.orange,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
                     ),
-                    FilledButton(
-                      onPressed: _submitting ? null : _submit,
-                      child: Text(_submitting ? '提交中…' : '提交订单'),
-                    ),
-                  ],
+                  ),
+                  action: FilledButton(
+                    onPressed: _submitting ? null : _submit,
+                    child: Text(_submitting ? '提交中…' : '提交订单'),
+                  ),
                 ),
               ),
             ),
@@ -1597,7 +1607,7 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
     if (result == null) {
       return widget.controller.errorMessage ?? '$provider支付未能调起';
     }
-    if (result.isSuccess) return '$provider已返回支付成功，正在核对订单状态';
+    if (result.isSuccess) return '$provider付款成功，正在确认订单';
     if (result.isCancelled) return '已取消$provider支付';
     return result.message.trim().isEmpty
         ? '$provider支付未完成（${result.code}）'
@@ -1612,6 +1622,8 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
       appBar: AppBar(title: Text(context.l10n.paymentCheckout)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : _order.isEmpty
+          ? _ShopFailure(message: '暂时无法读取订单，请重试', onRetry: _load)
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
@@ -1646,26 +1658,23 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                           padding: EdgeInsets.symmetric(vertical: 14),
                           child: Divider(height: 1),
                         ),
-                        Row(
-                          children: [
-                            Text(
-                              context.l10n.orderTotal,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
+                        AdaptiveActionPair(
+                          leading: Text(
+                            context.l10n.orderTotal,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
                             ),
-                            const Spacer(),
-                            Text(
-                              '¥${_money(_paymentAmount)}',
-                              key: const Key('shop-payment-total'),
-                              style: const TextStyle(
-                                color: SaydianColors.brandRed,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                              ),
+                          ),
+                          action: Text(
+                            '¥${_money(_paymentAmount)}',
+                            key: const Key('shop-payment-total'),
+                            style: const TextStyle(
+                              color: SaydianColors.brandRed,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
                             ),
-                          ],
+                          ),
                         ),
                       ],
                     ),
@@ -1769,11 +1778,11 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                 ],
               ),
             ),
-      bottomNavigationBar: !_loading && status == 0
+      bottomNavigationBar: !_loading && _order.isNotEmpty && status == 0
           ? SafeArea(
               minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: SizedBox(
-                height: 52,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 52),
                 child: FilledButton(
                   key: const Key('shop-pay-submit'),
                   onPressed: _paying ? null : () => _pay(_selectedProvider),
@@ -1800,29 +1809,14 @@ class _PaymentSummaryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 108,
-          child: Text(
-            label,
-            style: const TextStyle(color: SaydianColors.muted),
-          ),
-        ),
-        Expanded(
-          child: FittedBox(
-            alignment: Alignment.centerRight,
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              maxLines: 1,
-              softWrap: false,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-          ),
-        ),
-      ],
+    return AdaptiveActionPair(
+      leading: Text(label, style: const TextStyle(color: SaydianColors.muted)),
+      equalWidth: true,
+      action: Text(
+        value,
+        textAlign: TextAlign.end,
+        style: const TextStyle(fontWeight: FontWeight.w800),
+      ),
     );
   }
 }
@@ -1972,16 +1966,7 @@ class _ShopAddressBookPageState extends State<ShopAddressBookPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.selectMode ? '选择收货地址' : '收货地址'),
-        actions: [
-          IconButton(
-            tooltip: '新增地址',
-            onPressed: _edit,
-            icon: const Icon(Icons.add_location_alt_outlined),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text(widget.selectMode ? '选择收货地址' : '收货地址')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListenableBuilder(
@@ -1989,8 +1974,16 @@ class _ShopAddressBookPageState extends State<ShopAddressBookPage> {
               builder: (context, _) {
                 final addresses = widget.controller.addresses;
                 if (addresses.isEmpty) {
+                  if (widget.controller.addressLoadError != null) {
+                    return _ShopFailure(
+                      icon: Icons.location_on_outlined,
+                      message: widget.controller.addressLoadError!,
+                      onRetry: _load,
+                    );
+                  }
                   return _ShopFailure(
-                    message: widget.controller.errorMessage ?? '暂无收货地址',
+                    icon: Icons.location_on_outlined,
+                    message: '暂无收货地址',
                     actionLabel: '新增地址',
                     onRetry: _edit,
                   );
@@ -1998,7 +1991,7 @@ class _ShopAddressBookPageState extends State<ShopAddressBookPage> {
                 return RefreshIndicator(
                   onRefresh: _load,
                   child: ListView.separated(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
                     itemCount: addresses.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (_, index) {
@@ -2034,10 +2027,16 @@ class _ShopAddressBookPageState extends State<ShopAddressBookPage> {
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _edit,
-        icon: const Icon(Icons.add_rounded),
-        label: Text(context.l10n.newAddress),
+      floatingActionButton: ListenableBuilder(
+        listenable: widget.controller,
+        builder: (context, _) =>
+            !_loading && widget.controller.addresses.isNotEmpty
+            ? FloatingActionButton.extended(
+                onPressed: _edit,
+                icon: const Icon(Icons.add_rounded),
+                label: Text(context.l10n.newAddress),
+              )
+            : const SizedBox.shrink(),
       ),
     );
   }
@@ -2312,6 +2311,7 @@ class ShopExpressPage extends StatefulWidget {
 class _ShopExpressPageState extends State<ShopExpressPage> {
   List<Map<String, Object?>> _shipments = const [];
   bool _loading = true;
+  bool _failed = false;
 
   @override
   void initState() {
@@ -2320,12 +2320,28 @@ class _ShopExpressPageState extends State<ShopExpressPage> {
   }
 
   Future<void> _load() async {
-    final shipments = await widget.controller.loadOrderExpress(widget.orderId);
-    if (!mounted) return;
     setState(() {
-      _shipments = shipments;
-      _loading = false;
+      _loading = true;
+      _failed = false;
     });
+    final owner = widget.controller.homeHealthCardOwner;
+    try {
+      final rows = await widget.controller.loadOrderExpress(widget.orderId);
+      if (!mounted) return;
+      setState(() {
+        _shipments = owner == widget.controller.homeHealthCardOwner
+            ? rows
+            : const [];
+        _loading = false;
+      });
+    } on ApiException {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
+      }
+    }
   }
 
   @override
@@ -2336,7 +2352,7 @@ class _ShopExpressPageState extends State<ShopExpressPage> {
           ? const Center(child: CircularProgressIndicator())
           : _shipments.isEmpty
           ? _ShopFailure(
-              message: widget.controller.errorMessage ?? '暂无物流信息',
+              message: _failed ? '物流信息暂时无法加载' : '暂无物流信息',
               onRetry: _load,
             )
           : RefreshIndicator(
@@ -2525,8 +2541,10 @@ class _ShopFailure extends StatelessWidget {
     required this.message,
     required this.onRetry,
     this.actionLabel = '重新加载',
+    this.icon = Icons.storefront_outlined,
   });
 
+  final IconData icon;
   final String message;
   final FutureOr<void> Function() onRetry;
   final String actionLabel;
@@ -2539,7 +2557,7 @@ class _ShopFailure extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.storefront_outlined, size: 48),
+            Icon(icon, size: 48),
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 14),

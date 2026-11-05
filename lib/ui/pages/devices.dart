@@ -140,12 +140,11 @@ class DevicePage extends StatelessWidget {
                                   }
                                   final feedback = succeeded
                                       ? context.l10n.syncComplete
-                                      : controller.errorMessage
-                                                ?.trim()
-                                                .isNotEmpty ==
-                                            true
-                                      ? controller.errorMessage!
-                                      : context.l10n.syncFailedTryAgain;
+                                      : userFacingMessage(
+                                          controller.errorMessage,
+                                          fallback:
+                                              context.l10n.syncFailedTryAgain,
+                                        );
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text(feedback)),
                                   );
@@ -230,41 +229,47 @@ class DevicePage extends StatelessWidget {
                               ),
                       ),
                     const SizedBox(height: 4),
-                    ExpansionTile(
-                      key: const Key('device-connection-details'),
-                      tilePadding: EdgeInsets.zero,
-                      childrenPadding: const EdgeInsets.only(bottom: 4),
-                      shape: const Border(),
-                      collapsedShape: const Border(),
-                      title: Text(
-                        context.l10n.connectionStatus,
-                        style: const TextStyle(
-                          color: SaydianColors.muted,
-                          fontSize: 14,
-                        ),
-                      ),
-                      children: [
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: SelectableText(
-                            bound.identifierLabel,
-                            style: const TextStyle(
-                              color: SaydianColors.muted,
-                              fontSize: 15,
-                            ),
+                    // 标题需要单独的无障碍节点，不能和上方设备名称、电量合并。
+                    Semantics(
+                      container: true,
+                      explicitChildNodes: true,
+                      identifier: 'device-connection-details',
+                      child: ExpansionTile(
+                        key: const Key('device-connection-details'),
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: const EdgeInsets.only(bottom: 4),
+                        shape: const Border(),
+                        collapsedShape: const Border(),
+                        title: Text(
+                          context.l10n.connectionStatus,
+                          style: const TextStyle(
+                            color: SaydianColors.muted,
+                            fontSize: 14,
                           ),
                         ),
-                      ],
-                    ),
-                    TextButton.icon(
-                      key: const Key('device-unbind'),
-                      onPressed: controller.isDeviceSyncing
-                          ? null
-                          : () => _confirmUnbind(context),
-                      icon: const Icon(Icons.link_off_rounded, size: 18),
-                      label: const Text('解绑设备'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: SaydianColors.muted,
+                        children: [
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: SelectableText(
+                              bound.identifierLabel,
+                              style: const TextStyle(
+                                color: SaydianColors.muted,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                          TextButton.icon(
+                            key: const Key('device-unbind'),
+                            onPressed: controller.isDeviceSyncing
+                                ? null
+                                : () => _confirmUnbind(context),
+                            icon: const Icon(Icons.link_off_rounded, size: 18),
+                            label: const Text('解绑设备'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: SaydianColors.muted,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -434,18 +439,6 @@ class DevicePage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
-        ],
-        if (connected == null) ...[
-          InlineNotice(
-            key: const Key('device-rebind-guidance'),
-            message: defaultTargetPlatform == TargetPlatform.iOS
-                ? context.l10n.deviceSearchHelpRebindIos
-                : context.l10n.deviceSearchHelpRebindAndroid,
-            icon: Icons.bluetooth_searching_rounded,
-            color: SaydianColors.blue,
-            compact: true,
-          ),
-          const SizedBox(height: 10),
         ],
         Card(
           child: Column(
@@ -1824,14 +1817,14 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      '当前固件：${version?.isNotEmpty == true ? version : '未知'}',
-                    ),
-                    if (connected == null) const Text('连接戒指后可刷新版本'),
-                    const SizedBox(height: 16),
-                    const Text('在线固件升级暂未开放'),
-                    const SizedBox(height: 8),
-                    const Text('尚未接入经过验证的原厂固件和升级服务，不会向戒指写入固件。'),
+                    if (version?.isNotEmpty == true)
+                      Text('当前固件：$version')
+                    else if (connected != null)
+                      const Text('未读到固件版本'),
+                    if (connected == null)
+                      const Text('连接戒指后可查看最新的固件信息。')
+                    else
+                      const Text('暂不支持在线升级。'),
                   ],
                 ),
               ),
@@ -1844,19 +1837,21 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              key: const Key('firmware-refresh-device'),
-              onPressed: _refreshing || connected == null ? null : _refresh,
-              icon: _refreshing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh_rounded),
-              label: Text(_refreshing ? '正在刷新' : '刷新设备信息'),
-            ),
+            if (connected != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('firmware-refresh-device'),
+                onPressed: _refreshing ? null : _refresh,
+                icon: _refreshing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded),
+                label: Text(_refreshing ? '正在刷新' : '刷新设备信息'),
+              ),
+            ],
           ],
         );
       },

@@ -264,6 +264,12 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('device-reconnect')));
       await tester.tap(find.byKey(const Key('device-reconnect')));
       expect(controller.reconnects, 1);
+      expect(find.byKey(const Key('device-unbind')), findsNothing);
+      final details = find.byKey(const Key('device-connection-details'));
+      await tester.ensureVisible(details);
+      await tester.tap(details);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
       await tester.ensureVisible(find.byKey(const Key('device-unbind')));
       await tester.tap(find.byKey(const Key('device-unbind')));
       // Recovery remains animated after the dialog; wait for its route
@@ -308,7 +314,8 @@ void main() {
     );
     expect(find.byKey(const Key('device-overview-card')), findsOneWidget);
     expect(find.byKey(const Key('device-reconnect')), findsNothing);
-    expect(find.byKey(const Key('device-unbind')), findsOneWidget);
+    expect(find.byKey(const Key('device-unbind')), findsNothing);
+    expect(find.byKey(const Key('device-connection-details')), findsOneWidget);
 
     controller.activeRing = null;
     controller.changed();
@@ -366,7 +373,7 @@ void main() {
         find.byKey(const Key('say-ring-open-wechat-service')),
         findsOneWidget,
       );
-      expect(find.text('电话及公众号信息加载失败，仍可使用上方微信客服'), findsOneWidget);
+      expect(find.textContaining('公众号信息加载失败'), findsNothing);
       expect(find.text('4006386738'), findsNothing);
     },
   );
@@ -576,8 +583,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       expect(find.text('7小时30分'), findsWidgets);
-      await tester.scrollUntilVisible(find.textContaining('已记录睡眠总时长'), 250);
-      expect(find.text('已记录睡眠总时长，暂未展示分段详情'), findsOneWidget);
+      await tester.scrollUntilVisible(find.textContaining('仅有总时长'), 250);
+      expect(find.text('仅有总时长，暂无分段'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -674,8 +681,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('睡眠说明'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.textContaining('时间明细仅保存在手机中'), 250);
-      expect(find.textContaining('时间明细仅保存在手机中'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.textContaining('生成报告前会请你同意上传汇总'),
+        250,
+      );
+      expect(find.textContaining('生成报告前会请你同意上传汇总'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -754,8 +764,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('7小时30分'), findsOneWidget);
       expect(find.byKey(const Key('sleep-stage-chart')), findsNothing);
-      await tester.scrollUntilVisible(find.textContaining('已记录睡眠总时长'), 200);
-      expect(find.textContaining('已记录睡眠总时长'), findsOneWidget);
+      await tester.scrollUntilVisible(find.textContaining('仅有总时长'), 200);
+      expect(find.textContaining('仅有总时长'), findsOneWidget);
       await tester.ensureVisible(find.byKey(const Key('sleep-previous-day')));
       await tester.tap(find.byKey(const Key('sleep-previous-day')));
       await tester.pumpAndSettle();

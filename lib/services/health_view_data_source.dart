@@ -14,6 +14,58 @@ abstract class HealthViewDataSource extends ChangeNotifier {
   );
 }
 
+/// 仅浏览打开页面时这位会员、这枚戒指已保存的步数，不发蓝牙指令。
+class SavedRingActivitySource extends HealthViewDataSource {
+  SavedRingActivitySource(this.controller, this.device)
+    : _owner = controller.homeHealthCardOwner {
+    controller.addListener(_checkIdentity);
+  }
+  final AppController controller;
+  final DeviceInfo device;
+  final String _owner;
+  bool _invalidated = false;
+  @override
+  String get label => device.displayName;
+  @override
+  bool get valid =>
+      !_invalidated &&
+      controller.homeHealthCardOwner == _owner &&
+      (controller.connectedDevice ?? controller.rememberedDevice)?.id ==
+          device.id;
+  void _checkIdentity() {
+    if (!_invalidated && !valid) {
+      _invalidated = true;
+      notifyListeners();
+    }
+  }
+
+  @override
+  Future<List<HealthRecord>> load(
+    HealthMetric metric,
+    DateTime start,
+    DateTime end,
+  ) async {
+    if (!valid || metric != HealthMetric.steps) return const [];
+    final rows = await controller.loadHealthRecords(
+      metric: metric,
+      start: start,
+      end: end,
+    );
+    // 旧的异步结果不得回填到刚切换的账号或戒指。
+    if (!valid) return const [];
+    return rows
+        .where((row) => row.deviceId == device.id)
+        .toList(growable: false);
+  }
+
+  @override
+  void dispose() {
+    _invalidated = true;
+    controller.removeListener(_checkIdentity);
+    super.dispose();
+  }
+}
+
 /// Account- and relationship-owned read-only data. Never writes the local
 /// health store and never supplies synthetic sleep intervals from summaries.
 class CareHealthDataSource extends HealthViewDataSource

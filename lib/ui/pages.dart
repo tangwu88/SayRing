@@ -1,3 +1,4 @@
+import 'widgets/adaptive_action_pair.dart';
 import 'widgets/ring_device_illustration.dart';
 import 'widgets/safe_network_image.dart';
 import 'dart:async';
@@ -21,8 +22,11 @@ import '../domain/health_record_units.dart';
 import '../domain/models.dart';
 import '../domain/wellness_release_policy.dart';
 import '../services/app_controller.dart';
+import '../services/health_analysis.dart';
+import '../services/health_view_data_source.dart';
 import '../services/device_watch_face_market_service.dart';
 import '../services/sleep_health_projection.dart';
+import '../services/user_message.dart';
 import 'health_ui_owner.dart';
 import 'app_theme.dart';
 import 'ai_content_gate.dart';

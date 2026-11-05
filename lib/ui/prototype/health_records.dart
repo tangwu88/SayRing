@@ -489,25 +489,26 @@ class _EcgSummaryCard extends StatelessWidget {
               children: [
                 Icon(Icons.monitor_heart_rounded, color: Colors.white),
                 SizedBox(width: 8),
-                Text(
-                  '本次心电记录',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
+                Expanded(
+                  child: Text(
+                    '本次心电记录',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 6),
-            Row(
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 4,
               children: [
-                Expanded(
-                  child: Text(
-                    date,
-                    style: const TextStyle(color: Color(0xFFEECBD2)),
-                  ),
-                ),
+                Text(date, style: const TextStyle(color: Color(0xFFEECBD2))),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 9,

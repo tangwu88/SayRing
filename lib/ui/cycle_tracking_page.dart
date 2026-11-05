@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../services/user_message.dart';
 import 'cycle_day_widgets.dart';
 import 'cycle_diary_sheet.dart';
 import 'cycle_night_trend.dart';
@@ -106,7 +107,11 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e is FormatException ? e.message : '暂时无法完成，请稍后重试'),
+            content: Text(
+              e is FormatException
+                  ? userFacingMessage(e.message, fallback: '暂时无法保存，请重试')
+                  : '暂时无法完成，请稍后重试',
+            ),
           ),
         );
       }
@@ -261,7 +266,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                       ),
                     _insights(day),
                   ],
-                  if (c.status.isNotEmpty)
+                  if (c.busy || c.status.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Row(
@@ -283,14 +288,14 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              c.status,
+                              c.busy ? '正在同步' : c.status,
                               style: const TextStyle(fontSize: 13),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  if (_working) const LinearProgressIndicator(),
+                  if (_working && !c.busy) const LinearProgressIndicator(),
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
                     child: Text(
@@ -349,9 +354,9 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
         : (ref || (!day.historical && !day.future && p.status == 'reference'))
         ? '${cycleShort(p.from!)} — ${cycleShort(p.to!)}'
         : day.future
-        ? '可以提前查看，到了当天再记录。'
+        ? '当天可记录。'
         : day.historical
-        ? '可补记这一天的实际情况。'
+        ? '可补记这一天。'
         : p.status == 'needs_confirmation'
         ? '上次参考范围已过，请核对实际日期。'
         : c.settings.recordOnly
@@ -359,8 +364,8 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               ? '记录实际开始或结束日期。'
               : '上次开始于 ${cycleShort(latestPeriod.start)}。')
         : latestPeriod != null
-        ? '继续记录实际起止日期。'
-        : '从第一次经期开始日期记起。';
+        ? '记下经期开始和结束日。'
+        : '先记下经期开始日。';
     final color = actual ? cycleRose : cyclePlum;
     return Container(
       key: const Key('cycle-overview'),
@@ -523,7 +528,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               onPressed: _working ? null : _ai,
               icon: const Icon(Icons.auto_awesome),
               label: Text(
-                c.availability?['granted'] == true ? '更新解读' : '开启AI解读',
+                c.availability?['granted'] == true ? '更新解读' : '查看周期解读',
               ),
             ),
         ],
@@ -727,7 +732,12 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                     c.today,
                   );
                 } on FormatException catch (e) {
-                  update(() => error = e.message);
+                  update(
+                    () => error = userFacingMessage(
+                      e.message,
+                      fallback: '记录未保存，请重试',
+                    ),
+                  );
                   return;
                 }
                 Navigator.pop(ctx, true);
@@ -826,7 +836,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                 children: [
                   if (!reminders)
                     const Text(
-                      '经期与感受将加密保存在本机，并随当前账号自动同步到赛电云端，供本人换机恢复和周期参考。可关闭功能、导出或删除。AI分析需另外确认。',
+                      '经期与感受加密保存在本机，自动同步到当前账号的赛电云端，换机可恢复。你可关闭、导出或删除记录。AI 分析需单独同意。',
                     ),
                   for (final f
                       in {
@@ -958,9 +968,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               ),
             SwitchListTile(
               title: const Text('这台手机的周期通知'),
-              subtitle: Text(
-                c.notificationAccepted ? '通知计划已交给系统' : '需系统允许通知；记录功能仍可用',
-              ),
+              subtitle: Text(c.notificationAccepted ? '已安排提醒' : '需允许系统通知'),
               value: c.notificationOptIn,
               onChanged: (v) {
                 Navigator.pop(ctx);

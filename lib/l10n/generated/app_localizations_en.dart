@@ -9,6 +9,31 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get savedActivity => 'Activity history';
+
+  @override
+  String get activitySourceChanged =>
+      'The account or ring has changed. Reopen activity history.';
+
+  @override
+  String get noSavedWorkouts => 'No workouts saved yet';
+
+  @override
+  String get unitsTemperature => 'Temperature';
+
+  @override
+  String get unitKmLabel => 'Kilometers (km)';
+
+  @override
+  String get unitMilesLabel => 'Miles (mi)';
+
+  @override
+  String get unitCelsiusLabel => 'Celsius (°C)';
+
+  @override
+  String get unitFahrenheitLabel => 'Fahrenheit (°F)';
+
+  @override
   String get deviceSearchHelpTitle => 'Can\'t find your ring?';
 
   @override
@@ -1099,7 +1124,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get findSystemPairedRingsHint =>
-      'Shows supported rings paired in phone settings or previously connected by Say Ring. Selection still requires fresh ring SDK verification.';
+      'Choose a paired or previously connected ring.';
 
   @override
   String get systemPairedDevice => 'Recoverable';
@@ -1338,10 +1363,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get signInCloudHint => 'Sign in to use cloud health services';
 
   @override
-  String get aiQuestion => 'Ask AI';
+  String get aiQuestion => 'Ask a question';
 
   @override
-  String get aiQuestionHint => 'Ask your AI assistant about wellbeing';
+  String get aiQuestionHint => 'Ask about everyday wellbeing';
 
   @override
   String get language => 'Language';
@@ -1531,16 +1556,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get defaultUser => 'Say Ring user';
 
   @override
-  String get dailyGreeting => 'Take care of yourself today';
-
-  @override
   String get messages => 'Messages';
 
   @override
-  String get aiAssistant => 'AI wellness assistant';
-
-  @override
-  String get aiAssistantIntro => 'Ask me a question about your wellbeing.';
+  String get aiAssistant => 'Wellness questions';
 
   @override
   String get askNow => 'Ask now';
@@ -1708,7 +1727,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get downloadAndInstall => 'Download and install securely';
 
   @override
-  String get gettingReady => 'Getting things ready…';
+  String get gettingReady => 'Loading…';
 
   @override
   String get enableNotifications => 'Enable Say Ring notifications';

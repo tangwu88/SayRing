@@ -405,7 +405,7 @@ void main() {
         return;
       }
 
-      if (controller.shouldShowHealthMetric(HealthMetric.sleep)) {
+      if (controller.canOpenSleepOverview) {
         await open(
           '睡眠概览',
           find.byKey(const Key('home-sleep-overview-entry')),

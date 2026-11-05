@@ -253,7 +253,7 @@ void main() {
   );
 
   testWidgets(
-    'failed chat bubble shows the fixed provider reason, not phone network',
+    'failed chat keeps provider diagnostics internal and offers a retry',
     (tester) async {
       final api = _DisplayApi()..hidden = false;
       final controller = _controller(api);
@@ -287,9 +287,11 @@ void main() {
       );
       expect(await sending, isFalse);
       expect(controller.aiMessages.single['send_failed'], isTrue);
-      expect(controller.aiMessages.single['send_error'], contains('服务代码 1211'));
+      expect(controller.aiMessages.single['send_error'], '问答暂不可用，请稍后重试');
+      expect(controller.errorMessage, isNull);
       await tester.pumpAndSettle();
-      expect(find.textContaining('服务代码 1211'), findsOneWidget);
+      expect(find.text('问答暂不可用，请稍后重试'), findsOneWidget);
+      expect(find.textContaining('服务代码'), findsNothing);
       expect(find.textContaining('检查网络'), findsNothing);
       expect(find.textContaining('PRIVATE_SENTINEL'), findsNothing);
     },
@@ -370,7 +372,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('AI 健康管家'), findsOneWidget);
+    expect(find.text('健康问答'), findsOneWidget);
     unawaited(
       showDialog<void>(
         context: tester.element(find.byType(AiChatPage)),

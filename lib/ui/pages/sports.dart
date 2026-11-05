@@ -182,16 +182,14 @@ class _SportEntryPanel extends StatelessWidget {
               ),
             ),
           ),
-          if (latest.isEmpty)
+          if (latest.isEmpty &&
+              controller.connectedDevice != null &&
+              (controller.isDeviceSyncing ||
+                  controller.deviceHistoryNeedsRetry))
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                controller.isDeviceSyncing
-                    ? '正在读取戒指活动数据，已保存的记录仍可查看'
-                    : controller.syncStatus.contains('失败') ||
-                          controller.syncStatus.contains('未确认')
-                    ? '戒指尚未返回完整活动数据，请保持连接后重试'
-                    : '暂无今日活动数据，下拉可同步戒指',
+                controller.isDeviceSyncing ? '正在同步活动记录' : '同步未完成，请保持连接后重试',
                 style: const TextStyle(color: SaydianColors.muted),
               ),
             ),
@@ -866,13 +864,18 @@ class _SportSessionPageState extends State<SportSessionPage> {
                     size: 70,
                   ),
                   const SizedBox(height: 22),
-                  Text(
-                    time,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 46,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 2,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      time,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 46,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 7),
@@ -1062,10 +1065,32 @@ class SportRecordsPage extends StatefulWidget {
 }
 
 class _SportRecordsPageState extends State<SportRecordsPage> {
+  Future<void>? _reading;
+  bool _loadFailed = false;
+
   @override
   void initState() {
     super.initState();
-    unawaited(widget.controller.refreshSportRecords());
+    unawaited(_refresh());
+  }
+
+  Future<void> _refresh() {
+    final active = _reading;
+    if (active != null) return active;
+    _loadFailed = false;
+    // 页面自动读取、按钮和下拉共用一次请求，不重复向戒指发指令。
+    final next = widget.controller
+        .refreshSportRecords()
+        .catchError((Object _) {
+          _loadFailed = true;
+        })
+        .whenComplete(() {
+          if (mounted) setState(() => _reading = null);
+        });
+    setState(() {
+      _reading = next;
+    });
+    return next;
   }
 
   @override
@@ -1077,21 +1102,59 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
         builder: (context, _) {
           final records = widget.controller.sportRecords;
           if (records.isEmpty) {
+            final connected = widget.controller.connectedDevice != null;
+            final loading = _reading != null;
             return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Text(
-                  widget.controller.connectedDevice == null
-                      ? '请先连接戒指后读取运动记录'
-                      : '戒指中暂无运动记录',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: SaydianColors.muted),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (loading)
+                      const SizedBox.square(
+                        dimension: 26,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      const Icon(
+                        Icons.directions_run_rounded,
+                        size: 34,
+                        color: SaydianColors.muted,
+                      ),
+                    const SizedBox(height: 12),
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        loading
+                            ? context.l10n.readingData
+                            : _loadFailed
+                            ? context.l10n.serviceUnavailable
+                            : context.l10n.noSavedWorkouts,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    if (!loading && !connected) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        context.l10n.connectWatchToUse,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                    if (!loading && (connected || _loadFailed)) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _refresh,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: Text(context.l10n.refresh),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             );
           }
           return RefreshIndicator(
-            onRefresh: widget.controller.refreshSportRecords,
+            onRefresh: _refresh,
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: records.length,
@@ -1354,17 +1417,15 @@ class _SportRoutePreviewState extends State<SportRoutePreview> {
 
   @override
   Widget build(BuildContext context) => _map == null
-      ? _content(null, '轨迹示意（未启用地图服务）')
+      ? _content(null, '运动轨迹示意')
       : FutureBuilder<Uint8List?>(
           future: _map,
           builder: (context, snapshot) => _content(
             snapshot.data,
             snapshot.connectionState != ConnectionState.done
-                ? '正在加载高德地图'
-                : snapshot.hasError
-                ? '地图加载失败，可重试；轨迹仍已保留'
-                : snapshot.data == null
-                ? '地图服务未就绪，请在后台启用高德地图并配置 Web 服务 Key；轨迹仍已保留'
+                ? '正在加载地图'
+                : snapshot.hasError || snapshot.data == null
+                ? (widget.points.length >= 2 ? '地图暂不可用，已显示轨迹' : '等待更多定位点')
                 : '地图来源：高德地图',
           ),
         );

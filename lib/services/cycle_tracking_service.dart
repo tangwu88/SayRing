@@ -505,23 +505,21 @@ class CycleTrackingService extends ChangeNotifier {
     final generation = _generation;
     final s = settings, p = prediction, plans = <Map<String, Object?>>[];
     if (s.enabled && notificationOptIn) {
+      // 提醒按本地日历排期。夏令时切换时，经过 24 小时不一定是次日同一时刻。
+      final now = clock(), today = cycleDate(now);
       final dates = <String>{};
       if (s.remind && p.status == 'reference') {
-        dates.add(
-          cycleDate(
-            parseCycleDate(p.from!).subtract(Duration(days: s.leadDays)),
-          ),
-        );
+        dates.add(shiftCycleDate(p.from!, -s.leadDays));
       }
       if (s.recordRemind) {
         for (var i = 0; i < 30; i++) {
-          dates.add(cycleDate(clock().add(Duration(days: i))));
+          dates.add(shiftCycleDate(today, i));
         }
       }
       for (final date in dates) {
         final d = parseCycleDate(date),
             at = DateTime(d.year, d.month, d.day, s.hour, s.minute);
-        if (at.isAfter(clock())) {
+        if (at.isAfter(now)) {
           plans.add({
             'id':
                 'cycle-${sha256.convert(utf8.encode('$o|$date|${s.hour}|${s.minute}'))}',

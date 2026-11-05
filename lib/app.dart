@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'services/user_message.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -386,9 +387,13 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     } on AppUpdateException catch (error) {
       final context = _navigatorKey.currentContext;
       if (context != null && context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              userFacingMessage(error.message, fallback: '暂时无法检查更新，请稍后再试'),
+            ),
+          ),
+        );
       }
     } finally {
       _updateCheckRunning = false;
@@ -805,7 +810,14 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
         await widget.service.openDestination(widget.info);
       }
     } on AppUpdateException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) {
+        setState(
+          () => _error = userFacingMessage(
+            error.message,
+            fallback: '更新未完成，请稍后重试',
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

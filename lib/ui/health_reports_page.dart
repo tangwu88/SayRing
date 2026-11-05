@@ -210,9 +210,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                 if (global)
                   SelectableText(reviewedText!)
                 else ...[
-                  const Text(
-                    '为了生成详细报告，我们会分析你近30天的有效健康数据。分析结果仅用于日常健康管理参考，不用于诊断或治疗。',
-                  ),
+                  const Text('将分析近 30 天的健康记录。报告仅供日常参考，不用于诊断或治疗。'),
                   const SizedBox(height: 12),
                   const Text(
                     '系统只向分析服务提供去除姓名、手机号和设备地址后的汇总信息。你可以随时在本页撤回授权。',
@@ -1421,9 +1419,7 @@ class _AiLabel extends StatelessWidget {
 }
 
 class _SafetyNotice extends StatelessWidget {
-  const _SafetyNotice({
-    this.message = '健康数据和AI分析仅供日常健康管理参考，不用于诊断或治疗；如有明显不适，请及时就医。',
-  });
+  const _SafetyNotice({this.message = '报告不用于诊断或治疗。如有明显不适，请及时就医。'});
 
   final String message;
 

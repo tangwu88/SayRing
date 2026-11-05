@@ -9,6 +9,30 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get savedActivity => '活動履歴';
+
+  @override
+  String get activitySourceChanged => 'アカウントまたはリングが切り替わりました。活動履歴を開き直してください。';
+
+  @override
+  String get noSavedWorkouts => '保存済みのワークアウトはありません';
+
+  @override
+  String get unitsTemperature => '温度';
+
+  @override
+  String get unitKmLabel => 'キロメートル（km）';
+
+  @override
+  String get unitMilesLabel => 'マイル（mi）';
+
+  @override
+  String get unitCelsiusLabel => '摂氏（°C）';
+
+  @override
+  String get unitFahrenheitLabel => '華氏（°F）';
+
+  @override
   String get deviceSearchHelpTitle => 'リングが見つからない場合';
 
   @override
@@ -1043,8 +1067,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get findSystemPairedRings => '復元可能なリングを表示';
 
   @override
-  String get findSystemPairedRingsHint =>
-      '端末でペアリング済み、または Say Ring で接続済みの対応リングを表示します。選択後もリング SDK で再検証します。';
+  String get findSystemPairedRingsHint => 'ペアリング済み、または以前接続したリングを選んでください。';
 
   @override
   String get systemPairedDevice => '復元可能';
@@ -1279,10 +1302,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get signInCloudHint => 'ログインしてクラウド健康サービスを利用';
 
   @override
-  String get aiQuestion => 'AIに質問';
+  String get aiQuestion => '質問する';
 
   @override
-  String get aiQuestionHint => 'AIアシスタントに健康管理について質問';
+  String get aiQuestionHint => '日々の健康について相談';
 
   @override
   String get language => '言語';
@@ -1463,16 +1486,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get defaultUser => 'Say Ringユーザー';
 
   @override
-  String get dailyGreeting => '今日も自分を大切に';
-
-  @override
   String get messages => 'メッセージ';
 
   @override
-  String get aiAssistant => 'AIヘルスアシスタント';
-
-  @override
-  String get aiAssistantIntro => '健康管理についてお気軽にご質問ください。';
+  String get aiAssistant => '健康相談';
 
   @override
   String get askNow => '質問する';
@@ -1637,7 +1654,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get downloadAndInstall => '安全にダウンロードしてインストール';
 
   @override
-  String get gettingReady => '準備しています…';
+  String get gettingReady => '読み込み中…';
 
   @override
   String get enableNotifications => 'Say Ringの通知を有効にする';

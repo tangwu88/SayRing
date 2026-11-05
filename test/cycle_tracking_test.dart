@@ -315,6 +315,9 @@ void main() {
       expect(n.plans, isEmpty);
       await c.enableNotifications(true);
       expect(n.plans.length, 30);
+      expect(n.plans.map((p) => p['date']), [
+        for (var i = 0; i < 30; i++) shiftCycleDate('2026-10-10', i),
+      ]);
       await c.saveSettings(const CycleSettings());
       expect(n.plans, isEmpty);
       c.dispose();

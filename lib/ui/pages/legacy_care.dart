@@ -63,20 +63,23 @@ class _CarePageState extends State<CarePage> {
                     ),
                     child: Row(
                       children: [
-                        Container(
-                          width: 58,
-                          height: 58,
-                          decoration: const BoxDecoration(
-                            color: Color(0x33FFFFFF),
-                            shape: BoxShape.circle,
+                        if (MediaQuery.textScalerOf(context).scale(16) <
+                            21) ...[
+                          Container(
+                            width: 58,
+                            height: 58,
+                            decoration: const BoxDecoration(
+                              color: Color(0x33FFFFFF),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.favorite_rounded,
+                              color: Colors.white,
+                              size: 30,
+                            ),
                           ),
-                          child: const Icon(
-                            Icons.favorite_rounded,
-                            color: Colors.white,
-                            size: 30,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
+                          const SizedBox(width: 14),
+                        ],
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -121,48 +124,39 @@ class _CarePageState extends State<CarePage> {
                   const SizedBox(height: 12),
                   Card(
                     margin: EdgeInsets.zero,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _CareActionEntry(
-                            icon: Icons.manage_accounts_outlined,
-                            title: '共享管理',
-                            subtitle: '授权与隐私',
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                settings: const RouteSettings(
-                                  name: 'sharing-management',
-                                ),
-                                builder: (_) => SharingManagementPage(
-                                  controller: controller,
-                                ),
-                              ),
+                    child: AdaptiveActionPair(
+                      equalWidth: true,
+                      minInlineWidth: 320,
+                      leading: _CareActionEntry(
+                        icon: Icons.manage_accounts_outlined,
+                        title: '共享管理',
+                        subtitle: '授权与隐私',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            settings: const RouteSettings(
+                              name: 'sharing-management',
                             ),
+                            builder: (_) =>
+                                SharingManagementPage(controller: controller),
                           ),
                         ),
-                        const SizedBox(
-                          height: 76,
-                          child: VerticalDivider(width: 1),
-                        ),
-                        Expanded(
-                          child: _CareActionEntry(
-                            icon: Icons.mark_email_unread_outlined,
-                            title: '关爱邀请',
-                            subtitle: controller.pendingCareInvitations.isEmpty
-                                ? controller.careInvitationStatus
-                                : '${controller.pendingCareInvitations.length} 条待处理',
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                settings: const RouteSettings(
-                                  name: 'care-invitations',
-                                ),
-                                builder: (_) =>
-                                    CareInvitationsPage(controller: controller),
-                              ),
+                      ),
+                      action: _CareActionEntry(
+                        icon: Icons.mark_email_unread_outlined,
+                        title: '关爱邀请',
+                        subtitle: controller.pendingCareInvitations.isEmpty
+                            ? controller.careInvitationStatus
+                            : '${controller.pendingCareInvitations.length} 条待处理',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            settings: const RouteSettings(
+                              name: 'care-invitations',
                             ),
+                            builder: (_) =>
+                                CareInvitationsPage(controller: controller),
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -384,11 +378,9 @@ class _CareActionEntry extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: SaydianColors.muted,
-                    fontSize: 12,
+                    fontSize: 13,
                   ),
                 ),
               ],
@@ -591,7 +583,7 @@ class _CareMemberPageState extends State<CareMemberPage> {
                     ],
                     if (todayItems.isEmpty && dailyItems.isEmpty)
                       const InlineNotice(
-                        message: '当前日期没有可展示的授权数据。',
+                        message: '这一天没有已共享的记录。',
                         icon: Icons.event_busy_outlined,
                         color: SaydianColors.orange,
                       ),
@@ -890,7 +882,7 @@ class CareMetricDetailPage extends StatelessWidget {
           ],
           if (records.isEmpty)
             InlineNotice(
-              message: tips.isNotEmpty ? tips : '这一天没有可展示的明细记录。',
+              message: tips.isNotEmpty ? tips : '这一天没有明细记录。',
               icon: unauthorized
                   ? Icons.lock_outline
                   : state == 'unavailable'
@@ -1760,7 +1752,11 @@ Future<void> _showAddCareDialog(
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(success ? '关爱请求已发送' : controller.errorMessage ?? '发送失败'),
+      content: Text(
+        success
+            ? '关爱请求已发送'
+            : userFacingMessage(controller.errorMessage, fallback: '请求未发送，请重试'),
+      ),
     ),
   );
 }

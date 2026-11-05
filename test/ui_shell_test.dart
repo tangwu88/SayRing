@@ -29,6 +29,38 @@ void main() {
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));
 
+  testWidgets(
+    'shell hides a diagnostic and preserves the next actionable error',
+    (tester) async {
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      )..isBooting = false;
+      addTearDown(controller.dispose);
+      Widget host() => MaterialApp(
+        theme: buildSaydianTheme(),
+        home: AppShell(controller: controller),
+      );
+      controller.errorMessage = 'HTTP 503: unsafe_fixture_trace';
+      await tester.pumpWidget(host());
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.textContaining('unsafe_fixture_trace'), findsNothing);
+      expect(find.text('操作未完成，请重试'), findsOneWidget);
+      controller.errorMessage = 'AI_PROVIDER_AUTH';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.errorMessage = '请先打开手机蓝牙';
+      });
+      await tester.pumpWidget(host());
+      expect(controller.errorMessage, '请先打开手机蓝牙');
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+      expect(find.text('请先打开手机蓝牙'), findsOneWidget);
+      expect(find.text('AI_PROVIDER_AUTH'), findsNothing);
+    },
+  );
+
   for (final example in <(String, Map<String, Object?>, String)>[
     ('canonical', {'memberNo': '29', 'promo_code': '30'}, '29'),
     ('legacy', {'promo_code': 30}, '30'),
@@ -1098,7 +1130,6 @@ void main() {
       await tester.tap(find.text('全部数据'));
       await tester.pumpAndSettle();
       expect(find.text('全部健康数据'), findsOneWidget);
-      expect(find.text('健康数据总览'), findsOneWidget);
       expect(find.byKey(const Key('health-sport-entries')), findsNothing);
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -1126,7 +1157,9 @@ void main() {
         tester
             .getSize(find.byKey(const ValueKey('health-metric-heartRate')))
             .height,
-        greaterThanOrEqualTo(184),
+        // 不同记录时区可能使最近一条属于昨日。卡片均需可点击；
+        // 仅有真实今日数据才为曲线留空间，详细形态在首页专项测试中覆盖。
+        greaterThanOrEqualTo(120),
       );
       expect(
         tester
@@ -1627,7 +1660,7 @@ void main() {
       final entry = find.byKey(const Key('home-sleep-overview-entry'));
       expect(entry, findsOneWidget);
       expect(
-        find.descendant(of: entry, matching: find.text('--')),
+        find.descendant(of: entry, matching: find.textContaining('暂无睡眠记录')),
         findsOneWidget,
       );
       expect(controller.shouldShowHealthMetric(HealthMetric.sleep), isFalse);
@@ -3503,7 +3536,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(bridge.lastWrite, {'mode': 4});
       expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
-      expect(find.text('手势模式指令已确认'), findsOneWidget);
+      expect(find.text('戒指已收到设置'), findsOneWidget);
     },
   );
 
@@ -3542,7 +3575,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('gesture-mode-4')));
       await tester.pumpAndSettle();
       expect(bridge.lastWrite, {'mode': 4, 'expectedMode': 2});
-      expect(find.text('手势模式已保存并读回确认'), findsOneWidget);
+      expect(find.text('手势模式已保存'), findsOneWidget);
       expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
@@ -3634,7 +3667,7 @@ void main() {
         await tester.tap(aboutFirmware);
         await tester.pumpAndSettle();
         expect(find.byType(DeviceFirmwarePage), findsOneWidget);
-        expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+        expect(find.text('暂不支持在线升级。'), findsOneWidget);
         expect(controller.capabilities!.supportsOta, isFalse);
         await tester.pageBack();
         await tester.pumpAndSettle();
@@ -3786,7 +3819,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DeviceFirmwarePage), findsOneWidget);
     expect(find.text('当前固件：758.2.1.9.0'), findsOneWidget);
-    expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+    expect(find.text('暂不支持在线升级。'), findsOneWidget);
     expect(find.textContaining('已是最新'), findsNothing);
     expect(find.text('立即升级'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -3807,7 +3840,7 @@ void main() {
       MaterialApp(home: DeviceFirmwarePage(controller: controller)),
     );
     await tester.pumpAndSettle();
-    expect(find.text('当前固件：未知'), findsOneWidget);
+    expect(find.text('未读到固件版本'), findsOneWidget);
     await tester.tap(find.byKey(const Key('firmware-refresh-device')));
     await tester.pumpAndSettle();
     expect(find.text('设备信息刷新失败，重试'), findsOneWidget);
@@ -3816,14 +3849,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('设备信息刷新失败，重试'), findsNothing);
     expect(find.text('未连接设备'), findsOneWidget);
-    expect(
-      tester
-          .widget<OutlinedButton>(
-            find.byKey(const Key('firmware-refresh-device')),
-          )
-          .onPressed,
-      isNull,
-    );
+    expect(find.text('连接戒指后可查看最新的固件信息。'), findsOneWidget);
+    expect(find.byKey(const Key('firmware-refresh-device')), findsNothing);
     expect(bridge.reads, 1);
     expect(tester.takeException(), isNull);
   });

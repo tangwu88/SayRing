@@ -9,6 +9,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'brand_assets.dart';
+import 'widgets/adaptive_action_pair.dart';
 import 'global_legal_page.dart';
 
 enum _AuthMode { signIn, signUp, reset }
@@ -505,56 +506,45 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                         ),
                       ],
                       const SizedBox(height: 16),
-                      Row(
+                      AdaptiveChoiceRow(
                         key: const Key('auth-consents-row'),
                         children: [
                           if (_mode == _AuthMode.signUp)
-                            Expanded(
-                              child: CheckboxListTile(
-                                key: const Key('auth-minimum-age'),
-                                contentPadding: EdgeInsets.zero,
-                                controlAffinity:
-                                    ListTileControlAffinity.leading,
-                                visualDensity: VisualDensity.compact,
-                                value: _ageConfirmed,
-                                onChanged: _busy
-                                    ? null
-                                    : (value) => setState(
-                                        () => _ageConfirmed = value == true,
-                                      ),
-                                title: Text(
-                                  Localizations.localeOf(
-                                            context,
-                                          ).languageCode ==
-                                          'zh'
-                                      ? '我确认已满14周岁'
-                                      : 'I confirm that I am at least 14 years old.',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          Expanded(
-                            child: CheckboxListTile(
-                              key: const Key('auth-consent'),
+                            CheckboxListTile(
+                              key: const Key('auth-minimum-age'),
                               contentPadding: EdgeInsets.zero,
                               controlAffinity: ListTileControlAffinity.leading,
                               visualDensity: VisualDensity.compact,
-                              value: _accepted,
-                              onChanged: _busy || !_consentReady
+                              value: _ageConfirmed,
+                              onChanged: _busy
                                   ? null
                                   : (value) => setState(
-                                      () => _accepted = value == true,
+                                      () => _ageConfirmed = value == true,
                                     ),
                               title: Text(
-                                l.agreeToTerms,
+                                Localizations.localeOf(context).languageCode ==
+                                        'zh'
+                                    ? '我确认已满14周岁'
+                                    : 'I confirm that I am at least 14 years old.',
                                 style: const TextStyle(
                                   fontSize: 12,
                                   height: 1.4,
                                 ),
                               ),
+                            ),
+                          CheckboxListTile(
+                            key: const Key('auth-consent'),
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            visualDensity: VisualDensity.compact,
+                            value: _accepted,
+                            onChanged: _busy || !_consentReady
+                                ? null
+                                : (value) =>
+                                      setState(() => _accepted = value == true),
+                            title: Text(
+                              l.agreeToTerms,
+                              style: const TextStyle(fontSize: 12, height: 1.4),
                             ),
                           ),
                         ],

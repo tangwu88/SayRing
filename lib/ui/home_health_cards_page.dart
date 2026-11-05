@@ -169,12 +169,12 @@ class _HomeHealthCardsPageState extends State<HomeHealthCardsPage> {
               ),
               const SizedBox(height: 16),
               for (final metric in hidden) _tile(metric, shown: false),
-              if (eligible.isEmpty) const Text('连接戒指并完成能力读取后，可编辑支持的健康卡片'),
+              if (eligible.isEmpty) const Text('连接戒指后可添加卡片'),
               if (eligible.isNotEmpty && hidden.isEmpty)
-                const Text('所有可用卡片均已显示'),
+                const Text('卡片已全部添加'),
               const SizedBox(height: 36),
               const Text(
-                '长按并拖拽右侧手柄调整顺序\n只影响首页展示，不会删除健康数据',
+                '长按右侧拖动排序。隐藏卡片会保留记录。',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: SaydianColors.muted, height: 1.7),
               ),

@@ -204,7 +204,7 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                             child: Text(
                               _copy(
                                 context,
-                                '效果预览 · 不会生成健康记录',
+                                '效果预览 · 不保存记录',
                                 'Preview · No health record is saved',
                               ),
                               textAlign: TextAlign.center,

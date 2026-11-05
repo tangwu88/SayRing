@@ -46,7 +46,7 @@ class ReportVisualSummary extends StatelessWidget {
                       Semantics(
                         label: value == null
                             ? '证据不足，未评分'
-                            : 'AI 睡眠参考评分 $value / 100',
+                            : '睡眠参考评分 $value / 100',
                         child: SizedBox.square(
                           dimension: 160,
                           child: Stack(
@@ -91,7 +91,7 @@ class ReportVisualSummary extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'AI 睡眠参考评分',
+                            '睡眠参考评分',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 16,
@@ -99,7 +99,7 @@ class ReportVisualSummary extends StatelessWidget {
                           ),
                           SizedBox(height: 5),
                           Text(
-                            'AI 参考 · 非设备评分 · 非临床评估',
+                            'AI 估算，非设备评分',
                             style: TextStyle(fontSize: 12),
                           ),
                         ],

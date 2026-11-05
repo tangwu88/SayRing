@@ -199,7 +199,7 @@ class AppUpdateService {
   Future<AppUpdateInfo> check() async {
     final endpointUri = _endpointUri;
     if (endpointUri == null) {
-      throw const AppUpdateException('在线更新服务暂未配置');
+      throw const AppUpdateException('暂时无法检查更新，请稍后再试');
     }
     _requireHttps(endpointUri, '版本接口地址必须使用 HTTPS');
 
@@ -384,9 +384,7 @@ class AppUpdateService {
       platformName == 'ios' ? release['ios'] : release['android'],
     );
     if (destinationUri == null) {
-      throw AppUpdateException(
-        platformName == 'ios' ? 'iOS 下载地址未配置' : 'Android 下载地址未配置',
-      );
+      throw AppUpdateException('暂时无法打开下载页面，请稍后重试');
     }
     _validateDestination(
       destinationType,
@@ -790,7 +788,7 @@ class AppUpdateCoordinator {
   Future<AppUpdateInfo> checkNow() async {
     if (_checking) throw const AppUpdateException('正在检查更新，请稍候');
     if (!_service.isConfigured) {
-      throw const AppUpdateException('在线更新服务暂未配置');
+      throw const AppUpdateException('暂时无法检查更新，请稍后再试');
     }
     _checking = true;
     try {

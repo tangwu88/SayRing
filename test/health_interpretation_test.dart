@@ -27,6 +27,15 @@ void main() {
     expect(result.detail, contains('不能作为核心体温'));
   });
 
+  test('heart rate alone cannot establish a resting measurement', () {
+    for (final value in [72, 105]) {
+      final result = interpretHealthRecord(
+        record(HealthMetric.heartRate, {'value': value}),
+      );
+      expect(result.title, '本次心率已记录');
+      expect(result.detail, contains('相同活动状态'));
+    }
+  });
   test('RRI-HRV auxiliary values have their own labels and units', () {
     final hrv = record(HealthMetric.hrv, const {'value': 42});
     const fields = {

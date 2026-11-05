@@ -14,6 +14,7 @@ class _LoginPageState extends State<LoginPage> {
   final _password = TextEditingController();
   bool _accepted = false;
   bool _obscure = true;
+  String? _loginError;
 
   @override
   void dispose() {
@@ -30,11 +31,15 @@ class _LoginPageState extends State<LoginPage> {
       ).showSnackBar(const SnackBar(content: Text('请先阅读并同意用户协议与隐私政策')));
       return;
     }
-    await widget.controller.login(
+    setState(() => _loginError = null);
+    final ok = await widget.controller.login(
       _account.text,
       _password.text,
       privacyConsentGranted: true,
     );
+    if (mounted && !ok) {
+      setState(() => _loginError = widget.controller.errorMessage);
+    }
   }
 
   Future<void> _wechatLogin() async {
@@ -49,7 +54,13 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
     FocusScope.of(context).unfocus();
-    await widget.controller.loginWithWechat(privacyConsentGranted: true);
+    setState(() => _loginError = null);
+    final ok = await widget.controller.loginWithWechat(
+      privacyConsentGranted: true,
+    );
+    if (mounted && !ok) {
+      setState(() => _loginError = widget.controller.errorMessage);
+    }
   }
 
   @override
@@ -137,10 +148,10 @@ class _LoginPageState extends State<LoginPage> {
                         child: Text(context.l10n.forgotPassword),
                       ),
                     ),
-                    if (controller.errorMessage != null) ...[
+                    if (_loginError != null) ...[
                       const SizedBox(height: 12),
                       InlineNotice(
-                        message: controller.errorMessage!,
+                        message: _loginError!,
                         icon: Icons.error_outline,
                         color: SaydianColors.danger,
                       ),

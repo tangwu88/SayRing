@@ -650,7 +650,7 @@ void main() {
 
       expect(await controller.syncDeviceData(), isFalse);
       expect(controller.syncStatus, contains('已更新 1 条'));
-      expect(controller.errorMessage, contains('尚未确认完整同步'));
+      expect(controller.errorMessage, contains('同步未完成'));
       expect((await store.recent()).single.id, record.id);
       expect((await store.pending()).single.id, record.id);
     },
@@ -759,8 +759,9 @@ void main() {
         expect(rows.any((r) => r.id == saved.id), isTrue);
         if (response == 'current') {
           expect(rows.any((r) => r.id == current.id), isTrue);
-          expect(controller.syncStatus, '活动数据已更新，历史记录尚未确认');
-          expect(controller.errorMessage, contains('历史记录尚未确认'));
+          expect(controller.syncStatus, '活动已更新，历史同步未完成');
+          expect(controller.deviceHistoryNeedsRetry, isTrue);
+          expect(controller.errorMessage, contains('历史同步未完成'));
         } else if (response == 'no_data') {
           expect(controller.syncStatus, isEmpty);
           expect(controller.errorMessage, isNull);
@@ -1423,7 +1424,7 @@ void main() {
       await controller.refreshSportRecords();
       expect(controller.sportRecords.single.id, record.id);
       expect((await store.localSportRecords()).single.id, record.id);
-      expect(controller.errorMessage, contains('已保留读到的运动记录'));
+      expect(controller.errorMessage, contains('收到的运动记录已保存'));
     },
   );
 
@@ -1537,7 +1538,7 @@ void main() {
       find.descendant(of: find.byType(AppBar), matching: find.text('健康记录')),
       findsOneWidget,
     );
-    expect(find.text('健康数据总览'), findsOneWidget);
+    expect(find.byType(HealthPage), findsOneWidget);
     await _popRoute(tester);
     await tester.pumpAndSettle();
 
@@ -1596,7 +1597,7 @@ void main() {
     await tester.ensureVisible(find.byKey(const Key('my-ai-question')));
     await tester.tap(find.byKey(const Key('my-ai-question')));
     await tester.pumpAndSettle();
-    expect(find.text('AI 健康管家'), findsOneWidget);
+    expect(find.text('健康问答'), findsOneWidget);
     await _popRoute(tester);
     await tester.pumpAndSettle();
 
@@ -1742,7 +1743,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('单位设置'));
       await tester.pumpAndSettle();
-      expect(find.text('公里'), findsOneWidget);
+      expect(find.text('公里（km）'), findsOneWidget);
       await _popRoute(tester);
       await tester.pumpAndSettle();
       expect(find.text('目标设置'), findsNothing);

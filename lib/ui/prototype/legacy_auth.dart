@@ -121,42 +121,36 @@ class _RegistrationPageState extends State<RegistrationPage> {
               decoration: InputDecoration(labelText: context.l10n.phoneNumber),
             ),
             const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: const Key('registration-code'),
-                    controller: _code,
-                    keyboardType: TextInputType.number,
-                    maxLength: 6,
-                    decoration: InputDecoration(
-                      labelText: context.l10n.smsCode,
-                      counterText: '',
-                    ),
+            AdaptiveActionPair(
+              leading: TextField(
+                key: const Key('registration-code'),
+                controller: _code,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                decoration: InputDecoration(
+                  labelText: context.l10n.smsCode,
+                  counterText: '',
+                ),
+              ),
+              action: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: OutlinedButton(
+                  key: const Key('registration-send-code'),
+                  onPressed:
+                      _sendingCode ||
+                          _codeCountdown > 0 ||
+                          widget.controller.isBusy
+                      ? null
+                      : _sendCode,
+                  child: Text(
+                    _sendingCode
+                        ? '发送中'
+                        : _codeCountdown > 0
+                        ? '${_codeCountdown}s'
+                        : '获取验证码',
                   ),
                 ),
-                const SizedBox(width: 10),
-                SizedBox(
-                  height: 56,
-                  child: OutlinedButton(
-                    key: const Key('registration-send-code'),
-                    onPressed:
-                        _sendingCode ||
-                            _codeCountdown > 0 ||
-                            widget.controller.isBusy
-                        ? null
-                        : _sendCode,
-                    child: Text(
-                      _sendingCode
-                          ? '发送中'
-                          : _codeCountdown > 0
-                          ? '${_codeCountdown}s'
-                          : '获取验证码',
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -347,42 +341,36 @@ class _PasswordRecoveryPageState extends State<PasswordRecoveryPage> {
             decoration: InputDecoration(labelText: context.l10n.phoneNumber),
           ),
           const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: TextField(
-                  key: const Key('password-recovery-code'),
-                  controller: _code,
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.smsCode,
-                    counterText: '',
-                  ),
+          AdaptiveActionPair(
+            leading: TextField(
+              key: const Key('password-recovery-code'),
+              controller: _code,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              decoration: InputDecoration(
+                labelText: context.l10n.smsCode,
+                counterText: '',
+              ),
+            ),
+            action: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: OutlinedButton(
+                key: const Key('password-recovery-send-code'),
+                onPressed:
+                    _sendingCode ||
+                        _codeCountdown > 0 ||
+                        (widget.controller?.isBusy ?? false)
+                    ? null
+                    : _sendCode,
+                child: Text(
+                  _sendingCode
+                      ? '发送中'
+                      : _codeCountdown > 0
+                      ? '${_codeCountdown}s'
+                      : '获取验证码',
                 ),
               ),
-              const SizedBox(width: 10),
-              SizedBox(
-                height: 56,
-                child: OutlinedButton(
-                  key: const Key('password-recovery-send-code'),
-                  onPressed:
-                      _sendingCode ||
-                          _codeCountdown > 0 ||
-                          (widget.controller?.isBusy ?? false)
-                      ? null
-                      : _sendCode,
-                  child: Text(
-                    _sendingCode
-                        ? '发送中'
-                        : _codeCountdown > 0
-                        ? '${_codeCountdown}s'
-                        : '获取验证码',
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
           const SizedBox(height: 12),
           TextField(

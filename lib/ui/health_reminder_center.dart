@@ -679,7 +679,7 @@ class _HealthReminderSymptomsPageState
           Text(
             _copy(
               context,
-              '先求助，再记录。保存不是求助的前置条件。',
+              '如需急救，请先求助。',
               'Get help first. Saving a record is not required to seek help.',
             ),
           ),

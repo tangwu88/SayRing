@@ -9,6 +9,30 @@ class AppLocalizationsKo extends AppLocalizations {
   AppLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get savedActivity => '활동 기록';
+
+  @override
+  String get activitySourceChanged => '계정 또는 반지가 변경되었습니다. 활동 기록을 다시 여세요.';
+
+  @override
+  String get noSavedWorkouts => '저장된 운동 기록이 없습니다';
+
+  @override
+  String get unitsTemperature => '온도';
+
+  @override
+  String get unitKmLabel => '킬로미터(km)';
+
+  @override
+  String get unitMilesLabel => '마일(mi)';
+
+  @override
+  String get unitCelsiusLabel => '섭씨(°C)';
+
+  @override
+  String get unitFahrenheitLabel => '화씨(°F)';
+
+  @override
   String get deviceSearchHelpTitle => '반지를 찾을 수 없나요?';
 
   @override
@@ -1045,8 +1069,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get findSystemPairedRings => '복구 가능한 링 표시';
 
   @override
-  String get findSystemPairedRingsHint =>
-      '휴대전화에 페어링되었거나 Say Ring에서 연결한 지원 링을 표시합니다. 선택 후에도 링 SDK로 다시 검증합니다.';
+  String get findSystemPairedRingsHint => '페어링했거나 이전에 연결한 반지를 선택하세요.';
 
   @override
   String get systemPairedDevice => '복구 가능';
@@ -1281,10 +1304,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get signInCloudHint => '로그인하고 클라우드 건강 서비스를 이용하세요';
 
   @override
-  String get aiQuestion => 'AI에 질문';
+  String get aiQuestion => '질문하기';
 
   @override
-  String get aiQuestionHint => 'AI 도우미에게 건강 관리에 관해 물어보세요';
+  String get aiQuestionHint => '일상 건강에 대해 질문하세요';
 
   @override
   String get language => '언어';
@@ -1466,16 +1489,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get defaultUser => 'Say Ring 사용자';
 
   @override
-  String get dailyGreeting => '오늘도 건강한 하루 보내세요';
-
-  @override
   String get messages => '메시지';
 
   @override
-  String get aiAssistant => 'AI 건강 도우미';
-
-  @override
-  String get aiAssistantIntro => '건강 관리에 관해 궁금한 점을 물어보세요.';
+  String get aiAssistant => '건강 상담';
 
   @override
   String get askNow => '지금 질문하기';
@@ -1640,7 +1657,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get downloadAndInstall => '안전하게 다운로드 및 설치';
 
   @override
-  String get gettingReady => '준비 중입니다…';
+  String get gettingReady => '불러오는 중…';
 
   @override
   String get enableNotifications => 'Say Ring 알림 켜기';

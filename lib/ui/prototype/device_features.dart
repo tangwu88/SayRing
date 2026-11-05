@@ -501,7 +501,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     setState(() {
       _cameraRemoteStarted = started;
       _cameraMessage = started
-          ? '请按戒指支持的方式双击或晃动拍照，具体操作以戒指型号为准。'
+          ? '按戒指说明双击或晃动，即可拍照。'
           : widget.controller.errorMessage ?? '戒指相机遥控暂时无法开启';
     });
     if (started) {
@@ -662,15 +662,17 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           _cameraMessage = '照片已保存到手机相册';
         });
       }
-    } on CameraException catch (error) {
+    } on CameraException {
       if (isCurrent()) {
-        setState(() => _cameraMessage = '拍照失败（${error.code}），请稍后重试');
+        setState(() => _cameraMessage = '未能拍照，请重试');
       }
     } on PlatformException catch (error) {
       if (isCurrent()) {
         setState(() {
           _galleryPermissionDenied = error.code == 'PHOTO_PERMISSION_DENIED';
-          _cameraMessage = error.message ?? '照片保存失败，请检查相册权限后重试';
+          _cameraMessage = _galleryPermissionDenied
+              ? '请在系统设置中允许添加照片'
+              : '照片未保存，请重试';
         });
       }
     } catch (_) {
@@ -916,7 +918,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         'mode': mode,
         if (qring) 'expectedMode': _featureData['rawMode'],
         if (qring && _gestureStrength != null) 'strength': _gestureStrength,
-      }, qring ? '手势模式已保存并读回确认' : '手势模式指令已确认'),
+      }, qring ? '手势模式已保存' : '戒指已收到设置'),
     );
   }
 
@@ -953,7 +955,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 )
               : SwitchListTile(
                   title: Text(title),
-                  subtitle: const Text('由设备通过其支持的振动或指示灯提醒'),
+                  subtitle: const Text('让戒指振动或亮灯'),
                   value: _featureData[key] == true,
                   onChanged: busy
                       ? null
@@ -1026,6 +1028,49 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     onAction: busy ? null : _loadFeature,
   );
 
+  Widget _installedFaceTile(Map<String, Object?> face, bool busy) {
+    final current = face['isCurrent'] == true;
+    final name = Text('${face['name'] ?? '戒指显示样式'}');
+    final status = Text(current ? '当前使用' : '${face['status'] ?? '戒指显示样式'}');
+    final action = current
+        ? const Icon(Icons.check_circle_rounded, color: SaydianColors.green)
+        : TextButton(
+            onPressed: busy ? null : () => _switchWatchFace(face),
+            child: Text(context.l10n.useSelectedWatchFace),
+          );
+    if (MediaQuery.textScalerOf(context).scale(16) > 22) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (DeviceWatchFaceMarketService.findUsablePreviewReference(
+                      face,
+                    ) !=
+                    null) ...[
+                  _WatchFaceThumbnail(face: face),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(child: name),
+              ],
+            ),
+            status,
+            Align(alignment: Alignment.centerRight, child: action),
+          ],
+        ),
+      );
+    }
+    return ListTile(
+      minLeadingWidth: 64,
+      leading: _WatchFaceThumbnail(face: face),
+      title: name,
+      subtitle: status,
+      trailing: action,
+    );
+  }
+
   Widget _buildWatchFacesPanel(bool busy) {
     final noLocalData = _featureData.isEmpty;
     final faces = _items;
@@ -1093,29 +1138,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 : Column(
                     children: [
                       for (var index = 0; index < faces.length; index++) ...[
-                        ListTile(
-                          minLeadingWidth: 64,
-                          leading: _WatchFaceThumbnail(face: faces[index]),
-                          title: Text('${faces[index]['name'] ?? '戒指显示样式'}'),
-                          subtitle: Text(
-                            faces[index]['isCurrent'] == true
-                                ? '当前使用'
-                                : '${faces[index]['status'] ?? '戒指显示样式'}',
-                          ),
-                          trailing: faces[index]['isCurrent'] == true
-                              ? const Icon(
-                                  Icons.check_circle_rounded,
-                                  color: SaydianColors.green,
-                                )
-                              : TextButton(
-                                  onPressed: busy
-                                      ? null
-                                      : () => _switchWatchFace(faces[index]),
-                                  child: Text(
-                                    context.l10n.useSelectedWatchFace,
-                                  ),
-                                ),
-                        ),
+                        _installedFaceTile(faces[index], busy),
                         if (index != faces.length - 1)
                           const Divider(indent: 72),
                       ],
@@ -1157,9 +1180,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       );
     } on DeviceWatchFaceMarketException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              userFacingMessage(error.message, fallback: '暂时无法打开样式，请重试'),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _openingWatchFaceMarket = false);
@@ -1559,7 +1586,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     );
     if (!mounted || opened) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(widget.controller.errorMessage ?? '无法打开系统设置')),
+      SnackBar(
+        content: Text(
+          userFacingMessage(
+            widget.controller.errorMessage,
+            fallback: '无法打开系统设置',
+          ),
+        ),
+      ),
     );
   }
 
@@ -1685,11 +1719,12 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       }
     } on DeviceWeatherException catch (error) {
       if (!mounted) return;
-      setState(() => _weatherMessage = error.message);
+      final message = userFacingMessage(error.message, fallback: '暂时无法更新天气');
+      setState(() => _weatherMessage = message);
       if (error.openSettings) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(error.message),
+            content: Text(message),
             action: SnackBarAction(
               label: '去设置',
               onPressed: () {

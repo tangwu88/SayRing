@@ -45,51 +45,16 @@ class HealthPage extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: SaydianColors.ink,
-              borderRadius: BorderRadius.circular(22),
+          if (visibleMetrics.isNotEmpty) ...[
+            Semantics(
+              header: true,
+              child: Text(
+                context.l10n.healthData,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '健康数据总览',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 19,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                        '点击指标查看详情与历史趋势',
-                        style: TextStyle(color: Colors.white60, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 54,
-                  height: 54,
-                  decoration: BoxDecoration(
-                    color: Colors.white12,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.monitor_heart_outlined,
-                    color: SaydianColors.green,
-                    size: 30,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
+            const SizedBox(height: 8),
+          ],
           if (visibleMetrics.isEmpty) ...[
             InlineNotice(
               message: controller.connectedDevice == null

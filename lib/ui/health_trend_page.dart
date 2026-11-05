@@ -277,6 +277,7 @@ class HealthTrendPage extends StatefulWidget {
     required this.metric,
     this.onMeasure,
     this.initialDate,
+    this.initialPeriod = HealthTrendPeriod.day,
     this.dataSource,
     super.key,
   });
@@ -284,6 +285,7 @@ class HealthTrendPage extends StatefulWidget {
   final AppController controller;
   final HealthMetric metric;
   final DateTime? initialDate;
+  final HealthTrendPeriod initialPeriod;
   final HealthViewDataSource? dataSource;
 
   /// Receives this page's live context, not the context of the card that
@@ -297,7 +299,7 @@ class HealthTrendPage extends StatefulWidget {
 class _HealthTrendPageState extends State<HealthTrendPage> {
   static const _analysis = HealthAnalysisService();
 
-  HealthTrendPeriod _period = HealthTrendPeriod.day;
+  late HealthTrendPeriod _period;
   late DateTime _anchor;
   String? _selectedValueKey;
   bool _loading = true;
@@ -321,6 +323,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
   @override
   void initState() {
     super.initState();
+    _period = widget.initialPeriod;
     _anchor = widget.initialDate?.toLocal() ?? DateTime.now();
     _account = healthUiOwnerKey(widget.controller);
     _readFeatureGeneration = _featureGeneration;
@@ -437,25 +440,25 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
 
   void _shift(int direction) {
     setState(() {
-      _anchor = switch (_period) {
-        HealthTrendPeriod.day => _anchor.add(Duration(days: direction)),
-        HealthTrendPeriod.week => _anchor.add(Duration(days: 7 * direction)),
-        HealthTrendPeriod.month => DateTime(
-          _anchor.year,
-          _anchor.month + direction,
-          math.min(_anchor.day, 28),
-        ),
-      };
+      _anchor = HealthTrendRange.shiftAnchor(
+        _period,
+        _anchor,
+        direction,
+        today: DateTime.now(),
+      );
     });
     _load();
   }
 
   Future<void> _pickDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final initial = _anchor.isAfter(today) ? today : _anchor;
+    final earliest = DateTime(2020);
     final picked = await showDatePicker(
       context: context,
-      initialDate: _anchor,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      initialDate: initial,
+      firstDate: initial.isBefore(earliest) ? initial : earliest,
+      lastDate: today,
       helpText: '选择查看日期',
     );
     if (picked == null || !mounted) return;
@@ -523,7 +526,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
     final rangeLabel = switch (_period) {
       HealthTrendPeriod.day => DateFormat('yyyy年M月d日').format(range.start),
       HealthTrendPeriod.week =>
-        '${DateFormat('M月d日').format(range.start)} - ${DateFormat('M月d日').format(range.end.subtract(const Duration(days: 1)))}',
+        '${DateFormat('M月d日').format(range.start)} - ${DateFormat('M月d日').format(DateTime(range.end.year, range.end.month, range.end.day - 1))}',
       HealthTrendPeriod.month => DateFormat('yyyy年M月').format(range.start),
     };
     return Scaffold(
@@ -537,7 +540,13 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         ),
       ),
       body: widget.dataSource?.valid == false
-          ? Center(child: Text(context.l10n.carePermissionDenied))
+          ? Center(
+              child: Text(
+                widget.dataSource is SavedRingActivitySource
+                    ? context.l10n.activitySourceChanged
+                    : context.l10n.carePermissionDenied,
+              ),
+            )
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
@@ -696,7 +705,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                     _MessageCard(
                       icon: Icons.error_outline_rounded,
                       title: '数据读取失败',
-                      detail: '请稍后重试，本机记录不会被删除。',
+                      detail: '请稍后重试。',
                       action: _load,
                     )
                   else
@@ -731,7 +740,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
             key: Key('calorie-unit-unconfirmed'),
             icon: Icons.info_outline_rounded,
             title: '热量单位待确认',
-            detail: '设备返回的热量单位尚未确认，暂不用于千卡统计或目标进度。原始记录仍保留。',
+            detail: '这条记录不计入千卡总量。',
           ),
           const SizedBox(height: 12),
         ],
@@ -750,7 +759,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           const _MessageCard(
             icon: Icons.thermostat_rounded,
             title: '皮肤温度不是核心体温',
-            detail: '当前显示戒指实际返回的皮肤温度。个人基线样本不足时不生成“温度波动”，也不按医用体温范围判定。',
+            detail: '可参考个人皮温变化。确认体温请用体温计。',
           ),
           const SizedBox(height: 12),
         ],
@@ -893,7 +902,13 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
       animation: source,
       builder: (context, _) => source.valid
           ? child
-          : Center(child: Text(context.l10n.carePermissionDenied)),
+          : Center(
+              child: Text(
+                source is SavedRingActivitySource
+                    ? context.l10n.activitySourceChanged
+                    : context.l10n.carePermissionDenied,
+              ),
+            ),
     );
   }
 }
@@ -1554,7 +1569,11 @@ class _RecordTile extends StatelessWidget {
                         : Scaffold(
                             appBar: AppBar(title: Text(dataSource!.label)),
                             body: Center(
-                              child: Text(context.l10n.carePermissionDenied),
+                              child: Text(
+                                dataSource is SavedRingActivitySource
+                                    ? context.l10n.activitySourceChanged
+                                    : context.l10n.carePermissionDenied,
+                              ),
                             ),
                           ),
                   ),

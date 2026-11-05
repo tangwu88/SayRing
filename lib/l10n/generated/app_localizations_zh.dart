@@ -9,6 +9,30 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get savedActivity => '活动记录';
+
+  @override
+  String get activitySourceChanged => '账号或戒指已切换，请重新打开活动记录';
+
+  @override
+  String get noSavedWorkouts => '暂无已保存的运动记录';
+
+  @override
+  String get unitsTemperature => '温度';
+
+  @override
+  String get unitKmLabel => '公里（km）';
+
+  @override
+  String get unitMilesLabel => '英里（mi）';
+
+  @override
+  String get unitCelsiusLabel => '摄氏度（℃）';
+
+  @override
+  String get unitFahrenheitLabel => '华氏度（℉）';
+
+  @override
   String get deviceSearchHelpTitle => '找不到戒指，怎么办？';
 
   @override
@@ -1018,8 +1042,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get findSystemPairedRings => '显示可恢复的戒指';
 
   @override
-  String get findSystemPairedRingsHint =>
-      '显示手机系统已配对，或曾由 Say Ring 成功连接的戒指；选择后仍会通过戒指 SDK 重新验证。';
+  String get findSystemPairedRingsHint => '选择已配对或曾连接的戒指。';
 
   @override
   String get systemPairedDevice => '可恢复';
@@ -1253,10 +1276,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get signInCloudHint => '登录后开启云端健康服务';
 
   @override
-  String get aiQuestion => 'AI提问';
+  String get aiQuestion => '提问';
 
   @override
-  String get aiQuestionHint => '向 AI 健康管家咨询健康问题';
+  String get aiQuestionHint => '咨询日常健康问题';
 
   @override
   String get language => '语言';
@@ -1436,16 +1459,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get defaultUser => 'Say Ring 用户';
 
   @override
-  String get dailyGreeting => '今天也要保持好状态';
-
-  @override
   String get messages => '消息';
 
   @override
-  String get aiAssistant => 'AI健康管家';
-
-  @override
-  String get aiAssistantIntro => '我是您的健康管家，\n有任何健康问题都可以向我提问。';
+  String get aiAssistant => '健康问答';
 
   @override
   String get askNow => '马上提问';
@@ -1610,7 +1627,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get downloadAndInstall => '安全下载并安装';
 
   @override
-  String get gettingReady => '正在为你准备…';
+  String get gettingReady => '正在加载…';
 
   @override
   String get enableNotifications => '开启 Say Ring 消息通知';
@@ -2067,6 +2084,30 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   AppLocalizationsZhHans() : super('zh_Hans');
 
   @override
+  String get savedActivity => '活动记录';
+
+  @override
+  String get activitySourceChanged => '账号或戒指已切换，请重新打开活动记录';
+
+  @override
+  String get noSavedWorkouts => '暂无已保存的运动记录';
+
+  @override
+  String get unitsTemperature => '温度';
+
+  @override
+  String get unitKmLabel => '公里（km）';
+
+  @override
+  String get unitMilesLabel => '英里（mi）';
+
+  @override
+  String get unitCelsiusLabel => '摄氏度（℃）';
+
+  @override
+  String get unitFahrenheitLabel => '华氏度（℉）';
+
+  @override
   String get deviceSearchHelpTitle => '找不到戒指，怎么办？';
 
   @override
@@ -3076,8 +3117,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get findSystemPairedRings => '显示可恢复的戒指';
 
   @override
-  String get findSystemPairedRingsHint =>
-      '显示手机系统已配对，或曾由 Say Ring 成功连接的戒指；选择后仍会通过戒指 SDK 重新验证。';
+  String get findSystemPairedRingsHint => '选择已配对或曾连接的戒指。';
 
   @override
   String get systemPairedDevice => '可恢复';
@@ -3311,10 +3351,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get signInCloudHint => '登录后开启云端健康服务';
 
   @override
-  String get aiQuestion => 'AI提问';
+  String get aiQuestion => '提问';
 
   @override
-  String get aiQuestionHint => '向 AI 健康管家咨询健康问题';
+  String get aiQuestionHint => '咨询日常健康问题';
 
   @override
   String get language => '语言';
@@ -3494,16 +3534,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get defaultUser => 'Say Ring 用户';
 
   @override
-  String get dailyGreeting => '今天也要保持好状态';
-
-  @override
   String get messages => '消息';
 
   @override
-  String get aiAssistant => 'AI健康管家';
-
-  @override
-  String get aiAssistantIntro => '我是您的健康管家，\n有任何健康问题都可以向我提问。';
+  String get aiAssistant => '健康问答';
 
   @override
   String get askNow => '马上提问';
@@ -3668,7 +3702,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get downloadAndInstall => '安全下载并安装';
 
   @override
-  String get gettingReady => '正在为你准备…';
+  String get gettingReady => '正在加载…';
 
   @override
   String get enableNotifications => '开启 Say Ring 消息通知';
@@ -4123,6 +4157,30 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get savedActivity => '活動記錄';
+
+  @override
+  String get activitySourceChanged => '帳號或戒指已切換，請重新開啟活動記錄';
+
+  @override
+  String get noSavedWorkouts => '尚無已儲存的運動記錄';
+
+  @override
+  String get unitsTemperature => '溫度';
+
+  @override
+  String get unitKmLabel => '公里（km）';
+
+  @override
+  String get unitMilesLabel => '英里（mi）';
+
+  @override
+  String get unitCelsiusLabel => '攝氏度（℃）';
+
+  @override
+  String get unitFahrenheitLabel => '華氏度（℉）';
 
   @override
   String get deviceSearchHelpTitle => '找不到戒指，怎麼辦？';
@@ -5134,8 +5192,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get findSystemPairedRings => '顯示可恢復的戒指';
 
   @override
-  String get findSystemPairedRingsHint =>
-      '顯示手機系統已配對，或曾由 Say Ring 成功連線的戒指；選擇後仍會透過戒指 SDK 重新驗證。';
+  String get findSystemPairedRingsHint => '選擇已配對或曾連線的戒指。';
 
   @override
   String get systemPairedDevice => '可恢復';
@@ -5369,10 +5426,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get signInCloudHint => '登入後開啟雲端健康服務';
 
   @override
-  String get aiQuestion => 'AI提問';
+  String get aiQuestion => '提問';
 
   @override
-  String get aiQuestionHint => '向 AI 健康管家諮詢健康問題';
+  String get aiQuestionHint => '詢問日常健康問題';
 
   @override
   String get language => '語言';
@@ -5552,16 +5609,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get defaultUser => 'Say Ring 使用者';
 
   @override
-  String get dailyGreeting => '今天也要保持好狀態';
-
-  @override
   String get messages => '訊息';
 
   @override
-  String get aiAssistant => 'AI健康管家';
-
-  @override
-  String get aiAssistantIntro => '我是您的健康管家，\n有任何健康問題都可以向我提問。';
+  String get aiAssistant => '健康問答';
 
   @override
   String get askNow => '馬上提問';
@@ -5726,7 +5777,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get downloadAndInstall => '安全下載並安裝';
 
   @override
-  String get gettingReady => '正在為你準備…';
+  String get gettingReady => '載入中…';
 
   @override
   String get enableNotifications => '開啟 Say Ring 訊息通知';

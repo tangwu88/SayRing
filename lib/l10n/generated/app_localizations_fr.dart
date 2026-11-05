@@ -9,6 +9,31 @@ class AppLocalizationsFr extends AppLocalizations {
   AppLocalizationsFr([String locale = 'fr']) : super(locale);
 
   @override
+  String get savedActivity => 'Historique d’activité';
+
+  @override
+  String get activitySourceChanged =>
+      'Le compte ou la bague a changé. Rouvrez l’historique d’activité.';
+
+  @override
+  String get noSavedWorkouts => 'Aucun entraînement enregistré';
+
+  @override
+  String get unitsTemperature => 'Température';
+
+  @override
+  String get unitKmLabel => 'Kilomètres (km)';
+
+  @override
+  String get unitMilesLabel => 'Miles (mi)';
+
+  @override
+  String get unitCelsiusLabel => 'Celsius (°C)';
+
+  @override
+  String get unitFahrenheitLabel => 'Fahrenheit (°F)';
+
+  @override
   String get deviceSearchHelpTitle => 'Bague introuvable ?';
 
   @override
@@ -1115,7 +1140,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get findSystemPairedRingsHint =>
-      'Affiche les bagues compatibles jumelées au téléphone ou déjà connectées par Say Ring. La sélection est revérifiée via le SDK.';
+      'Choisissez une bague jumelée ou déjà connectée.';
 
   @override
   String get systemPairedDevice => 'Récupérable';
@@ -1359,11 +1384,10 @@ class AppLocalizationsFr extends AppLocalizations {
       'Connectez-vous pour les services de santé en ligne';
 
   @override
-  String get aiQuestion => 'Demander à l’IA';
+  String get aiQuestion => 'Poser une question';
 
   @override
-  String get aiQuestionHint =>
-      'Posez vos questions de bien-être à l’assistant IA';
+  String get aiQuestionHint => 'Questions sur votre bien-être';
 
   @override
   String get language => 'Langue';
@@ -1551,16 +1575,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get defaultUser => 'Utilisateur Say Ring';
 
   @override
-  String get dailyGreeting => 'Prenez soin de vous aujourd’hui';
-
-  @override
   String get messages => 'Messages';
 
   @override
-  String get aiAssistant => 'Assistant bien-être IA';
-
-  @override
-  String get aiAssistantIntro => 'Posez-moi une question sur votre bien-être.';
+  String get aiAssistant => 'Questions bien-être';
 
   @override
   String get askNow => 'Poser une question';
@@ -1730,7 +1748,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get downloadAndInstall => 'Télécharger et installer en sécurité';
 
   @override
-  String get gettingReady => 'Préparation…';
+  String get gettingReady => 'Chargement…';
 
   @override
   String get enableNotifications => 'Activer les notifications Say Ring';

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../services/user_message.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/global_commerce.dart';
@@ -182,7 +183,7 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
           _launchedProvider = null;
           _message = error.statusCode != null && error.statusCode! >= 500
               ? '支付暂时无法使用，请稍后重试'
-              : error.message;
+              : userFacingMessage(error.message, fallback: '支付暂时无法使用，请稍后重试');
         });
       }
     } catch (_) {

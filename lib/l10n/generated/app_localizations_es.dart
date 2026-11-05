@@ -9,6 +9,31 @@ class AppLocalizationsEs extends AppLocalizations {
   AppLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
+  String get savedActivity => 'Historial de actividad';
+
+  @override
+  String get activitySourceChanged =>
+      'La cuenta o el anillo ha cambiado. Vuelve a abrir el historial.';
+
+  @override
+  String get noSavedWorkouts => 'Aún no hay entrenamientos guardados';
+
+  @override
+  String get unitsTemperature => 'Temperatura';
+
+  @override
+  String get unitKmLabel => 'Kilómetros (km)';
+
+  @override
+  String get unitMilesLabel => 'Millas (mi)';
+
+  @override
+  String get unitCelsiusLabel => 'Celsius (°C)';
+
+  @override
+  String get unitFahrenheitLabel => 'Fahrenheit (°F)';
+
+  @override
   String get deviceSearchHelpTitle => '¿No encuentras el anillo?';
 
   @override
@@ -1110,7 +1135,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get findSystemPairedRingsHint =>
-      'Muestra anillos compatibles emparejados en el teléfono o conectados antes por Say Ring. La selección se verifica de nuevo con el SDK.';
+      'Elige un anillo emparejado o conectado anteriormente.';
 
   @override
   String get systemPairedDevice => 'Recuperable';
@@ -1355,10 +1380,10 @@ class AppLocalizationsEs extends AppLocalizations {
       'Inicia sesión para usar los servicios de salud en la nube';
 
   @override
-  String get aiQuestion => 'Preguntar a la IA';
+  String get aiQuestion => 'Hacer una pregunta';
 
   @override
-  String get aiQuestionHint => 'Consulta sobre bienestar a tu asistente de IA';
+  String get aiQuestionHint => 'Consulta sobre tu bienestar';
 
   @override
   String get language => 'Idioma';
@@ -1546,16 +1571,10 @@ class AppLocalizationsEs extends AppLocalizations {
   String get defaultUser => 'Usuario de Say Ring';
 
   @override
-  String get dailyGreeting => 'Cuídate hoy';
-
-  @override
   String get messages => 'Mensajes';
 
   @override
-  String get aiAssistant => 'Asistente de bienestar con IA';
-
-  @override
-  String get aiAssistantIntro => 'Hazme una pregunta sobre tu bienestar.';
+  String get aiAssistant => 'Consultas de bienestar';
 
   @override
   String get askNow => 'Preguntar ahora';
@@ -1723,7 +1742,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get downloadAndInstall => 'Descargar e instalar de forma segura';
 
   @override
-  String get gettingReady => 'Preparando todo…';
+  String get gettingReady => 'Cargando…';
 
   @override
   String get enableNotifications => 'Activar notificaciones de Say Ring';

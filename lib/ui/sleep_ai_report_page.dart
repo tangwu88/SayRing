@@ -7,6 +7,7 @@ import '../domain/health_report_models.dart';
 import '../domain/models.dart';
 import '../services/app_controller.dart';
 import '../services/sleep_health_projection.dart';
+import '../services/user_message.dart';
 import 'app_theme.dart';
 import 'report_visual_summary.dart';
 import 'health_ui_owner.dart';
@@ -168,22 +169,22 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
             color: SaydianColors.techBlue,
           ),
           title: const Text(
-            'AI 睡眠评分与分析报告',
+            '睡眠报告',
             style: TextStyle(fontWeight: FontWeight.w800),
           ),
           subtitle: Text(
             _failed
                 ? _pausedPolling
-                      ? '报告读取失败，点击刷新状态'
-                      : '报告读取失败，正在重试'
+                      ? '报告未加载，点此重试'
+                      : '正在重新加载报告'
                 : _report?.sleepScore != null
                 ? '${_report!.sleepScore} / 100 · 查看评分依据和建议'
                 : _report == null
-                ? '根据本次睡眠生成参考评分及详细建议'
+                ? '查看本次睡眠与建议'
                 : _report!.status == HealthReportStatus.ready
-                ? '查看睡眠分析与数据局限'
+                ? '查看报告'
                 : _pausedPolling
-                ? '${_report!.progressLabel} · 点击刷新状态'
+                ? '${_report!.progressLabel} · 点此刷新'
                 : _report!.progressLabel,
           ),
           trailing: const Icon(Icons.chevron_right_rounded),
@@ -395,14 +396,14 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('生成 AI 睡眠报告'),
+          title: const Text('生成睡眠报告？'),
           content: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  '仅上传选中日期的睡眠时长、已返回的阶段汇总、夜睡/小睡起止和设备评分（如有）。服务端调用已配置的第三方 AI 分析，不向 AI 提供姓名、联系方式、设备地址或原始分段。',
+                  '第三方 AI 将分析当天的睡眠时长、阶段汇总、夜睡和小睡的起止时间及已有评分。不提供姓名、联系方式、设备地址或分段明细。',
                 ),
                 const SizedBox(height: 12),
                 SelectableText(text),
@@ -490,7 +491,8 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
         message.contains('数据缺失')) {
       return '睡眠分析暂时无法生成，请更新睡眠记录后重试';
     }
-    return message;
+    if (message.contains('说明尚未发布')) return '分析说明暂不可用，请稍后重试';
+    return userFacingMessage(message, fallback: '报告暂不可用，请稍后重试');
   }
 
   Future<void> _withdraw() async {
@@ -499,9 +501,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('撤回睡眠 AI 分析授权'),
-        content: const Text(
-          '仅撤回 Say Ring 睡眠 AI 分析授权，停止新的睡眠分析；不改变 Health App 的授权，也不会在此操作中删除已生成的账号报告。',
-        ),
+        content: const Text('撤回后停止新的睡眠分析。已有报告和「健康」App 授权不变。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -540,7 +540,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     final score = _map(content['sleepScore']);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AI 睡眠分析报告'),
+        title: const Text('睡眠报告'),
         actions: [
           IconButton(
             key: const Key('sleep-ai-refresh'),
@@ -583,7 +583,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                     explanation: '${score['explanation'] ?? ''}',
                   ),
                   if (_visuals.isEmpty && _report?.sleepScore == null)
-                    _section('AI 睡眠参考评分', [
+                    _section('睡眠参考评分', [
                       '证据不足，未评分',
                       '${score['explanation'] ?? ''}',
                     ]),
@@ -606,28 +606,26 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                     ),
                   ),
                   ReportAdviceList(items: _strings(content['suggestions'])),
-                  _section('数据与分析局限', _strings(content['limitations'])),
+                  _section('如何看这份报告', _strings(content['limitations'])),
                   _section('使用说明', [
                     '${content['safetyNotice'] ?? '仅供日常健康管理参考，不用于诊断或治疗。'}',
                   ]),
                 ] else ...[
-                  _section('AI 评分与建议', [
+                  _section('评分与建议', [
                     _readFailed
-                        ? '暂时无法确认报告状态'
+                        ? '暂时无法加载报告'
                         : _report == null
-                        ? '尚未生成本次睡眠报告。确认后上传睡眠汇总，报告同时保存在账号云端和后台健康报告中。'
+                        ? '报告将保存在你的账号中。'
                         : _report!.status == HealthReportStatus.failed
-                        ? (_report!.progressMessage ??
-                              'AI 生成失败，未提供评分。可重试；不会用固定分数替代。')
-                        : (_report!.progressMessage ??
-                              '${_report!.progressLabel}。'),
+                        ? '报告未生成，请重试'
+                        : _report!.progressLabel,
                     if (_readFailed || _isPending(_report))
                       _pausedPolling
-                          ? '自动刷新已暂停，点击右上角重试'
+                          ? '点右上角刷新'
                           : _readFailed
-                          ? '正在重新读取报告'
+                          ? '正在重试'
                           : '完成后自动刷新',
-                    '原始睡眠分段时间轴仍仅保存在本机。AI 报告不能作为诊断、治疗或医疗评分。',
+                    '不向 AI 提供分段明细。报告不用于诊断或治疗。',
                   ]),
                   if (!_readFailed &&
                       (_report == null ||
@@ -644,7 +642,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                       label: Text(
                         _report?.status == HealthReportStatus.failed
                             ? '重试睡眠分析'
-                            : '生成 AI 睡眠评分与报告',
+                            : '生成睡眠报告',
                       ),
                     ),
                 ],
