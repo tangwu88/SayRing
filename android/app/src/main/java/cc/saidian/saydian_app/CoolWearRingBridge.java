@@ -235,10 +235,17 @@ public final class CoolWearRingBridge
             final long request = historyRequestGeneration;
             final String target = connectedId;
             final int type = packet.getDataType();
+            final int itemLength = packet.getItemL();
+            final int itemCount = packet.getItemNumber();
             final byte[] bytes = packet.getData() == null ? null : packet.getData().clone();
             main.post(() -> {
-                if (activeBridge != this || epoch != connectionEpoch || request != historyRequestGeneration
+                if (activeBridge != this || epoch != connectionEpoch
                         || target == null || !target.equals(connectedId) || !linkConnected || !recoveryTarget.isActive()) return;
+                if (BuildConfig.DEBUG) {
+                    String evidence = CoolWearProtocolEvidence.describe(type, itemLength, itemCount, bytes);
+                    if (evidence != null) Log.i(TAG, evidence);
+                }
+                if (request != historyRequestGeneration) return;
                 receiveHistoryBatch(type, bytes);
             });
         });
