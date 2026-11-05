@@ -329,6 +329,12 @@ public final class CoolWearRecordMapper {
         record.put("sourceVendor", "coolwear");
         record.put("sourceDeviceCategory", "ring");
         record.put("sourceApp", "say-ring");
+        if("watch_history".equals(origin)) {
+            Map<String,Object> provenance=new LinkedHashMap<>();provenance.put("timeBasis","sdk");provenance.put("captureMode","history");
+            if("hrv".equals(metric)&&values.containsKey("sdnn")){provenance.put("algorithm","sdnn"); if(values.containsKey("sdkQuality"))provenance.put("sdkQuality",values.get("sdkQuality"));}
+            if("body_temperature".equals(metric))provenance.put("temperatureKind","skin");
+            record.put("provenance",provenance);
+        }
         return record;
     }
 

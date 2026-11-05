@@ -610,9 +610,40 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
     super.key,
     required this.controller,
     required this.onHelp,
+    this.notificationControl,
+    this.dailyReminders,
+    this.onRecordSymptoms,
   });
   final AppController controller;
   final VoidCallback onHelp;
+  // 只组合已有入口；页面重排不读写阈值、通知权限或戒指设置。
+  final Widget? notificationControl;
+  final Widget? dailyReminders;
+  final VoidCallback? onRecordSymptoms;
+
+  Widget _sectionTitle(
+    BuildContext context,
+    String zh,
+    String en,
+    IconData icon,
+  ) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+    child: Semantics(
+      header: true,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: SaydianColors.techCyanDark),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _copy(context, zh, en),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 
   ReadingReminderSettings _change(
     HealthReminderKind kind, {
@@ -1224,9 +1255,42 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
       if (hrv) HealthReminderKind.lowHrv,
       if (temperature) HealthReminderKind.highSkinTemperature,
     ];
+    final previewControl = TextButton.icon(
+      style: TextButton.styleFrom(
+        minimumSize: const Size.fromHeight(48),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        backgroundColor: SaydianColors.techCyanDark.withValues(alpha: 0.07),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      key: const Key('reading-reminder-preview'),
+      onPressed: controller.ringReminderVibrationBusy
+          ? null
+          : () => showReadingReminderPreview(
+              context,
+              kinds.isEmpty ? HealthReminderKind.highHeartRate : kinds.first,
+              onHelp: onHelp,
+              controller: controller,
+              vibrate:
+                  controller.healthReminderRingVibrationAvailable &&
+                      s.ringVibrationEnabled
+                  ? () => controller.testHealthReminderRingVibration(
+                      expectedOwner: owner,
+                    )
+                  : null,
+            ),
+      icon: const Icon(Icons.play_circle_outline, size: 18),
+      label: Text(_copy(context, '预览提醒效果', 'Preview reminder')),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (kinds.isNotEmpty)
+          _sectionTitle(
+            context,
+            '指标提醒',
+            'Reading reminders',
+            Icons.monitor_heart_outlined,
+          ),
         if (kinds.isNotEmpty)
           Card(
             key: const Key('reading-reminder-measurement-group'),
@@ -1255,8 +1319,20 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
               ],
             ),
           ),
-        if (kinds.isNotEmpty || controller.healthReminderRingVibrationAvailable)
+        if (kinds.isNotEmpty ||
+            controller.healthReminderRingVibrationAvailable ||
+            notificationControl != null)
+          _sectionTitle(
+            context,
+            '提醒方式',
+            'Delivery',
+            Icons.notifications_active_outlined,
+          ),
+        if (kinds.isNotEmpty ||
+            controller.healthReminderRingVibrationAvailable ||
+            notificationControl != null)
           Card(
+            key: const Key('reading-reminder-delivery-group'),
             margin: const EdgeInsets.only(bottom: 10),
             child: Column(
               children: [
@@ -1332,58 +1408,68 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
                           )
                         : null,
                   ),
+                if (notificationControl != null) ...[
+                  if (kinds.isNotEmpty ||
+                      controller.healthReminderRingVibrationAvailable)
+                    Divider(
+                      height: 1,
+                      indent: 62,
+                      endIndent: 14,
+                      color: SaydianColors.outline.withValues(alpha: 0.16),
+                    ),
+                  notificationControl!,
+                ],
               ],
             ),
           ),
-        if (kinds.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
-            child: Text(
-              _copy(
-                context,
-                '仅对新测量提醒，不作持续监护。',
-                'New readings only; not continuous monitoring.',
-              ),
-              style: const TextStyle(
-                color: SaydianColors.muted,
-                fontSize: 12,
-                height: 1.5,
-              ),
-            ),
+        if (dailyReminders != null) ...[
+          _sectionTitle(
+            context,
+            '日常提醒',
+            'Daily reminders',
+            Icons.event_available_outlined,
           ),
-        Align(
-          alignment: Alignment.center,
-          child: TextButton.icon(
-            style: TextButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-              backgroundColor: SaydianColors.techCyanDark.withValues(
-                alpha: 0.07,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-            key: const Key('reading-reminder-preview'),
-            onPressed: controller.ringReminderVibrationBusy
-                ? null
-                : () => showReadingReminderPreview(
-                    context,
-                    kinds.isEmpty
-                        ? HealthReminderKind.highHeartRate
-                        : kinds.first,
-                    onHelp: onHelp,
-                    controller: controller,
-                    vibrate:
-                        controller.healthReminderRingVibrationAvailable &&
-                            s.ringVibrationEnabled
-                        ? () => controller.testHealthReminderRingVibration(
-                            expectedOwner: owner,
-                          )
-                        : null,
+          dailyReminders!,
+          const SizedBox(height: 8),
+        ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final paired =
+                onRecordSymptoms != null &&
+                constraints.maxWidth >= 340 &&
+                MediaQuery.textScalerOf(context).scale(16) <= 18 &&
+                Localizations.localeOf(context).languageCode == 'zh';
+            final width = paired
+                ? (constraints.maxWidth - 10) / 2
+                : constraints.maxWidth;
+            return Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              children: [
+                SizedBox(width: width, child: previewControl),
+                if (onRecordSymptoms != null)
+                  SizedBox(
+                    width: width,
+                    child: OutlinedButton.icon(
+                      key: const Key('health-reminder-record-symptoms'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: onRecordSymptoms,
+                      icon: const Icon(Icons.edit_note, size: 18),
+                      label: Text(_copy(context, '记录不适', 'Record symptoms')),
+                    ),
                   ),
-            icon: const Icon(Icons.play_circle_outline, size: 18),
-            label: Text(_copy(context, '预览提醒效果', 'Preview reminder')),
-          ),
+              ],
+            );
+          },
         ),
         if (kinds.isNotEmpty)
           ExpansionTile(
@@ -1391,6 +1477,18 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
             leading: const Icon(Icons.info_outline, size: 19),
             tilePadding: EdgeInsets.zero,
             children: [
+              Text(
+                _copy(
+                  context,
+                  '仅对新测量提醒，不作持续监护。',
+                  'New readings only; not continuous monitoring.',
+                ),
+                style: const TextStyle(
+                  color: SaydianColors.muted,
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
               Text(
                 _copy(
                   context,

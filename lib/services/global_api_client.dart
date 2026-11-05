@@ -239,6 +239,7 @@ abstract interface class GlobalCommerceApi {
 class GlobalSaydianApiClient extends SaydianApiClient
     with GlobalHealthApi
     implements
+        CycleRemote,
         GlobalAccountApi,
         GlobalCodeAuthApi,
         GlobalWechatAuthApi,
@@ -258,6 +259,21 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCommerceApi,
         GlobalShopPaymentApi,
         CloudHealthRecordReader {
+  @override
+  Future<Map<String, Object?>> cycleRequest(
+    String owner,
+    String method,
+    String path, {
+    Map<String, Object?> body = const {},
+  }) async {
+    final endpoint =
+        '/api/saydian-app/v2/health/cycle/$path${path.contains('?') ? '&' : '?'}owner=$owner';
+    final response = method == 'GET'
+        ? await _authorizedGet(endpoint)
+        : await _authorizedPostJson(endpoint, {...body, 'ownerHash': owner});
+    return _data(_decode(response));
+  }
+
   GlobalSaydianApiClient(
     super.vault, {
     http.Client? client,

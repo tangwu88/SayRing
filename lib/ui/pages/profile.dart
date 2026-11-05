@@ -208,6 +208,7 @@ class SettingsPage extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         HealthReminderShortcut(controller: controller),
+        CycleShortcut(controller: controller),
         const SizedBox(height: 12),
         if (controller.commerceEnabled) ...[
           Card(

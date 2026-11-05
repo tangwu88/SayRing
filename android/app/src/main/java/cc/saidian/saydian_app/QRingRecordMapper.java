@@ -152,6 +152,10 @@ final class QRingRecordMapper {
             addSingle(result, deviceId, model, firmware, "body_temperature",
                     base + index * interval * 60_000L, amount, "℃", "watch_history");
         }
+        for(Map<String,Object> record:result) {
+            Map<String,Object> provenance=new LinkedHashMap<>();provenance.put("timeBasis","slot");
+            provenance.put("intervalSeconds",interval*60);provenance.put("temperatureKind","unknown");provenance.put("captureMode","history");record.put("provenance",provenance);
+        }
         return result;
     }
 
@@ -477,6 +481,13 @@ final class QRingRecordMapper {
             addSingle(result, deviceId, model, firmware, metric,
                     base + index * Math.max(1, intervalMinutes) * 60_000L,
                     amount, unit, "watch_history");
+        }
+        for (Map<String,Object> record:result) {
+            Map<String,Object> provenance=new LinkedHashMap<>();
+            provenance.put("timeBasis","slot"); provenance.put("intervalSeconds",intervalMinutes*60);
+            provenance.put("captureMode","history");
+            if("hrv".equals(metric))provenance.put("algorithm","unknown");
+            record.put("provenance",provenance);
         }
         return result;
     }

@@ -3,6 +3,7 @@ import 'notification_models.dart';
 enum NotificationRouteTarget {
   careInvitationReview,
   healthWarningHistory,
+  cycleTracking,
   notificationInbox,
 }
 
