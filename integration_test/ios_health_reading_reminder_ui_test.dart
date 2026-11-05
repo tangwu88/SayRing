@@ -69,7 +69,7 @@ void registerReadingReminderUiAcceptance({
         expect(app.canSaveHealthReminder, isTrue);
         originalSettings = app.readingReminderSettings;
         originalEvents = app.healthReminderEvents.map((e) => e.id).toSet();
-        app.selectTab(0);
+        app.selectTab(2);
         await settle();
         await tapVisible(find.byKey(const Key('health-reminder-entry')));
         expect(find.byType(HealthReminderCenterPage), findsOneWidget);

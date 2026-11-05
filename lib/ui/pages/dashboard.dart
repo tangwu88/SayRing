@@ -155,14 +155,10 @@ class DashboardPage extends StatelessWidget {
                       _DashboardActivity(controller: controller),
                       const SizedBox(height: 12),
                     ],
-                    if (controller.shouldShowHealthMetric(
-                      HealthMetric.sleep,
-                    )) ...[
+                    if (controller.canOpenSleepOverview) ...[
                       _SleepQuickCard(controller: controller),
                       const SizedBox(height: 12),
                     ],
-                    HealthReminderShortcut(controller: controller),
-                    const SizedBox(height: 12),
                     _FeatureEntryGrid(
                       commerceEnabled: controller.mallVisible,
                       encyclopediaEnabled: controller.healthLibraryVisible,
@@ -691,7 +687,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
         ? '睡眠缓存刷新失败，点击查看或重试'
         : latest == null
         ? sleepSyncUnavailable(controller)
-              ? '当前戒指的睡眠同步暂未开放'
+              ? '暂无睡眠记录，可按日期查看'
               : '暂无睡眠记录，佩戴戒指睡眠后同步数据'
         : '最近一次 · ${DateFormat('M月d日').format(DateTime.parse(sleepRecordSdkDate(latest)))}';
     return Material(

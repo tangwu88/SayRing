@@ -13,8 +13,11 @@ import 'health_trend_page.dart' show SleepStructureCard;
 import 'health_ui_owner.dart';
 
 bool sleepSyncUnavailable(AppController controller) {
-  // Missing capabilities keep the existing guide, never imply no support.
-  return controller.capabilities?.supportsHistorySync == false;
+  final capabilities = controller.capabilities;
+  // 总历史通道可用不代表这枚戒指已确认睡眠回包。旧协议若未列举指标，
+  // 仍采用原有提示；明确缺少睡眠时，只引导用户按日期查看。
+  return capabilities?.supportsHistorySync == false ||
+      capabilities?.historyMetrics?.contains(HealthMetric.sleep) == false;
 }
 
 String sleepMinutesLabel(double minutes) {

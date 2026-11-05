@@ -1561,6 +1561,20 @@ class AppController extends ChangeNotifier {
       _hasResolvedDeviceCapabilities &&
       capabilities?.supports(metric) == true;
 
+  bool get canOpenSleepOverview {
+    if (shouldShowHealthMetric(HealthMetric.sleep)) return true;
+    final device = connectedDevice;
+    // 这三款戒指在 iOS 上只推送一次同段睡眠。握手完成即可回看当前戒指的
+    // 已存记录；本次连接未收到睡眠包时，仍不能据此授予测量或历史同步能力。
+    return device != null &&
+        deviceCapabilityState == DeviceCapabilityState.ready &&
+        capabilities?.supportsHistorySync == true &&
+        isMetricAvailableInRelease(HealthMetric.sleep) &&
+        WearableDeviceClassifier.transportForScopedId(device.id) ==
+            WearableTransport.coolwear &&
+        const {'R7Pro', 'HR05', 'R7Ultra'}.contains(device.model);
+  }
+
   HomeHealthCardLayout homeHealthCardLayout = HomeHealthCardLayout();
   bool homeHealthCardsLoading = false;
   bool _homeHealthCardsSaving = false;
