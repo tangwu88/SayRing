@@ -17,6 +17,7 @@ public final class CoolWearVerifiedSyncTest {
     final String connectedId = "test-ring", connectedName = "R7 Ultra", TAG = "test";
     boolean linkConnected = true, deviceInfoReceived = true, historyObserverReady = true;
     long historyRequestGeneration;
+    long connectionEpoch = 1, rriHistoryEvidenceEpoch = -1, rriHistoryProbeEpoch = -1;
     K6_DATA_TYPE_FUNCTION_CONTROL functionControl;
     final Main main = new Main();
     final Helper helper = new Helper();
@@ -136,9 +137,35 @@ public final class CoolWearVerifiedSyncTest {
         s=start(); health=new MethodChannel.Result(); s.functionControl=new K6_DATA_TYPE_FUNCTION_CONTROL();
         s.startSync(health,false); s.main.advance(5000);
         for(int type:new int[]{5,6,8,40,42,47}) s.receiveHistoryBatch(type,packet(0));
-        assert health.calls==0 : "HRV read was silently skipped";
-        s.receiveHistoryBatch(61,packet(0)); s.main.advance(5000);
+        s.main.advance(5000);
         assert health.calls==1 && health.code==null;
+        assert ((Map<?,?>)health.value).get("protocolChecks").equals(List.of("hrv")) : "silent new protocol was claimed supported or empty";
+        assert !((Map<?,?>)((Map<?,?>)health.value).get("statuses")).containsKey("hrv");
+        assert health.at==5000 : "legacy HRV flag still delayed negotiated ranges until timeout";
+        assert Collections.frequency(BleFactory.instance.proxy.requests,61)==1 : "discovery was not bounded";
+        // A late valid reply is retained and makes the NEXT read require RRI.
+        s.receiveHistoryBatch(61,packet(0));
+        s.connectionHistoryBatches.clear(); // previous reply already consumed
+        health=new MethodChannel.Result(); s.startSync(health,false); s.main.advance(10000);
+        for(int type:new int[]{5,6,8,40,42,47}) s.receiveHistoryBatch(type,packet(0));
+        s.main.advance(10000); assert health.calls==0 : "known RRI endpoint silently skipped on later reads";
+        // A valid two-row RRI header with one row still outstanding stays partial.
+        byte[] rri=new byte[19]; rri[0]=2; rri[2]=1;
+        s.receiveHistoryBatch(61,rri); s.main.advance(41000);
+        assert ((Map<?,?>)((Map<?,?>)health.value).get("statuses")).get("hrv").equals("partial");
+        assert ((List<?>)((Map<?,?>)health.value).get("protocolChecks")).isEmpty();
+
+        s=start(); health=new MethodChannel.Result(); s.functionControl=new K6_DATA_TYPE_FUNCTION_CONTROL();
+        s.startSync(health,false); s.main.advance(5000);
+        s.receiveHistoryBatch(61,new byte[]{1,0,1,9}); // invalid RRI row width
+        for(int type:new int[]{5,6,8,40,42,47}) s.receiveHistoryBatch(type,packet(0));
+        s.main.advance(5000);
+        assert s.rriHistoryEvidenceEpoch==-1 && ((Map<?,?>)health.value).get("protocolChecks").equals(List.of("hrv"));
+        // Evidence cannot leak to a replacement connection, even for the same model.
+        s.rriHistoryEvidenceEpoch=s.connectionEpoch; s.connectionEpoch++;
+        health=new MethodChannel.Result(); s.startSync(health,false); s.main.advance(10000);
+        assert !s.historyBatches.containsKey(61);
+        assert Collections.frequency(BleFactory.instance.proxy.requests,61)==2;
 
         s=start(); s.functionControl=null; health=new MethodChannel.Result();
         s.startSync(health,false); s.main.advance(1000);

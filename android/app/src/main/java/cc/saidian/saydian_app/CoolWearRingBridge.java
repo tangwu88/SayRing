@@ -22,6 +22,7 @@ import android.util.Log;
 import androidx.core.app.NotificationManagerCompat;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -158,6 +159,9 @@ public final class CoolWearRingBridge
     private int hrvStressPackets;
     private volatile boolean linkConnected;
     private volatile long connectionEpoch;
+    // Legacy HRV capability (type 42) does not negotiate the newer RRI history
+    // protocol (61). Only its own decoded DATA reply can establish that support.
+    private long rriHistoryEvidenceEpoch = -1, rriHistoryProbeEpoch = -1;
     private long cameraSession;
     private long clearAttemptEpoch = -1;
     private volatile boolean deviceInfoReceived;
@@ -245,7 +249,7 @@ public final class CoolWearRingBridge
                     String evidence = CoolWearProtocolEvidence.describe(type, itemLength, itemCount, bytes);
                     if (evidence != null) Log.i(TAG, evidence);
                 }
-                if (request != historyRequestGeneration) return;
+                if (request != historyRequestGeneration && type != 61) return;
                 receiveHistoryBatch(type, bytes);
             });
         });
@@ -695,7 +699,7 @@ public final class CoolWearRingBridge
         int[] types = {
                 flags.isHasHR24H() || flags.isHr_measure_button() ? 8 : -1,
                 flags.isHasO2() ? 40 : -1,
-                flags.isHasHrvSupported() ? 61 : -1,
+                flags.isHasHrvSupported() && rriHistoryEvidenceEpoch == connectionEpoch ? 61 : -1,
                 flags.isHasHrvSupported() ? 42 : -1,
                 flags.isHasTemperature() ? 47 : -1};
         for (int type : types) {
@@ -703,6 +707,37 @@ public final class CoolWearRingBridge
             historyBatches.put(type, new CoolWearHistoryBatch());
             if (requestNow) requestHistoryType(type);
         }
+        if (requestNow) probeRriHistory();
+    }
+
+    private void probeRriHistory() {
+        if (functionControl == null || !functionControl.isHasHrvSupported()
+                || rriHistoryEvidenceEpoch == connectionEpoch || rriHistoryProbeEpoch == connectionEpoch) return;
+        CEBluetoothProxyBase proxy = currentReadProxy();
+        rriHistoryProbeEpoch = connectionEpoch;
+        // One read-only discovery per connection, independent from completion
+        // of the already negotiated ranges. Silence remains unknown, not empty.
+        try {
+            proxy.sendData(new CEDevData(3, 61));
+            Log.i(TAG, "RRI history protocol discovery requested");
+        } catch (RuntimeException error) {
+            Log.w(TAG, "RRI history discovery not sent; support remains unknown");
+        }
+    }
+
+    private boolean isRriHistoryReply(byte[] bytes) {
+        if (rriHistoryProbeEpoch != connectionEpoch && !requestedHistoryTypes.contains(61)) return false;
+        if (bytes == null) return false;
+        if (bytes.length == 0) return true; // decoded DATA, never a command ACK
+        if (bytes.length < 3) return false;
+        int remaining = (bytes[0] & 255) | ((bytes[1] & 255) << 8), count = bytes[2] & 255;
+        return remaining <= 16384 && remaining >= count && bytes.length == 3 + count * 16;
+    }
+
+    private List<String> pendingHistoryProtocols() {
+        return functionControl != null && functionControl.isHasHrvSupported()
+                && rriHistoryEvidenceEpoch != connectionEpoch
+                ? Collections.singletonList("hrv") : Collections.emptyList();
     }
 
     private void emitHealthRecordWithReceipt(Map<String, Object> record) {
@@ -725,6 +760,16 @@ public final class CoolWearRingBridge
     }
 
     private void receiveHistoryBatch(int type, byte[] bytes) {
+        if (type == 61 && rriHistoryEvidenceEpoch != connectionEpoch && !isRriHistoryReply(bytes)) return;
+        if (type == 61 && isRriHistoryReply(bytes)) {
+            rriHistoryEvidenceEpoch = connectionEpoch;
+            // A positive discovery during this read must join its accounting;
+            // incomplete real batches must never be called complete.
+            if (pendingHealthSync != null && syncWindow != null && !historyBatches.containsKey(61)) {
+                historyBatches.put(61, new CoolWearHistoryBatch());
+                requestedHistoryTypes.add(61);
+            }
+        }
         if (type == 5 || type == 6 || type == 8 || type == 40 || type == 42 || type == 47 || type == 61) {
             connectionHistoryBatches.computeIfAbsent(type, ignored -> new CoolWearHistoryBatch()).accept(bytes);
         }
@@ -767,6 +812,7 @@ public final class CoolWearRingBridge
         response.put("records", new ArrayList<>(syncedHealthRecords.values()));
         response.put("statuses", statuses);
         response.put("receipts", new HashMap<>(connectionRecordReceipts));
+        response.put("protocolChecks", pendingHistoryProtocols());
         MethodChannel.Result health = pendingHealthSync, sport = pendingSportSync;
         pendingHealthSync = null;
         pendingSportSync = null;
@@ -861,6 +907,7 @@ public final class CoolWearRingBridge
                     catch (RuntimeException error) { failPendingSync("COOLWEAR_SYNC_FAILED", "戒指数据同步启动失败，请重试"); }
                 }, 450L * index++);
             }
+            if (!sportOnly) probeRriHistory();
         } catch (RuntimeException error) {
             failPendingSync("COOLWEAR_SYNC_FAILED", "戒指数据同步启动失败，请重试");
         }
@@ -899,6 +946,7 @@ public final class CoolWearRingBridge
             partial.put("records", partialHealth);
             partial.put("statuses", statuses);
             partial.put("receipts", new HashMap<>(connectionRecordReceipts));
+            partial.put("protocolChecks", pendingHistoryProtocols());
             // Method delivery succeeded; range statuses remain incomplete.
             // Flutter persists the partial records, then returns false.
             healthResult.success(partial);

@@ -138,6 +138,42 @@ void main() {
     },
   );
 
+  test(
+    'confirmed ranges with unknown RRI update records without a full checkpoint',
+    () async {
+      final fixture = await setup(recentHistory: true);
+      final result = WearableSyncResult(
+        [_record('negotiated-history')],
+        {'heart_rate': 'complete', 'sleep': 'no_data'},
+        historyDays: 2,
+        protocolChecks: {'hrv'},
+      );
+      fixture.wearable.nextRecent = result;
+      expect(await fixture.controller.syncDeviceData(), isTrue);
+      expect(fixture.controller.errorMessage, isNull);
+      expect(fixture.controller.syncStatus, '已更新 1 条');
+      expect((await fixture.store.recent()).map((r) => r.id), [
+        'negotiated-history',
+      ]);
+      expect(result.complete, isFalse);
+      expect(
+        await fixture.store.readDeviceHistorySync(_Wearable.watch.id),
+        'null',
+      );
+
+      fixture.wearable.nextHistory = WearableSyncResult(
+        [],
+        {'heart_rate': 'not_received'},
+        protocolChecks: {'hrv'},
+      );
+      expect(await fixture.controller.syncDeviceData(), isFalse);
+      expect(fixture.controller.errorMessage, isNotNull);
+      expect((await fixture.store.recent()).map((r) => r.id), [
+        'negotiated-history',
+      ]);
+    },
+  );
+
   test('unconfirmed legacy result cannot authorize skipping history', () async {
     final fixture = await setup(recentHistory: true);
     fixture.wearable.nextHistory = [];

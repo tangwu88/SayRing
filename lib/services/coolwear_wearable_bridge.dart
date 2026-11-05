@@ -334,6 +334,15 @@ class CoolWearWearableBridge
                     entry.key as String: entry.value as String,
               }
             : const {},
+        protocolChecks: response['protocolChecks'] is List
+            ? {
+                for (final metric in response['protocolChecks'] as List)
+                  if (metric is String &&
+                      (healthReleasePolicy ?? wearableHealthReleasePolicy)
+                          .allowsWireMetric(metric))
+                    metric,
+              }
+            : const {},
       );
     }
     return records;

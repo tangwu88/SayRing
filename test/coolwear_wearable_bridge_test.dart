@@ -223,6 +223,28 @@ void main() {
     },
   );
 
+  test(
+    'unnegotiated RRI stays unknown without failing confirmed ranges',
+    () async {
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => {
+          'records': [],
+          'statuses': {'heart_rate': 'no_data', 'sleep': 'no_data'},
+          'protocolChecks': ['hrv'],
+        },
+      );
+      final result =
+          await CoolWearWearableBridge(methods: channel).syncHealthData()
+              as WearableSyncResult;
+      expect(result.confirmedRanges, isTrue);
+      expect(result.complete, isFalse);
+      expect(result.protocolChecks, {'hrv'});
+      expect(result.statuses, isNot(contains('hrv')));
+      expect(() => result.protocolChecks.clear(), throwsUnsupportedError);
+    },
+  );
+
   test('maps vendor-completed health history', () async {
     final bridge = CoolWearWearableBridge(methods: channel);
 

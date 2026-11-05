@@ -5,6 +5,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoolWearProtocolEvidenceTest {
+    @Test fun `actual compact R7U capability envelope retains only extension booleans`() {
+        val bytes = byteArrayOf(17, 23, 31, 6)
+        assertTrue(CoolWearProtocolEvidence.describe(22, 0, 0, bytes)
+            .endsWith("extendedTouch=true,gestureMusic=true"))
+        assertArrayEquals(byteArrayOf(17, 23, 31, 6), bytes)
+        for (tags in listOf(8 to 1, 0 to 1, 8 to 0)) {
+            assertTrue(CoolWearProtocolEvidence.describe(22, tags.first, tags.second, bytes)
+                .endsWith("extensions=unconfirmed"))
+        }
+    }
+
     @Test fun `capability number agrees with actual SDK and only confirmed shape exposes extension bits`() {
         assertEquals(22, CEBC.K6.DATA_TYPE_FUNCTION_CONTROL)
         val bytes = ByteArray(8)

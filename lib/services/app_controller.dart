@@ -3752,6 +3752,15 @@ class AppController extends ChangeNotifier {
         _deviceSyncErrorMessage = '部分记录与当前戒指不匹配，请重新同步';
         errorMessage = _deviceSyncErrorMessage;
       } else if (receivedRecords is WearableSyncResult &&
+          receivedRecords.confirmedRanges &&
+          receivedRecords.protocolChecks.isNotEmpty) {
+        // The negotiated ranges completed; an optional protocol discovery is
+        // not a failed transfer. It remains unknown in the result and cannot
+        // create a full-history checkpoint or fabricate an empty HRV reading.
+        syncStatus = records.isEmpty ? '本次记录已检查' : '已更新 ${records.length} 条';
+        _clearDeviceSyncError();
+        succeeded = true;
+      } else if (receivedRecords is WearableSyncResult &&
           !receivedRecords.complete) {
         if (records.isNotEmpty &&
             receivedRecords.statuses.values.contains('current')) {
