@@ -81,6 +81,7 @@ jobs:
             tool/coolwear_target_discovery.test.mjs tool/test_coolwear_android_sync.mjs \
             tool/coolwear_android_recovery_target.test.mjs \
             tool/coolwear_android_hrv_protocol.test.mjs tool/coolwear_android_hrv_sdk.test.mjs \
+            tool/coolwear_android_gesture_pairing.test.mjs \
             tool/coolwear_history_sdk.test.mjs \
             tool/coolwear_android_readonly_sdk.test.mjs
       - name: Verify SDK bytes and Release-to-Debug immutable cache regression

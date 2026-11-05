@@ -126,6 +126,8 @@ public final class CoolWearRingBridge
     private MethodChannel.Result pendingAutoSettings;
     private MethodChannel.Result pendingReminders;
     private MethodChannel.Result pendingGesture;
+    private String gesturePairingFailureCode;
+    private String gesturePairingFailureMessage;
     private Runnable gestureDeadline;
     private final CoolWearGestureState gesture = new CoolWearGestureState();
     private Runnable remindersDeadline;
@@ -1437,13 +1439,19 @@ public final class CoolWearRingBridge
         return value;
     }
 
-    private void finishGesture(String code, String message) {
+    private void clearGestureWaiters() {
         if (gestureBondReceiver != null) {
             try { activity.unregisterReceiver(gestureBondReceiver); } catch (IllegalArgumentException ignored) { }
             gestureBondReceiver = null;
         }
         if (gestureDeadline != null) main.removeCallbacks(gestureDeadline);
         gestureDeadline = null;
+    }
+
+    private void finishGesture(String code, String message) {
+        clearGestureWaiters();
+        gesturePairingFailureCode = null;
+        gesturePairingFailureMessage = null;
         MethodChannel.Result result = pendingGesture;
         pendingGesture = null;
         if (result != null) {
@@ -1460,7 +1468,41 @@ public final class CoolWearRingBridge
     private void onGestureMode(int mode, long generation) {
         if (!canUseGesture() || pendingGesture == null ||
                 !gesture.confirm(mode, generation, android.os.SystemClock.elapsedRealtime())) return;
+        clearGestureWaiters();
+        if (gesturePairingFailureCode != null) {
+            finishGesture(gesturePairingFailureCode,
+                    gesturePairingFailureMessage + "；手势已关闭，请重新选择场景");
+            return;
+        }
+        // The OEM enables the selected HID scene before requesting its OS bond.
+        // A BLE connection/bond alone does not turn on the ring's HID service.
+        if (mode != 0) {
+            try {
+                if (prepareGestureBond(mode)) return;
+            } catch (SecurityException error) {
+                rollbackGesturePairing("BLE_PERMISSION_REQUIRED", "蓝牙权限已变化");
+                return;
+            } catch (RuntimeException error) {
+                rollbackGesturePairing("GESTURE_PAIRING_FAILED", "系统配对暂不可用");
+                return;
+            }
+        }
         finishGesture(null, null);
+    }
+
+    private void rollbackGesturePairing(String code, String message) {
+        if (pendingGesture == null) return;
+        clearGestureWaiters();
+        if (!canUseGesture()) {
+            gesture.fail();
+            finishGesture(code, message + "；手势关闭尚未确认，请重连后先关闭");
+            return;
+        }
+        // Only this still-owned connection may undo its just-confirmed scene.
+        // Do not report a closed mode until a separate mode-0 ACK arrives.
+        gesturePairingFailureCode = code;
+        gesturePairingFailureMessage = message;
+        sendGestureMode(0);
     }
 
     private void writeGesture(Map<String, Object> values, MethodChannel.Result result) {
@@ -1485,7 +1527,6 @@ public final class CoolWearRingBridge
         }
         pendingGesture = result;
         try {
-            if (mode != 0 && prepareGestureBond(mode)) return;
             sendGestureMode(mode);
         } catch (SecurityException error) {
             finishGesture("BLE_PERMISSION_REQUIRED", "蓝牙权限已变化，请重新允许");
@@ -1521,19 +1562,19 @@ public final class CoolWearRingBridge
                     if (gestureDeadline != null) main.removeCallbacks(gestureDeadline);
                     gestureDeadline = null;
                     if (!canUseGesture()) { finishGesture("NOT_CONNECTED", "戒指已断开，请重新连接"); return; }
-                    sendGestureMode(mode);
+                    finishGesture(null, null);
                 } else if (state == BluetoothDevice.BOND_NONE) {
-                    finishGesture("GESTURE_PAIRING_CANCELLED", "系统配对未完成，请重新选择模式并在手机上确认配对");
+                    rollbackGesturePairing("GESTURE_PAIRING_CANCELLED", "系统配对未完成");
                 }
             }
         };
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
         if (Build.VERSION.SDK_INT >= 33) activity.registerReceiver(gestureBondReceiver, filter, Context.RECEIVER_EXPORTED);
         else activity.registerReceiver(gestureBondReceiver, filter);
-        gestureDeadline = () -> finishGesture("GESTURE_PAIRING_TIMEOUT", "系统配对尚未完成，请在手机蓝牙设置中确认后重试");
+        gestureDeadline = () -> rollbackGesturePairing("GESTURE_PAIRING_TIMEOUT", "系统配对超时");
         main.postDelayed(gestureDeadline, 30_000L);
         if (device.getBondState() != BluetoothDevice.BOND_BONDING && !device.createBond()) {
-            finishGesture("GESTURE_PAIRING_FAILED", "无法发起系统配对，请在手机蓝牙设置中配对后重试");
+            rollbackGesturePairing("GESTURE_PAIRING_FAILED", "无法发起系统配对");
         }
         return true;
     }
@@ -1544,7 +1585,8 @@ public final class CoolWearRingBridge
         }
         gestureDeadline = () -> {
             gesture.fail();
-            finishGesture("GESTURE_CONFIRMATION_TIMEOUT", "戒指未确认，重新连接后重试");
+            finishGesture("GESTURE_CONFIRMATION_TIMEOUT", gesturePairingFailureCode != null
+                    ? "手势关闭尚未确认，请重连后先关闭" : "戒指未确认，重新连接后重试");
         };
         main.postDelayed(gestureDeadline, CoolWearGestureState.TIMEOUT_MS);
         try {
