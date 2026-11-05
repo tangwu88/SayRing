@@ -71,15 +71,23 @@ class DevicePage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            bound.displayName,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: SaydianColors.ink,
-                              fontSize: 26,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.5,
+                          Tooltip(
+                            message: bound.displayName,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                bound.displayName,
+                                key: const Key('device-overview-name'),
+                                maxLines: 1,
+                                softWrap: false,
+                                style: const TextStyle(
+                                  color: SaydianColors.ink,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -228,6 +236,22 @@ class DevicePage extends StatelessWidget {
                                   Text('重新连接'),
                                 ],
                               ),
+                      ),
+                    if (connected == null)
+                      TextButton.icon(
+                        key: const Key('device-search-preserving-binding'),
+                        onPressed:
+                            controller.canSearchForDevice &&
+                                !controller.isDeviceReconnecting
+                            ? () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      DeviceSearchPage(controller: controller),
+                                ),
+                              )
+                            : null,
+                        icon: const Icon(Icons.radar_rounded),
+                        label: const Text('重新搜索戒指'),
                       ),
                     const SizedBox(height: 4),
                     ExpansionTile(

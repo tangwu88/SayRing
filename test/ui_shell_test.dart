@@ -29,6 +29,61 @@ void main() {
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));
 
+  for (final scale in [1.0, 2.0]) {
+    testWidgets('332dp device name stays on one visible line at scale $scale', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(332, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:synthetic',
+              name: 'SD-RING-R7 Ultra',
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: Scaffold(body: DevicePage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.byKey(const Key('device-overview-name')),
+      );
+      expect(
+        paragraph.getBoxesForSelection(
+          TextSelection(
+            baseOffset: 0,
+            extentOffset: paragraph.text.toPlainText().length,
+          ),
+        ),
+        hasLength(1),
+      );
+      expect(paragraph.didExceedMaxLines, isFalse);
+      final bounds = tester.getRect(
+        find.byKey(const Key('device-overview-name')),
+      );
+      expect(bounds.left, greaterThanOrEqualTo(16));
+      expect(bounds.right, lessThanOrEqualTo(316));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final example in <(String, Map<String, Object?>, String)>[
     ('canonical', {'memberNo': '29', 'promo_code': '30'}, '29'),
     ('legacy', {'promo_code': 30}, '30'),

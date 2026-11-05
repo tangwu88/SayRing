@@ -1438,31 +1438,25 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
                       (
                         '心率参考',
                         'Heart rate',
-                        'https://support.apple.com/en-us/120276',
+                        'https://support.apple.com/zh-cn/120276',
                       ),
                     if (oxygen)
                       (
-                        '血氧参考',
+                        '血氧使用说明',
                         'Oxygen',
-                        'https://medlineplus.gov/lab-tests/pulse-oximetry/',
+                        'https://mpa.jl.gov.cn/gzfw/kpzs/ypaqzs/twzs2/202301/t20230114_8660579.html',
                       ),
                     if (oxygen)
                       (
                         '测量局限',
                         'Limitations',
-                        'https://www.fda.gov/consumers/consumer-updates/pulse-oximeter-basics',
+                        'https://www.fda.gov/consumers/consumer-updates/maiboxueyangjiheyangnongsuoqiguanyujiatingyangliaoguanjianxinxi',
                       ),
                     if (hrv)
                       (
-                        'HRV说明',
+                        'HRV说明（Oura）',
                         'About HRV',
-                        'https://my.clevelandclinic.org/health/diseases/21773-heart-rate-variability-hrv',
-                      ),
-                    if (temperature)
-                      (
-                        '皮温说明',
-                        'About skin temperature',
-                        'https://support.apple.com/en-us/102674',
+                        'https://support.ouraring.com/hc/zh-cn/articles/360025441974',
                       ),
                   ])
                     TextButton(

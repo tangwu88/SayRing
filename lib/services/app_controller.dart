@@ -1287,6 +1287,8 @@ class AppController extends ChangeNotifier {
       ? '保存的戒指需要确认，请点重新连接'
       : null;
   bool isWearableRecovering = false;
+  Timer? _wearableRecoveryRetryTimer;
+  int _wearableRecoveryRetryAttempt = 0;
   String? wearableRecoveryMessage;
   String _activeHealthOwner = 'anonymous';
   ({DeviceInfo device, int generation})? _accountWearableResume;
@@ -4058,6 +4060,7 @@ class AppController extends ChangeNotifier {
     } finally {
       if (identical(_wearableReconnectInFlight, reconnecting)) {
         _wearableReconnectInFlight = null;
+        _scheduleWearableRecoveryRetry();
         if (!_disposed) notifyListeners();
       }
     }
@@ -5303,6 +5306,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _cancelPendingWearableRestore() async {
+    _cancelWearableRecoveryRetry();
     _wearableRestoreGeneration++;
     final pending = _wearableRestoreInFlight;
     if (pending == null) return;
@@ -5336,6 +5340,8 @@ class AppController extends ChangeNotifier {
       await active;
       return;
     }
+    _wearableRecoveryRetryTimer?.cancel();
+    _wearableRecoveryRetryTimer = null;
     final generation = _wearableRestoreGeneration;
     isWearableRecovering = _canRecoverRememberedDevice;
     wearableRecoveryMessage = isWearableRecovering
@@ -5353,8 +5359,59 @@ class AppController extends ChangeNotifier {
     } finally {
       if (identical(_wearableRestoreInFlight, restore)) {
         _wearableRestoreInFlight = null;
+        _scheduleWearableRecoveryRetry();
       }
     }
+  }
+
+  void _cancelWearableRecoveryRetry() {
+    _wearableRecoveryRetryTimer?.cancel();
+    _wearableRecoveryRetryTimer = null;
+    _wearableRecoveryRetryAttempt = 0;
+  }
+
+  bool get _canRetryCoolWearRecovery =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      _allowAutomaticWearableRestore &&
+      !_disposed &&
+      _appIsForeground &&
+      !_accountTransitioning &&
+      !_wearableRecoverySuspended &&
+      _privacyConsentGranted &&
+      _wearableAccountRecoveryAllowed &&
+      _canRecoverRememberedDevice &&
+      rememberedDevice?.sdkSource == WearableSdkSource.coolwear &&
+      connectedDevice == null &&
+      deviceState == DeviceConnectionState.disconnected &&
+      _wearableConnectInFlight == null &&
+      _wearableReconnectInFlight == null &&
+      (!supportsLocalOnlyUse || isAuthenticated || isLocalMode);
+
+  void _scheduleWearableRecoveryRetry() {
+    if (!_canRetryCoolWearRecovery) {
+      _cancelWearableRecoveryRetry();
+      return;
+    }
+    if (_wearableRecoveryRetryTimer?.isActive ?? false) return;
+    // A completed scan with no target is not continuous native recovery.
+    // Retry only the current owner's exact saved target, with bounded spacing;
+    // never substitute a nearby ring by name or replay a settings write.
+    const delays = [8, 15, 30];
+    final seconds = delays[_wearableRecoveryRetryAttempt.clamp(0, 2)];
+    _wearableRecoveryRetryAttempt++;
+    final generation = _wearableRestoreGeneration;
+    final sessionGeneration = _sessionGeneration;
+    final target = rememberedDevice!.id;
+    _wearableRecoveryRetryTimer = Timer(Duration(seconds: seconds), () {
+      _wearableRecoveryRetryTimer = null;
+      if (!_canRetryCoolWearRecovery ||
+          generation != _wearableRestoreGeneration ||
+          sessionGeneration != _sessionGeneration ||
+          rememberedDevice?.id != target) {
+        return;
+      }
+      unawaited(restoreWearableConnection());
+    });
   }
 
   Future<void> _runWearableConnectionRestore(int generation) async {
@@ -6307,6 +6364,7 @@ class AppController extends ChangeNotifier {
     _moduleVisibilityService?.setForeground(foreground);
     _scheduleDeviceDetailsPoll();
     if (!foreground) {
+      _cancelWearableRecoveryRetry();
       _careInvitationPollTimer?.cancel();
       dismissCareInvitationAlert();
       return;
@@ -8964,6 +9022,7 @@ class AppController extends ChangeNotifier {
     ++_wechatLoginGeneration;
     if (isWechatLoginInProgress) unawaited(_wechatAuthBridge.cancel());
     _disposed = true;
+    _cancelWearableRecoveryRetry();
     _readOnlyHealthFeatureService?.dispose();
     _moduleVisibilityService?.dispose();
     _wearableRestoreGeneration++;

@@ -83,6 +83,8 @@ Session _session(String account, {String? memberId}) => Session(
 
 class _UiController extends Fake implements AppController {
   @override
+  bool get canSearchForDevice => activeRing == null && !isDeviceReconnecting;
+  @override
   bool get isDeviceSyncPreparing => false;
   @override
   bool get canRetryDeviceSyncPreparation => false;

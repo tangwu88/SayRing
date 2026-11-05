@@ -13,6 +13,70 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets(
+    'Android CoolWear misses retry, back off and stop in background',
+    (tester) async {
+      final ring = _CoolWearRetryRing();
+      final controller = AppController(
+        MemorySessionVault()..privacyConsentGranted = true,
+        _Api(),
+        MemoryHealthStore(),
+        ring,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(ring.source.close);
+      final initial = controller.initialize();
+      for (var i = 0; i < 60; i++) {
+        await tester.pump();
+      }
+      await initial;
+      expect(ring.restoreCount, 1);
+      expect(controller.rememberedDevice?.id, _CoolWearRetryRing.saved.id);
+      await tester.pump(const Duration(seconds: 8));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump();
+      }
+      expect(ring.restoreCount, 2);
+      await tester.pump(const Duration(seconds: 14));
+      expect(ring.restoreCount, 2);
+      await tester.pump(const Duration(seconds: 1));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump();
+      }
+      expect(ring.restoreCount, 3);
+      controller.setAppForeground(false);
+      await tester.pump(const Duration(minutes: 2));
+      expect(ring.restoreCount, 3);
+      expect(ring.operations, isNot(contains('forget')));
+      expect(controller.connectedDevice, isNull);
+      controller.setAppForeground(true);
+      final resuming = controller.restoreWearableConnection();
+      for (var i = 0; i < 10; i++) {
+        await tester.pump();
+      }
+      await resuming;
+      expect(ring.restoreCount, 4);
+      ring.restorationResult = _CoolWearRetryRing.saved;
+      await tester.pump(const Duration(seconds: 8));
+      for (var i = 0; i < 30; i++) {
+        await tester.pump();
+      }
+      expect(ring.restoreCount, 5);
+      expect(controller.connectedDevice?.id, _CoolWearRetryRing.saved.id);
+      await tester.pump(const Duration(minutes: 2));
+      expect(ring.restoreCount, 5);
+      final disconnecting = controller.disconnectDevice();
+      for (var i = 0; i < 10; i++) {
+        await tester.pump();
+      }
+      await disconnecting;
+      await tester.pump(const Duration(minutes: 2));
+      expect(ring.restoreCount, 5);
+      expect(controller.rememberedDevice?.id, _CoolWearRetryRing.saved.id);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
   Future<({AppController controller, _Ring ring, MemoryHealthStore store})>
   setup({bool consent = true, bool legacy = false, _Ring? providedRing}) async {
     final ring = providedRing ?? (legacy ? _LegacyRing() : _Ring());
@@ -590,6 +654,23 @@ class _LegacyRing extends _Ring
     if (failHandshake) throw StateError('legacy handshake failed');
     await super.connect(deviceId, profile: profile);
     confirmed = true;
+  }
+}
+
+class _CoolWearRetryRing extends _Ring {
+  DeviceInfo? restorationResult;
+  static const saved = DeviceInfo(
+    id: 'coolwear:AA:BB:CC:DD:EE:FF',
+    name: 'SD-RING-R7 Ultra',
+  );
+  @override
+  Future<DeviceInfo?> readRememberedDevice() async => saved;
+  @override
+  Future<DeviceInfo?> restoreConnection({
+    required WearableUserProfile profile,
+  }) async {
+    restoreCount++;
+    return restorationResult;
   }
 }
 
