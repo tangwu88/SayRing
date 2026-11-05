@@ -1,5 +1,7 @@
 import 'dart:convert';
-import 'dart:math' as math;
+import 'cycle_day_widgets.dart';
+import 'cycle_diary_sheet.dart';
+import 'cycle_night_trend.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import '../domain/cycle_tracking.dart';
@@ -8,7 +10,7 @@ import '../services/cycle_tracking_service.dart';
 import 'global_code_login_page.dart';
 import 'package:html/parser.dart' as html;
 
-const _cyclePurple = Color(0xff72679d), _cycleRose = Color(0xffb75878);
+const _cyclePurple = cyclePlum;
 
 class CycleShortcut extends StatelessWidget {
   const CycleShortcut({required this.controller, super.key});
@@ -52,14 +54,14 @@ class CycleTrackingPage extends StatefulWidget {
 class _CycleTrackingPageState extends State<CycleTrackingPage>
     with WidgetsBindingObserver {
   CycleTrackingService get c => widget.controller.cycles;
-  late DateTime month;
-  String? selected;
+  late String selected;
+  final _daysScroll = ScrollController();
   bool _working = false;
   late int _initialRevision;
   @override
   void initState() {
     super.initState();
-    month = DateTime.now();
+    selected = c.today;
     _initialRevision = c.contextRevision;
     WidgetsBinding.instance.addObserver(this);
     c.addListener(_changed);
@@ -89,6 +91,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _daysScroll.dispose();
     c.removeListener(_changed);
     widget.controller.removeListener(_changed);
     super.dispose();
@@ -130,26 +133,23 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
   );
   @override
   Widget build(BuildContext context) {
-    final s = c.settings, p = c.prediction;
-    final ongoing = c.entries
-        .where((e) => e.kind == 'period' && e.end == null)
-        .firstOrNull;
+    final s = c.settings, p = c.prediction, day = _view(selected);
     return Scaffold(
       key: const Key('cycle-page'),
       appBar: AppBar(
         title: const Text('生理周期'),
         actions: [
-          if (c.available)
+          if (c.available && s.enabled)
             IconButton(
-              tooltip: '通知与数据',
-              onPressed: _working ? null : _moreSettings,
-              icon: const Icon(Icons.more_horiz),
+              tooltip: '打开月历',
+              onPressed: _calendar,
+              icon: const Icon(Icons.calendar_month_outlined),
             ),
           if (c.available)
             IconButton(
-              tooltip: '周期设置',
-              onPressed: _working ? null : () => _settings(),
-              icon: const Icon(Icons.tune_rounded),
+              tooltip: '更多',
+              onPressed: _working ? null : _moreSettings,
+              icon: const Icon(Icons.more_horiz),
             ),
         ],
       ),
@@ -187,6 +187,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           : RefreshIndicator(
               onRefresh: _refresh,
               child: ListView(
+                controller: _daysScroll,
                 padding: const EdgeInsets.all(16),
                 children: [
                   if (!s.enabled)
@@ -209,7 +210,15 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                       ),
                     )
                   else ...[
-                    _overview(ongoing, p, s),
+                    CycleWeek(
+                      selected: selected,
+                      today: c.today,
+                      view: _view,
+                      select: _select,
+                    ),
+                    const SizedBox(height: 10),
+                    _overview(day, p),
+                    _feelings(day),
                     if (c.conflicts.isNotEmpty)
                       _card(
                         Column(
@@ -245,65 +254,12 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                           ],
                         ),
                       ),
-                    _calendar(),
-                    _feelings(),
-                    if (c.nights.isNotEmpty) _trend(),
-                    _insights(p),
-                    if (c.entries.isNotEmpty)
-                      _card(
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _title('周期记录', Icons.history),
-                            for (final e in c.entries.take(60))
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: Icon(
-                                  e.kind == 'period'
-                                      ? Icons.water_drop_outlined
-                                      : Icons.sentiment_satisfied_alt,
-                                  color: _cycleRose,
-                                ),
-                                title: Text(_describe(e)),
-                                subtitle: e.kind == 'period'
-                                    ? Text(
-                                        e.end == null
-                                            ? '尚未记录结束'
-                                            : '共${cycleDays(e.start, e.end!) + 1}天',
-                                      )
-                                    : null,
-                                trailing: PopupMenuButton<String>(
-                                  onSelected: (v) {
-                                    if (v == 'end') {
-                                      _period(existing: e, finish: true);
-                                    } else if (v == 'edit') {
-                                      e.kind == 'period'
-                                          ? _period(existing: e)
-                                          : _daily(e.start, existing: e);
-                                    } else {
-                                      _delete(e);
-                                    }
-                                  },
-                                  itemBuilder: (_) => [
-                                    const PopupMenuItem(
-                                      value: 'edit',
-                                      child: Text('修改'),
-                                    ),
-                                    if (e.kind == 'period')
-                                      const PopupMenuItem(
-                                        value: 'end',
-                                        child: Text('修改结束日期'),
-                                      ),
-                                    const PopupMenuItem(
-                                      value: 'delete',
-                                      child: Text('删除'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
+                    if (c.nights.isNotEmpty)
+                      CycleNightTrend(
+                        nights: c.nights,
+                        until: day.future ? c.today : selected,
                       ),
+                    _insights(day),
                   ],
                   if (c.status.isNotEmpty)
                     Padding(
@@ -317,8 +273,10 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           else
-                            const Icon(
-                              Icons.cloud_done_outlined,
+                            Icon(
+                              c.status == '已同步'
+                                  ? Icons.cloud_done_outlined
+                                  : Icons.save_outlined,
                               size: 18,
                               color: _cyclePurple,
                             ),
@@ -346,356 +304,224 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     );
   }
 
-  String _shortDate(String value) {
-    final d = parseCycleDate(value);
-    return '${d.month}/${d.day}';
+  CycleDayView _view(String date) =>
+      cycleDayView(c.entries, c.prediction, date, c.today);
+  void _select(String date) {
+    if (mounted && _initialRevision == c.contextRevision) {
+      setState(() => selected = date);
+      // 月历也可从页尾打开，选完应立即看到所选日而不是留在旧的滚动位置。
+      if (_daysScroll.hasClients) _daysScroll.jumpTo(0);
+    }
   }
 
-  Widget _tag(String text, IconData icon, {Color color = _cyclePurple}) =>
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: .08),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(text, style: TextStyle(fontSize: 12, color: color)),
-            ),
-          ],
-        ),
-      );
-  Widget _overview(CycleEntry? ongoing, CyclePrediction p, CycleSettings s) {
-    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.5;
-    final orbitSize = largeText ? 96.0 : 80.0;
-    final days = ongoing == null ? null : cycleDays(ongoing.start, c.today) + 1;
-    final title = ongoing != null
-        ? '经期进行中'
+  Future<void> _calendar() async {
+    final date = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) =>
+          CycleMonthSheet(selected: selected, today: c.today, view: _view),
+    );
+    if (date != null) _select(date);
+  }
+
+  Widget _overview(CycleDayView day, CyclePrediction p) {
+    final active = day.period, completed = active?.end != null;
+    final actual = active != null, ref = day.inReference;
+    final latestPeriod = c.entries.where((e) => e.kind == 'period').firstOrNull;
+    final title = actual
+        ? '经期第 ${day.periodDay} 天'
+        : ref
+        ? '处于经期参考范围'
+        : day.future
+        ? '尚未到这一天'
+        : day.historical
+        ? '当天未记经期'
         : p.status == 'reference'
         ? '下次经期参考'
         : p.status == 'needs_confirmation'
         ? '核对最近经期'
-        : '了解你的节奏';
-    final detail = ongoing != null
-        ? '${_shortDate(ongoing.start)} 开始'
-        : p.status == 'reference'
-        ? '${_shortDate(p.from!)} — ${_shortDate(p.to!)}'
-        : s.recordOnly
-        ? '随时补记与回顾'
-        : '记下第一次经期';
+        : latestPeriod != null
+        ? '今天未记经期'
+        : '记录你的周期';
+    final sub = actual
+        ? '${cycleShort(active.start)}开始${completed ? ' · ${cycleShort(active.end!)}结束' : ''}'
+        : (ref || (!day.historical && !day.future && p.status == 'reference'))
+        ? '${cycleShort(p.from!)} — ${cycleShort(p.to!)}'
+        : day.future
+        ? '可以提前查看，到了当天再记录。'
+        : day.historical
+        ? '可补记这一天的实际情况。'
+        : p.status == 'needs_confirmation'
+        ? '上次参考范围已过，请核对实际日期。'
+        : c.settings.recordOnly
+        ? (latestPeriod == null
+              ? '记录实际开始或结束日期。'
+              : '上次开始于 ${cycleShort(latestPeriod.start)}。')
+        : latestPeriod != null
+        ? '继续记录实际起止日期。'
+        : '从第一次经期开始日期记起。';
+    final color = actual ? cycleRose : cyclePlum;
     return Container(
       key: const Key('cycle-overview'),
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xfff0eaf5), Color(0xfff8eff1)],
-        ),
         borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: actual
+              ? [const Color(0xfff9e8ed), const Color(0xfffcf7f6)]
+              : [const Color(0xffeeebf8), const Color(0xfffaf7f4)],
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Semantics(
-                label: days != null ? '经期第$days天' : '周期记录',
-                child: SizedBox(
-                  width: orbitSize,
-                  height: orbitSize,
-                  child: CustomPaint(
-                    painter: const _CycleOrbitPainter(),
-                    child: Center(
-                      child: days == null
-                          ? const Icon(
-                              Icons.water_drop_rounded,
-                              size: 29,
-                              color: _cycleRose,
-                            )
-                          : Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  '$days',
-                                  style: TextStyle(
-                                    fontSize: largeText ? 24 : 30,
-                                    height: 1,
-                                    fontWeight: FontWeight.w800,
-                                    color: _cycleRose,
-                                  ),
-                                ),
-                                const Text(
-                                  '经期天数',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: _cycleRose,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
-                ),
+              Icon(
+                actual
+                    ? Icons.water_drop_outlined
+                    : ref
+                    ? Icons.date_range_outlined
+                    : Icons.spa_outlined,
+                color: color,
+                size: 19,
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      key: const Key('cycle-headline'),
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xff38303f),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      detail,
-                      style: const TextStyle(fontSize: 16, color: _cyclePurple),
-                    ),
-                    const SizedBox(height: 8),
-                    _tag(
-                      s.recordOnly
-                          ? '仅记录'
-                          : p.status == 'reference'
-                          ? '历史参考'
-                          : '积累中',
-                      s.recordOnly
-                          ? Icons.edit_note_rounded
-                          : p.status == 'reference'
-                          ? Icons.calendar_month_outlined
-                          : Icons.spa_outlined,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                key: Key(
-                  ongoing == null ? 'cycle-record-start' : 'cycle-record-end',
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: _cyclePurple,
-                  minimumSize: const Size(132, 48),
-                ),
-                onPressed: _working
-                    ? null
-                    : () => ongoing == null
-                          ? _period()
-                          : _period(existing: ongoing, finish: true),
-                icon: Icon(
-                  ongoing == null ? Icons.add_rounded : Icons.check_rounded,
-                  size: 19,
-                ),
-                label: Text(ongoing == null ? '记录开始' : '记录结束'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _working ? null : () => _period(),
-                icon: const Icon(Icons.edit_calendar_outlined, size: 18),
-                label: const Text('补记'),
-              ),
-              IconButton.filledTonal(
-                tooltip: '记录感受',
-                onPressed: _working ? null : () => _daily(selected ?? c.today),
-                icon: const Icon(Icons.sentiment_satisfied_alt_outlined),
-                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _feelings() {
-    final date = selected ?? c.today;
-    final entry = c.entries
-        .where((e) => e.kind == 'daily' && e.start == date)
-        .firstOrNull;
-    const fields = [
-      ('flow', '经量', Icons.water_drop_outlined),
-      ('pain', '疼痛', Icons.bolt_outlined),
-      ('mood', '心情', Icons.sentiment_satisfied_alt_outlined),
-      ('fatigue', '疲劳', Icons.battery_4_bar_rounded),
-    ];
-    return _card(
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  date == c.today ? '今日感受' : '当天感受',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-                ),
-              ),
-              if (date != c.today)
-                Text(
-                  _shortDate(date),
-                  style: const TextStyle(fontSize: 13, color: _cyclePurple),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          LayoutBuilder(
-            builder: (context, box) {
-              final columns = MediaQuery.textScalerOf(context).scale(1) > 1.5
-                  ? 2
-                  : 4;
-              final width = (box.maxWidth - 8 * (columns - 1)) / columns;
-              return Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final f in fields)
-                    SizedBox(
-                      width: width,
-                      child: Semantics(
-                        button: true,
-                        label: '记录${f.$2}',
-                        child: Material(
-                          color: const Color(0xfff7f5fa),
-                          borderRadius: BorderRadius.circular(16),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: _working
-                                ? null
-                                : () => _daily(date, existing: entry),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 11,
-                                horizontal: 4,
-                              ),
-                              child: Column(
-                                children: [
-                                  Icon(f.$3, size: 24, color: _cyclePurple),
-                                  const SizedBox(height: 5),
-                                  Text(
-                                    f.$2,
-                                    style: const TextStyle(fontSize: 13),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _labels[entry?.data[f.$1]] ?? '＋',
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: _cyclePurple,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _insights(CyclePrediction p) {
-    final periods = c.entries.where((e) => e.kind == 'period').length;
-    final nights = c.nights.map((n) => n.date).toSet().length;
-    final fact = p.status == 'reference'
-        ? '参考 ${_shortDate(p.from!)}—${_shortDate(p.to!)}'
-        : p.status == 'needs_confirmation'
-        ? '请确认最近一次经期'
-        : '继续记录个人节奏';
-    final action = switch (c.currentAiReport ? (c.report?['action']) : null) {
-      'prepare' => '提前备好用品',
-      'check_records' => '补充最近经期',
-      'keep_wearing' => '保持夜间佩戴',
-      _ => '记录实际起止日期',
-    };
-    return _card(
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: _title('周期解读', Icons.auto_awesome_outlined)),
-              if (c.currentAiReport) _tag('AI', Icons.auto_awesome),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(
-                Icons.calendar_today_outlined,
-                size: 19,
-                color: _cyclePurple,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  fact,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  actual
+                      ? '实际经期'
+                      : ref
+                      ? '日历参考'
+                      : day.historical
+                      ? '历史记录'
+                      : day.future
+                      ? '日期预览'
+                      : c.settings.recordOnly
+                      ? '仅记录'
+                      : '周期日历',
+                  style: TextStyle(color: color, fontWeight: FontWeight.w700),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              _tag('$periods次经期记录', Icons.fact_check_outlined),
-              if (nights > 0) _tag('$nights晚数据', Icons.nights_stay_outlined),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(
-                Icons.lightbulb_outline_rounded,
-                size: 19,
-                color: _cyclePurple,
-              ),
-              const SizedBox(width: 8),
-              Expanded(child: Text(action)),
-            ],
-          ),
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            dense: true,
-            title: const Text(
-              '依据与说明',
-              style: TextStyle(fontSize: 14, color: _cyclePurple),
+          const SizedBox(height: 7),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 28,
+              height: 1.15,
+              fontWeight: FontWeight.w800,
+              color: Color(0xff332b40),
             ),
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '${c.explanation.join('\n')}\n日期按已确认的历史参考。戒指增强预测仍在验证。',
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ),
-            ],
           ),
-          if (c.availability?['available'] == true)
+          const SizedBox(height: 5),
+          Text(
+            sub,
+            style: const TextStyle(fontSize: 14, color: Color(0xff574e5e)),
+          ),
+          if (!day.future) ...[
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              key: Key(
+                actual
+                    ? (completed ? 'cycle-view-period' : 'cycle-record-end')
+                    : 'cycle-record-start',
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: color,
+                minimumSize: const Size(128, 44),
+              ),
+              onPressed: _working
+                  ? null
+                  : () => actual
+                        ? (completed
+                              ? _viewPeriod(active)
+                              : _period(existing: active, finish: true))
+                        : _period(),
+              icon: Icon(
+                completed
+                    ? Icons.article_outlined
+                    : actual
+                    ? Icons.check
+                    : Icons.add,
+                size: 18,
+              ),
+              label: Text(
+                completed
+                    ? '查看记录'
+                    : actual
+                    ? '记录结束'
+                    : '记录开始',
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _feelings(CycleDayView day) {
+    if (day.future) return const SizedBox.shrink();
+    final labels = diarySummary(day.daily?.data ?? {});
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        key: const Key('cycle-feelings'),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+        leading: const CircleAvatar(
+          backgroundColor: Color(0xfff5eaf0),
+          child: Icon(Icons.sentiment_satisfied_alt, color: cycleRose),
+        ),
+        title: Text(
+          day.date == c.today ? '今日感受' : '当天感受',
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+        ),
+        subtitle: Text(labels.isEmpty ? '记感受' : labels.join(' · ')),
+        trailing: Icon(
+          labels.isEmpty ? Icons.add_circle_outline : Icons.edit_outlined,
+          color: cycleRose,
+        ),
+        onTap: _working ? null : () => _daily(day.date, existing: day.daily),
+      ),
+    );
+  }
+
+  Widget _insights(CycleDayView day) {
+    // 回顾历史时展示当日事实，不把当前参考或后出的 AI 解读贴到那一天。
+    final lines = day.historical
+        ? [
+            day.period != null
+                ? '当天记录为经期第 ${day.periodDay} 天。'
+                : '按当天已保存的记录回顾。',
+            '依据实际经期和当天感受。',
+          ]
+        : c.explanation;
+    return _card(
+      ExpansionTile(
+        key: ValueKey('cycle-insight-${day.date}'),
+        tilePadding: EdgeInsets.zero,
+        leading: const Icon(Icons.auto_awesome_outlined, color: cyclePlum),
+        title: Text(
+          lines.first,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        subtitle: const Text('查看依据'),
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(lines.skip(1).join('\n')),
+          ),
+          if (!day.historical &&
+              !day.future &&
+              c.availability?['available'] == true)
             TextButton.icon(
               onPressed: _working ? null : _ai,
-              icon: const Icon(Icons.auto_awesome, size: 18),
+              icon: const Icon(Icons.auto_awesome),
               label: Text(
                 c.availability?['granted'] == true ? '更新解读' : '开启AI解读',
               ),
@@ -711,178 +537,114 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
       ? '周期设置'
       : e.kind == 'period'
       ? '${e.start} — ${e.end ?? '未结束'}'
-      : '${e.start} · ${e.data.entries.where((x) => x.key != 'date').map((x) => _labels[x.value] ?? (x.value is List ? (x.value as List).map((v) => _labels[v] ?? v).join('、') : '已记录')).join(' · ')}';
-  Widget _calendar() {
-    final first = DateTime(month.year, month.month),
-        count = DateTime(month.year, month.month + 1, 0).day,
-        offset = first.weekday % 7,
-        p = c.prediction;
-    return _card(
-      Column(
-        children: [
-          Row(
+      : '${e.start} · ${diarySummary(e.data).join(' · ')}';
+
+  Future<void> _history() async {
+    final entries = c.entries;
+    final periods = entries.where((e) => e.kind == 'period').toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    final lengths = [
+      for (var i = 1; i < periods.length; i++)
+        if (periods[i - 1].end != null)
+          cycleDays(periods[i - 1].start, periods[i].start),
+    ];
+    final closed = periods.where((p) => p.end != null).length;
+    final chosen = await showModalBottomSheet<CycleEntry>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: .78,
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
             children: [
-              IconButton(
-                tooltip: '上个月',
-                onPressed: () => setState(
-                  () => month = DateTime(month.year, month.month - 1),
+              _title('历史与统计', Icons.bar_chart_rounded),
+              const SizedBox(height: 8),
+              Text('已记 ${periods.length} 次经期 · $closed 次有结束日期'),
+              if (lengths.isNotEmpty)
+                Text(
+                  '最近记录间隔：${lengths.reversed.take(6).toList().reversed.join('、')} 天',
                 ),
-                icon: const Icon(Icons.chevron_left),
-              ),
-              Expanded(
-                child: Center(
-                  child: Text(
-                    '${month.year}年${month.month}月',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
+              const Divider(),
+              if (entries.isEmpty) const Text('还没有记录'),
+              for (final e in entries)
+                ListTile(
+                  leading: Icon(
+                    e.kind == 'period'
+                        ? Icons.water_drop_outlined
+                        : Icons.sentiment_satisfied_alt,
                   ),
+                  title: Text(_describe(e)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.pop(ctx, e),
                 ),
-              ),
-              IconButton(
-                tooltip: '下个月',
-                onPressed: () => setState(
-                  () => month = DateTime(month.year, month.month + 1),
-                ),
-                icon: const Icon(Icons.chevron_right),
-              ),
             ],
           ),
-          Row(
-            children: [
-              for (final d in ['日', '一', '二', '三', '四', '五', '六'])
-                Expanded(child: Center(child: Text(d))),
-            ],
-          ),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: ((count + offset + 6) ~/ 7) * 7,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-              mainAxisExtent: 48,
-            ),
-            itemBuilder: (context, i) {
-              final day = i - offset + 1;
-              if (day < 1 || day > count) return const SizedBox();
-              final date = cycleDate(DateTime(month.year, month.month, day));
-              final actual = c.entries.any(
-                (e) =>
-                    e.kind == 'period' &&
-                    date.compareTo(e.start) >= 0 &&
-                    date.compareTo(e.end ?? c.today) <= 0,
-              );
-              final reference =
-                  p.status == 'reference' &&
-                  date.compareTo(p.from!) >= 0 &&
-                  date.compareTo(p.to!) <= 0;
-              return Semantics(
-                label:
-                    '$date${actual
-                        ? '，已记录经期'
-                        : reference
-                        ? '，预计范围'
-                        : ''}',
-                child: InkWell(
-                  onTap: date.compareTo(c.today) > 0
-                      ? null
-                      : () {
-                          setState(() => selected = date);
-                          _daily(date);
-                        },
-                  child: Container(
-                    margin: const EdgeInsets.all(3),
-                    decoration: BoxDecoration(
-                      color: actual
-                          ? _cycleRose
-                          : reference
-                          ? const Color(0xffeeeaf6)
-                          : null,
-                      borderRadius: BorderRadius.circular(12),
-                      border: reference
-                          ? Border.all(color: _cyclePurple)
-                          : selected == date
-                          ? Border.all(color: _cycleRose)
-                          : null,
-                    ),
-                    child: Center(
-                      child: Text(
-                        '$day',
-                        style: TextStyle(
-                          color: actual ? Colors.white : null,
-                          fontWeight: actual ? FontWeight.bold : null,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 10),
-          const Wrap(
-            spacing: 14,
-            children: [
-              Text('● 经期', style: TextStyle(color: _cycleRose)),
-              Text('○ 参考', style: TextStyle(color: _cyclePurple)),
-              Text('点日期补记', style: TextStyle(fontSize: 13)),
-            ],
-          ),
-        ],
+        ),
       ),
     );
+    if (!mounted || chosen == null || _initialRevision != c.contextRevision) {
+      return;
+    }
+    _select(chosen.start);
+    if (chosen.kind == 'period') {
+      await _viewPeriod(chosen);
+    } else {
+      await _viewDaily(chosen);
+    }
   }
 
-  String _trendMetric = 'skin_temperature';
-  Widget _trend() {
-    final metrics = c.nights.map((n) => n.metric).toSet().toList();
-    if (!metrics.contains(_trendMetric)) _trendMetric = metrics.first;
-    final source = c.nights
-        .lastWhere((n) => n.metric == _trendMetric)
-        .sourceKey;
-    final rows = c.nights
-        .where((n) => n.metric == _trendMetric && n.sourceKey == source)
-        .toList();
-    final baseline =
-        rows.map((n) => n.value).reduce((a, b) => a + b) / rows.length;
-    final values = rows.take(60).map((n) => n.value - baseline).toList();
-    return _card(
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _title('夜间趋势', Icons.show_chart),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final m in metrics)
-                ChoiceChip(
-                  label: Text(
-                    m == 'skin_temperature'
-                        ? '皮温'
-                        : m == 'sleep_heart_rate'
-                        ? '睡眠期间心率'
-                        : 'HRV ${m.endsWith('rmssd') ? 'RMSSD' : 'SDNN'}',
-                  ),
-                  selected: m == _trendMetric,
-                  onSelected: (_) => setState(() => _trendMetric = m),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 90,
-            width: double.infinity,
-            child: CustomPaint(painter: _CycleTrendPainter(values)),
-          ),
-          Text(
-            '${rows.length}晚 · 相对个人记录均值',
-            style: const TextStyle(fontSize: 13, color: Colors.grey),
-          ),
-          const Text('同一戒指、同一算法', style: TextStyle(fontSize: 13)),
-        ],
+  Future<void> _viewDaily(CycleEntry e) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: Text(_describe(e))),
+            ListTile(
+              title: const Text('修改感受'),
+              onTap: () => Navigator.pop(ctx, 'edit'),
+            ),
+            ListTile(
+              title: const Text('删除这条记录'),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
       ),
     );
+    if (!mounted || _initialRevision != c.contextRevision) return;
+    if (action == 'edit') await _daily(e.start, existing: e);
+    if (action == 'delete') await _delete(e);
+  }
+
+  Future<void> _viewPeriod(CycleEntry e) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: const Text('经期记录'), subtitle: Text(_describe(e))),
+            ListTile(
+              title: const Text('修改日期'),
+              onTap: () => Navigator.pop(ctx, 'edit'),
+            ),
+            ListTile(
+              title: const Text('删除这段经期'),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || _initialRevision != c.contextRevision) return;
+    if (action == 'edit') await _period(existing: e);
+    if (action == 'delete') await _delete(e);
   }
 
   Future<DateTime?> _date(String initial) => showDatePicker(
@@ -893,38 +655,90 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
       parseCycleDate(initial).day,
     ),
     firstDate: DateTime(1900),
-    lastDate: DateTime.now(),
+    lastDate: parseCycleDate(c.today),
   );
   Future<void> _period({CycleEntry? existing, bool finish = false}) async {
-    var start = existing?.start ?? selected ?? c.today, end = existing?.end;
-    if (finish) {
-      final d = await _date(c.today);
-      if (d == null) return;
-      end = cycleDate(d);
-    } else {
-      final d = await _date(start);
-      if (d == null) return;
-      start = cycleDate(d);
-    }
-    if (!mounted) return;
+    if (selected.compareTo(c.today) > 0) return;
+    var start = existing?.start ?? selected;
+    String? end = finish ? selected : existing?.end;
+    String? error;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(finish ? '记录结束' : '记录经期'),
-        content: Text('开始：$start\n结束：${end ?? '尚未记录'}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, update) => AlertDialog(
+          title: Text(
+            finish
+                ? '记录结束'
+                : existing == null
+                ? '记录开始'
+                : '修改经期',
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('保存'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('开始日期'),
+                  subtitle: Text(start),
+                  onTap: finish
+                      ? null
+                      : () async {
+                          final d = await _date(start);
+                          if (d != null && ctx.mounted) {
+                            update(() => start = cycleDate(d));
+                          }
+                        },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('结束日期'),
+                  subtitle: Text(end ?? '未填写'),
+                  onTap: () async {
+                    final d = await _date(end ?? start);
+                    if (d != null && ctx.mounted) {
+                      update(() => end = cycleDate(d));
+                    }
+                  },
+                ),
+                if (error != null)
+                  Text(
+                    error!,
+                    style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+                  ),
+              ],
+            ),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                try {
+                  validateCycleEntry(
+                    CycleEntry(
+                      id: existing?.id ?? 'draft-period',
+                      kind: 'period',
+                      data: {'start': start, 'end': ?end},
+                    ),
+                    c.entries,
+                    c.today,
+                  );
+                } on FormatException catch (e) {
+                  update(() => error = e.message);
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
       ),
     );
-    if (ok == true) {
+    if (ok == true && mounted) {
       await _run(
         () => c.save(
           CycleEntry(
@@ -939,115 +753,28 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     }
   }
 
-  static const _labels = {
-    'none': '无',
-    'light': '少',
-    'medium': '中',
-    'heavy': '多',
-    'mild': '轻',
-    'moderate': '中',
-    'severe': '重',
-    'calm': '平稳',
-    'low': '低落',
-    'irritable': '烦躁',
-    'strong': '明显',
-    'travel': '旅行',
-    'unwell': '身体不适',
-    'medication': '用药',
-    'late_sleep': '晚睡',
-  };
   Future<void> _daily(String date, {CycleEntry? existing}) async {
-    existing ??= c.entries
-        .where((e) => e.kind == 'daily' && e.start == date)
-        .firstOrNull;
-    final data = <String, Object?>{...?existing?.data, 'date': date};
-    final ok = await showDialog<bool>(
+    if (date.compareTo(c.today) > 0) return;
+    final data = await showModalBottomSheet<Map<String, Object?>>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, update) => AlertDialog(
-          title: Text('$date 感受'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final field in {
-                  'flow': ['经量', 'none', 'light', 'medium', 'heavy'],
-                  'pain': ['疼痛', 'none', 'mild', 'moderate', 'severe'],
-                  'mood': ['心情', 'calm', 'low', 'irritable'],
-                  'fatigue': ['疲劳', 'none', 'mild', 'strong'],
-                }.entries) ...[
-                  Text(field.value.first),
-                  Wrap(
-                    spacing: 6,
-                    children: [
-                      for (final v in field.value.skip(1))
-                        ChoiceChip(
-                          label: Text(_labels[v]!),
-                          selected: data[field.key] == v,
-                          onSelected: (on) => update(() {
-                            if (on) {
-                              data[field.key] = v;
-                            } else {
-                              data.remove(field.key);
-                            }
-                          }),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                const Text('可选标记'),
-                Wrap(
-                  spacing: 6,
-                  children: [
-                    for (final v in [
-                      'travel',
-                      'unwell',
-                      'medication',
-                      'late_sleep',
-                    ])
-                      FilterChip(
-                        label: Text(_labels[v]!),
-                        selected: (data['tags'] as List?)?.contains(v) ?? false,
-                        onSelected: (on) => update(() {
-                          final tags = List<String>.from(
-                            data['tags'] as List? ?? [],
-                          );
-                          on ? tags.add(v) : tags.remove(v);
-                          data['tags'] = tags;
-                        }),
-                      ),
-                  ],
-                ),
-                const Text('未选择表示未填写，不代表没有症状。', style: TextStyle(fontSize: 13)),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('保存'),
-            ),
-          ],
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) =>
+          CycleDiarySheet(date: date, initial: existing?.data ?? const {}),
+    );
+    if (!mounted || data == null || _initialRevision != c.contextRevision) {
+      return;
+    }
+    if (existing == null && diarySummary(data).isEmpty) return;
+    await _run(
+      () => c.save(
+        CycleEntry(
+          id: existing?.id ?? 'daily-$date',
+          kind: 'daily',
+          data: data,
         ),
       ),
     );
-    if (ok == true) {
-      await _run(
-        () => c.save(
-          CycleEntry(
-            id: existing?.id ?? 'daily-$date',
-            kind: 'daily',
-            data: data,
-          ),
-        ),
-      );
-    }
   }
 
   Future<void> _delete(CycleEntry e) async {
@@ -1077,70 +804,87 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     }
   }
 
-  Future<void> _settings({bool first = false}) async {
+  Future<void> _settings({bool first = false, bool reminders = false}) async {
     final data = Map<String, Object?>.from(c.settings.toJson());
     if (first) data['enabled'] = true;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, update) => AlertDialog(
-          title: Text(first ? '开启生理周期' : '周期设置'),
+          title: Text(
+            first
+                ? '开启生理周期'
+                : reminders
+                ? '提醒设置'
+                : '记录模式',
+          ),
           content: SizedBox(
             width: 420,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    '经期与感受将加密保存在本机，并随当前账号自动同步到赛电云端，供本人换机恢复和周期参考。可关闭功能、导出或删除。AI分析需另外确认。',
-                  ),
-                  for (final f in {
-                    'enabled': '启用生理周期',
-                    'adultConfirmed': '确认已年满18岁',
-                    'purposeAccepted': '理解并同意上述数据用途',
-                    'recordOnly': '仅记录（孕哺、用药或不确定时适用）',
-                    'historyComplete': '已核对历史，中间没有漏记',
-                    'hideSummary': '隐藏“我的”入口上的周期摘要',
-                    'remind': '经期准备提醒',
-                    'recordRemind': '每日记录提醒',
-                  }.entries)
+                  if (!reminders)
+                    const Text(
+                      '经期与感受将加密保存在本机，并随当前账号自动同步到赛电云端，供本人换机恢复和周期参考。可关闭功能、导出或删除。AI分析需另外确认。',
+                    ),
+                  for (final f
+                      in {
+                        'enabled': '启用生理周期',
+                        'adultConfirmed': '确认已年满18岁',
+                        'purposeAccepted': '理解并同意上述数据用途',
+                        'recordOnly': '仅记录（孕哺、用药或不确定时适用）',
+                        'historyComplete': '已核对历史，中间没有漏记',
+                        'hideSummary': '隐藏“我的”入口上的周期摘要',
+                        'remind': '经期准备提醒',
+                        'recordRemind': '每日记录提醒',
+                      }.entries.where(
+                        (item) =>
+                            first ||
+                            (reminders ==
+                                ['remind', 'recordRemind'].contains(item.key)),
+                      ))
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(f.value),
                       value: data[f.key] == true,
                       onChanged: (v) => update(() => data[f.key] = v),
                     ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('提醒时间'),
-                    trailing: Text(
-                      '${(data['hour'] as int).toString().padLeft(2, '0')}:${(data['minute'] as int).toString().padLeft(2, '0')}',
+                  if (first || reminders)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('提醒时间'),
+                      trailing: Text(
+                        '${(data['hour'] as int).toString().padLeft(2, '0')}:${(data['minute'] as int).toString().padLeft(2, '0')}',
+                      ),
+                      onTap: () async {
+                        final t = await showTimePicker(
+                          context: ctx,
+                          initialTime: TimeOfDay(
+                            hour: data['hour'] as int,
+                            minute: data['minute'] as int,
+                          ),
+                        );
+                        if (t != null) {
+                          update(() {
+                            data['hour'] = t.hour;
+                            data['minute'] = t.minute;
+                          });
+                        }
+                      },
                     ),
-                    onTap: () async {
-                      final t = await showTimePicker(
-                        context: ctx,
-                        initialTime: TimeOfDay(
-                          hour: data['hour'] as int,
-                          minute: data['minute'] as int,
-                        ),
-                      );
-                      if (t != null) {
-                        update(() {
-                          data['hour'] = t.hour;
-                          data['minute'] = t.minute;
-                        });
-                      }
-                    },
-                  ),
-                  DropdownButtonFormField<int>(
-                    initialValue: data['leadDays'] as int,
-                    decoration: const InputDecoration(labelText: '参考范围开始前几天提醒'),
-                    items: [
-                      for (var i = 0; i <= 7; i++)
-                        DropdownMenuItem(value: i, child: Text('$i天')),
-                    ],
-                    onChanged: (v) => data['leadDays'] = v,
-                  ),
+                  if (first || reminders)
+                    DropdownButtonFormField<int>(
+                      initialValue: data['leadDays'] as int,
+                      decoration: const InputDecoration(
+                        labelText: '参考范围开始前几天提醒',
+                      ),
+                      items: [
+                        for (var i = 0; i <= 7; i++)
+                          DropdownMenuItem(value: i, child: Text('$i天')),
+                      ],
+                      onChanged: (v) => data['leadDays'] = v,
+                    ),
                 ],
               ),
             ),
@@ -1161,6 +905,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     if (ok == true) {
       await _run(() async {
         await c.saveSettings(CycleSettings.fromJson(data));
+        if (!first && !reminders) return;
         if (data['remind'] == true || data['recordRemind'] == true) {
           await c.enableNotifications(true);
         } else {
@@ -1174,10 +919,43 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+          shrinkWrap: true,
           children: [
+            _title('记录模式', Icons.spa_outlined),
+            ListTile(
+              title: Text(c.settings.recordOnly ? '仅记录' : '经期记录与日历参考'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.pop(ctx);
+                _settings(first: !c.settings.enabled);
+              },
+            ),
+            const Divider(),
+            _title('历史与统计', Icons.bar_chart_rounded),
+            ListTile(
+              title: const Text('周期记录与统计'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.pop(ctx);
+                _history();
+              },
+            ),
+            const Divider(),
+            _title('提醒与隐私', Icons.notifications_none),
+            if (c.settings.enabled)
+              ListTile(
+                title: const Text('提醒时间与日程'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _settings(reminders: true);
+                },
+              ),
             SwitchListTile(
               title: const Text('这台手机的周期通知'),
               subtitle: Text(
@@ -1205,7 +983,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                 final range = await showDateRangePicker(
                   context: context,
                   firstDate: DateTime(1900),
-                  lastDate: DateTime.now(),
+                  lastDate: parseCycleDate(c.today),
                 );
                 if (range == null || _initialRevision != c.contextRevision) {
                   return;
@@ -1317,78 +1095,4 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     }
     await _run(c.explain);
   }
-}
-
-class _CycleTrendPainter extends CustomPainter {
-  const _CycleTrendPainter(this.values);
-  final List<double> values;
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (values.isEmpty) return;
-    final max = values.fold<double>(.1, (a, b) => math.max(a, b.abs()));
-    final path = Path();
-    for (var i = 0; i < values.length; i++) {
-      final x = values.length == 1
-              ? size.width / 2
-              : i * size.width / (values.length - 1),
-          y = size.height / 2 - values[i] / max * size.height * .4;
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    canvas.drawLine(
-      Offset(0, size.height / 2),
-      Offset(size.width, size.height / 2),
-      Paint()..color = Colors.grey.shade300,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = _cyclePurple
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_CycleTrendPainter old) => old.values != values;
-}
-
-/// 装饰环仅表达记录状态；没有目标总天数，不表示完成百分比或排卵阶段。
-class _CycleOrbitPainter extends CustomPainter {
-  const _CycleOrbitPainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2),
-        r = size.shortestSide / 2 - 5;
-    canvas.drawCircle(
-      center,
-      r,
-      Paint()
-        ..color = _cyclePurple.withValues(alpha: .12)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 7,
-    );
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: r),
-      -.6,
-      math.pi * .85,
-      false,
-      Paint()
-        ..color = _cycleRose.withValues(alpha: .45)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 5
-        ..strokeCap = StrokeCap.round,
-    );
-    canvas.drawCircle(
-      Offset(center.dx + r * math.cos(-.6), center.dy + r * math.sin(-.6)),
-      3,
-      Paint()..color = _cycleRose,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_CycleOrbitPainter old) => false;
 }

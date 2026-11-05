@@ -8,6 +8,16 @@ import '../domain/cycle_tracking.dart';
 import '../domain/models.dart';
 import 'local_health_store.dart';
 
+bool _sameCycleData(Map<String, Object?> a, Map<String, Object?> b) =>
+    a.length == b.length &&
+    a.keys.every(
+      (k) =>
+          b.containsKey(k) &&
+          (a[k] is List && b[k] is List
+              ? listEquals(a[k] as List, b[k] as List)
+              : a[k] == b[k]),
+    );
+
 abstract interface class CycleRemote {
   Future<Map<String, Object?>> cycleRequest(
     String owner,
@@ -80,6 +90,8 @@ class CycleTrackingService extends ChangeNotifier {
   final Map<String, CycleEntry> _rows = {};
   int _cursor = 0;
   int _epoch = 0;
+  int _cursorSchema = 1;
+  bool _symptomSync = false;
   bool busy = false,
       loaded = false,
       notificationAccepted = false,
@@ -149,6 +161,8 @@ class CycleTrackingService extends ChangeNotifier {
     _erasePending = false;
     _cursor = 0;
     _epoch = 0;
+    _cursorSchema = 1;
+    _symptomSync = false;
     loaded = false;
     busy = false;
     report = null;
@@ -183,6 +197,7 @@ class CycleTrackingService extends ChangeNotifier {
       if (raw['id'] == 'cursor') {
         _cursor = (raw['value'] as num?)?.toInt() ?? 0;
         _epoch = (raw['epoch'] as num?)?.toInt() ?? 0;
+        _cursorSchema = raw['schemaVersion'] == 2 ? 2 : 1;
         continue;
       }
       if (raw['id'] == 'device-notifications') {
@@ -219,6 +234,14 @@ class CycleTrackingService extends ChangeNotifier {
       if (!value.deleted) validateCycleEntry(value, entries, today);
     }
     final old = _rows[value.id];
+    // 同一天重复保存不建立新修订，未填写也不变成“无”。
+    if (old != null &&
+        !value.deleted &&
+        !old.deleted &&
+        old.kind == value.kind &&
+        _sameCycleData(old.data, value.data)) {
+      return;
+    }
     final row = CycleEntry(
       id: value.id,
       kind: value.kind,
@@ -267,7 +290,7 @@ class CycleTrackingService extends ChangeNotifier {
   bool _erasePending = false;
   Future<void> _sync(int g, String o) async {
     if (remote == null || !_current(g, o)) {
-      status = '已保存在本机，联网后自动同步';
+      status = '已存本机';
       _notify();
       return;
     }
@@ -290,7 +313,14 @@ class CycleTrackingService extends ChangeNotifier {
       await _pull(g, o);
       if (!_current(g, o)) return;
       final pending =
-          _rows.values.where((r) => r.pending && r.conflict == null).toList()
+          _rows.values
+              .where(
+                (r) =>
+                    r.pending &&
+                    r.conflict == null &&
+                    (_symptomSync || !r.data.containsKey('symptoms')),
+              )
+              .toList()
             ..sort(
               (a, b) => a.kind == 'settings'
                   ? -1
@@ -305,6 +335,7 @@ class CycleTrackingService extends ChangeNotifier {
           'POST',
           'sync',
           body: {
+            if (_symptomSync) 'schemaVersion': 2,
             'offsetMinutes': clock().timeZoneOffset.inMinutes,
             'epoch': _epoch,
             'rows': [
@@ -324,11 +355,27 @@ class CycleTrackingService extends ChangeNotifier {
         for (final raw in response['results'] as List) {
           final result = Map<String, Object?>.from(raw as Map),
               old = _rows[result['id']];
-          if (old == null) continue;
+          if (old == null ||
+              !old.pending ||
+              !batch.any((r) => r.id == old.id)) {
+            continue;
+          }
           if (result['row'] is Map) {
             final row = CycleEntry.fromJson(
               Map<String, Object?>.from(result['row'] as Map),
             );
+            if (result['mutationId'] != old.mutationId ||
+                row.id != old.id ||
+                row.kind != old.kind ||
+                row.deleted != old.deleted ||
+                row.revision <= old.revision ||
+                (old.data.containsKey('symptoms') &&
+                    (!listEquals(
+                      row.data['symptoms'] as List?,
+                      old.data['symptoms'] as List?,
+                    )))) {
+              continue;
+            }
             _rows[row.id] = row;
             await store!.putCycleRow(o, row.id, row.toJson());
           } else if (result['conflict'] is Map) {
@@ -343,12 +390,16 @@ class CycleTrackingService extends ChangeNotifier {
       if (!_current(g, o)) return;
       await _pull(g, o);
       if (!_current(g, o)) return;
-      status = conflicts.isEmpty ? '已同步' : '有不同版本，请选择保留哪份记录';
+      status = conflicts.isNotEmpty
+          ? '有不同版本，请选择保留哪份记录'
+          : pendingCount > 0
+          ? '已存本机'
+          : '已同步';
       if (report?['sourceHash'] != _sourceHash) report = null;
       await _snapshot(o);
       await _reschedule(o);
     } catch (_) {
-      if (_current(g, o)) status = '已保存在本机，联网后自动同步';
+      if (_current(g, o)) status = '已存本机';
     } finally {
       if (_current(g, o)) {
         busy = false;
@@ -363,9 +414,17 @@ class CycleTrackingService extends ChangeNotifier {
       final response = await remote!.cycleRequest(
         o,
         'GET',
-        'changes?cursor=$_cursor',
+        'changes?cursor=$_cursor&schemaVersion=2',
       );
       if (!_current(g, o)) return;
+      _symptomSync = response['schemaVersion'] == 2;
+      // 旧游标只见过精简数据。升版从头读一次，不清掉本机的离线修订。
+      if (_symptomSync && _cursorSchema != 2 && _cursor > 0) {
+        _cursor = 0;
+        _cursorSchema = 2;
+        continue;
+      }
+      _cursorSchema = _symptomSync ? 2 : 1;
       final epoch = (response['epoch'] as num?)?.toInt() ?? 0;
       if (epoch != _epoch) {
         await store!.clearCycleRows(o);
@@ -380,20 +439,40 @@ class CycleTrackingService extends ChangeNotifier {
         final local = _rows[row.id];
         if (local?.pending == true) {
           if (row.revision > local!.revision) {
+            // 提交已落库但回执丢失：保留原 mutationId 重放，不能把自己写的同一版当成冲突。
+            if (row.revision == local.revision + 1 &&
+                row.kind == local.kind &&
+                row.deleted == local.deleted &&
+                _sameCycleData(row.data, local.data)) {
+              continue;
+            }
             final conflict = local.copy(conflict: row.toJson());
             _rows[row.id] = conflict;
             await store!.putCycleRow(o, row.id, conflict.toJson());
           }
           continue;
         }
-        _rows[row.id] = row;
-        await store!.putCycleRow(o, row.id, row.toJson());
+        // 降级或滚动发布时，精简响应里缺字段并不意味着用户清除了感受。
+        final kept =
+            !_symptomSync &&
+                !row.deleted &&
+                local?.data.containsKey('symptoms') == true
+            ? CycleEntry(
+                id: row.id,
+                kind: row.kind,
+                revision: row.revision,
+                data: {...row.data, 'symptoms': local!.data['symptoms']},
+              )
+            : row;
+        _rows[row.id] = kept;
+        await store!.putCycleRow(o, row.id, kept.toJson());
       }
       _cursor = (response['cursor'] as num).toInt();
       more = response['hasMore'] == true;
       await store!.putCycleRow(o, 'cursor', {
         'id': 'cursor',
         'value': _cursor,
+        'schemaVersion': _cursorSchema,
         'epoch': _epoch,
       });
     }

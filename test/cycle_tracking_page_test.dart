@@ -1,66 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/cycle_tracking.dart';
-import 'package:saydian_app/domain/models.dart';
-import 'package:saydian_app/l10n/generated/app_localizations.dart';
-import 'package:saydian_app/services/api_client.dart';
-import 'package:saydian_app/services/cycle_tracking_service.dart';
-import 'package:saydian_app/services/app_controller.dart';
-import 'package:saydian_app/services/local_health_store.dart';
-import 'package:saydian_app/services/secure_vault.dart';
-import 'package:saydian_app/services/wearable_bridge.dart';
-import 'package:saydian_app/ui/cycle_tracking_page.dart';
-import 'package:saydian_app/ui/app_theme.dart';
+import 'support/cycle_diary_fixture.dart';
 
-class Api extends Fake implements SaydianApi {}
-
-class Bridge extends Fake implements WearableBridge {}
-
-class Notice extends CycleNotifications {
-  @override
-  Future<void> owner(String? o) async {}
-  @override
-  Future<bool> schedule(
-    String o,
-    List<Map<String, Object?>> p, {
-    bool request = false,
-  }) async => false;
-}
-
-class Controller extends AppController {
-  Controller()
-    : super(
-        MemorySessionVault(),
-        Api(),
-        MemoryHealthStore(),
-        Bridge(),
-        cycleNotifications: Notice(),
-      ) {
-    session = Session(
-      accessToken: 'synthetic',
-      refreshToken: '',
-      expiresAt: DateTime.utc(2099),
-      memberId: 'synthetic-a',
-      accountKey: 'synthetic-a',
-      displayName: 'Test',
-    );
-    cycles.setOwner('test-owner');
-  }
-  @override
-  Future<void> loadCycleHealth() async {}
-}
-
-Widget host(AppController c, double scale) => MaterialApp(
-  locale: const Locale('zh'),
-  localizationsDelegates: AppLocalizations.localizationsDelegates,
-  supportedLocales: AppLocalizations.supportedLocales,
-  theme: buildSaydianTheme(),
-  builder: (context, child) => MediaQuery(
-    data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
-    child: child!,
-  ),
-  home: CycleTrackingPage(controller: c),
-);
 void main() {
   testWidgets(
     'first enable explains cloud use and requires deliberate adult/purpose confirmation',
@@ -107,7 +49,7 @@ void main() {
         });
         await t.pumpAndSettle();
         expect(find.byKey(const Key('cycle-record-start')), findsOneWidget);
-        expect(find.text('积累中'), findsOneWidget);
+        expect(find.text('从第一次经期开始日期记起。'), findsOneWidget);
         expect(find.text('已结合戒指数据'), findsNothing);
         expect(find.text('已排卵'), findsNothing);
         expect(t.takeException(), isNull);
@@ -143,7 +85,7 @@ void main() {
               kind: 'period',
               data: {
                 'start': cycleDate(
-                  DateTime.now().subtract(const Duration(days: 3)),
+                  parseCycleDate(shiftCycleDate(c.cycles.today, -3)),
                 ),
               },
             ),
@@ -156,8 +98,8 @@ void main() {
         await t.pumpAndSettle();
         expect(find.byKey(const Key('cycle-record-end')), findsOneWidget);
         expect(find.byKey(const Key('cycle-record-start')), findsNothing);
-        expect(find.text('补记'), findsOneWidget);
-        expect(find.text('经期进行中'), findsOneWidget);
+        expect(find.byKey(const Key('cycle-feelings')), findsOneWidget);
+        expect(find.text('经期第 4 天'), findsOneWidget);
         if (scale == 1.0) {
           expect(
             t.getSize(find.byKey(const Key('cycle-overview'))).height,

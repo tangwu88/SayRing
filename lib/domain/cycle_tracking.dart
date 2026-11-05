@@ -162,7 +162,15 @@ void validateCycleEntry(
     };
     for (final item in entry.data.entries) {
       if (item.key == 'date') continue;
-      if (item.key == 'tags') {
+      if (item.key == 'symptoms') {
+        final v = item.value;
+        if (v is! List ||
+            v.length > cycleSymptomLabels.length ||
+            v.toSet().length != v.length ||
+            v.any((s) => !cycleSymptomLabels.containsKey(s))) {
+          throw const FormatException('常见感受不正确');
+        }
+      } else if (item.key == 'tags') {
         if (item.value is! List ||
             (item.value as List).any(
               (x) =>
@@ -177,6 +185,68 @@ void validateCycleEntry(
   } else {
     throw const FormatException('记录类型不正确');
   }
+}
+
+const cycleSymptomLabels = {
+  'headache': '头痛',
+  'lower_back_ache': '腰酸',
+  'bloating': '腹胀',
+};
+
+/// 只对日历日做加减，不把本地午夜当作跨夏令时的 24 小时间隔。
+String shiftCycleDate(String day, int delta) =>
+    cycleDate(parseCycleDate(day).add(Duration(days: delta)));
+String cycleWeekStart(String day) =>
+    shiftCycleDate(day, 1 - parseCycleDate(day).weekday);
+
+class CycleDayView {
+  const CycleDayView(
+    this.date,
+    this.today,
+    this.period,
+    this.daily,
+    this.inReference,
+  );
+  final String date, today;
+  final CycleEntry? period, daily;
+  final bool inReference;
+  bool get future => date.compareTo(today) > 0;
+  bool get historical => date.compareTo(today) < 0;
+  int? get periodDay =>
+      period == null ? null : cycleDays(period!.start, date) + 1;
+}
+
+CycleDayView cycleDayView(
+  Iterable<CycleEntry> rows,
+  CyclePrediction prediction,
+  String date,
+  String today,
+) {
+  final past = date.compareTo(today) < 0;
+  final period = date.compareTo(today) > 0
+      ? null
+      : rows
+            .where(
+              (e) =>
+                  !e.deleted &&
+                  e.kind == 'period' &&
+                  e.start.compareTo(date) <= 0 &&
+                  (e.end ?? today).compareTo(date) >= 0,
+            )
+            .firstOrNull;
+  final daily = rows
+      .where((e) => !e.deleted && e.kind == 'daily' && e.start == date)
+      .firstOrNull;
+  // 今天的参考范围只用于今天和未来，历史视图不能拿后来推算的结果倒填。
+  final reference =
+      !past &&
+      period == null &&
+      prediction.status == 'reference' &&
+      prediction.from != null &&
+      prediction.to != null &&
+      prediction.from!.compareTo(date) <= 0 &&
+      prediction.to!.compareTo(date) >= 0;
+  return CycleDayView(date, today, period, daily, reference);
 }
 
 class CyclePrediction {
