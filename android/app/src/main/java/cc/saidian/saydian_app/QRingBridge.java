@@ -2016,15 +2016,16 @@ public final class QRingBridge
                 if (!stopping && !snapshot.get("mode").equals(expectedMode)) {
                     finishCamera(null, "QRING_CONTROL_CHANGED", "戒指控制模式已改变，请刷新"); return;
                 }
-                int strength = QRingGesturePolicy.writeStrength(touch,
-                        touch ? 0 : (Integer) snapshot.get("strength"), selectedStrength);
+                // Closing must preserve even an unconfigured zero sensitivity.
+                int strength = expected == 0 ? (touch ? 0 : (Integer) snapshot.get("strength"))
+                        : QRingGesturePolicy.writeStrength(touch,
+                                touch ? 0 : (Integer) snapshot.get("strength"), selectedStrength);
                 if (strength < 0) {
                     finishCamera(null, "QRING_STRENGTH_REQUIRED", "请先选择1～10的手势力度"); return;
                 }
                 if (!touch) snapshot.put("strength", strength);
-                cameraPhase = 1;
                 int duration = touch ? (Integer) snapshot.get("duration") : 0;
-                main.postDelayed(() -> {
+                closeOtherGestureControl(operation, connection, id, touch, fail, () -> main.postDelayed(() -> {
                     if (!currentCamera(operation, connection, id) || cameraPhase != 1) return;
                     CommandHandle.getInstance().executeReqCmd(
                             TouchControlReq.getWriteInstance(expected, touch, strength, duration),
@@ -2036,9 +2037,81 @@ public final class QRingBridge
                         cameraPhase = 2;
                         readGestureBack(operation, connection, id, touch, expected, snapshot, 0, fail);
                     }, 400L));
+                }, 200L));
+            }));
+        }, 200L);
+    }
+
+    // Gesture and touch share HID output. OEM RingGestureActivity closes touch
+    // when enabling gesture (and TouchActivity does the converse). Confirm the
+    // other supported channel is off before enabling a scene, never on a read.
+    private void closeOtherGestureControl(int operation, int connection, String id,
+                                          boolean selectedTouch, Runnable fail, Runnable next) {
+        if (!currentCamera(operation, connection, id)) return;
+        boolean otherTouch = !selectedTouch;
+        boolean supported = otherTouch ? supportFlags.supportTouch && !supportFlags.supportRt11
+                : supportFlags.supportGesture;
+        if (!supported) {
+            cameraPhase = 1;
+            next.run();
+            return;
+        }
+        cameraPhase = 3;
+        main.postDelayed(() -> {
+            if (!currentCamera(operation, connection, id) || cameraPhase != 3) return;
+            CommandHandle.getInstance().executeReqCmd(TouchControlReq.getReadInstance(otherTouch),
+                    (ICommandResponse<TouchControlResp>) response -> main.post(() -> {
+                if (!currentCamera(operation, connection, id) || cameraPhase != 3) return;
+                Map<String, Object> original = cameraSnapshot(response, otherTouch);
+                if (original == null) { fail.run(); return; }
+                if (Integer.valueOf(0).equals(original.get("mode"))) {
+                    traceControl("other_control_off_confirmed");
+                    cameraPhase = 1;
+                    next.run();
+                    return;
+                }
+                traceControl("other_control_active_closing");
+                int strength = otherTouch ? 0 : (Integer) original.get("strength");
+                int duration = otherTouch ? (Integer) original.get("duration") : 0;
+                cameraPhase = 4;
+                main.postDelayed(() -> {
+                    if (!currentCamera(operation, connection, id) || cameraPhase != 4) return;
+                    CommandHandle.getInstance().executeReqCmd(
+                            TouchControlReq.getWriteInstance(0, otherTouch, strength, duration),
+                            (ICommandResponse<TouchControlResp>) ack -> main.postDelayed(() -> {
+                        if (!currentCamera(operation, connection, id) || cameraPhase != 4) return;
+                        if (ack == null || ack.isRead() || ack.getStatus() != BaseRspCmd.RESULT_OK) {
+                            fail.run(); return;
+                        }
+                        cameraPhase = 5;
+                        readOtherGestureClosed(operation, connection, id, otherTouch,
+                                original, 0, fail, next);
+                    }, 400L));
                 }, 200L);
             }));
         }, 200L);
+    }
+
+    private void readOtherGestureClosed(int operation, int connection, String id, boolean touch,
+                                         Map<String, Object> original, int attempt,
+                                         Runnable fail, Runnable next) {
+        if (!currentCamera(operation, connection, id) || cameraPhase != 5) return;
+        CommandHandle.getInstance().executeReqCmd(TouchControlReq.getReadInstance(touch),
+                (ICommandResponse<TouchControlResp>) response -> main.post(() -> {
+            if (!currentCamera(operation, connection, id) || cameraPhase != 5) return;
+            Map<String, Object> actual = cameraSnapshot(response, touch);
+            String parameter = touch ? "duration" : "strength";
+            if (actual != null && Integer.valueOf(0).equals(actual.get("mode"))
+                    && original.get(parameter).equals(actual.get(parameter))) {
+                traceControl("other_control_closed_readback");
+                cameraPhase = 1;
+                next.run();
+                return;
+            }
+            if (attempt >= 2) { fail.run(); return; }
+            main.postDelayed(() -> readOtherGestureClosed(operation, connection, id,
+                    touch, original, attempt + 1, fail, next), 400L);
+        }));
     }
 
     private void finishGestureAfterSettling(int operation, int connection, String id, Object value) {
