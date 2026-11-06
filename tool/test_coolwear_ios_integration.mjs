@@ -237,3 +237,18 @@ test('find protocol requires a fresh stop ACK and cancels bounded operations', (
   assert.match(cancel, /self.findSupported = NO/);
   assert.match(bridge, /triggerDeviceAction[\s\S]*?else \[self findDevice:args probe:NO result:result\]/);
 });
+
+// This source gate prevents the previously repeated settings-write regression;
+// packet accounting itself is exercised by native_coolwear_policy_test.m.
+test('iOS history explicitly reads ranges without writing time or ring settings', () => {
+  const sync = bridge.slice(bridge.indexOf('- (void)startHistorySync:'), bridge.indexOf('- (void)receiveScan:'));
+  assert.match(sync, /CoolWearReadHistoryCmd/);
+  assert.match(bridge, /@implementation CoolWearReadHistoryCmd[\s\S]*?cmdRequestType \{ return K6_CMD_TYPE_REQUEST; \}/);
+  assert.match(sync, /@\[@5, @6\]/);
+  assert.match(sync, /@\[@9, @4\]/);
+  assert.doesNotMatch(sync, /CE_SyncTimeCmd|CE_ClearDataCmd|CE_SyncResetCmd|CE_SyncLongSit|CE_SyncHeartRateCmd/);
+  assert.match(sync, /generation != weakSelf.connectionGeneration/);
+  assert.match(sync, /sync != weakSelf.syncGeneration/);
+  assert.match(sync, /25 \* NSEC_PER_SEC/);
+  assert.match(bridge, /@"protocolChecks": unknownRri/);
+});

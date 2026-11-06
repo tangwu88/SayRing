@@ -185,8 +185,8 @@ int main(void) {
             NSCAssert([CoolWearActivitySyncStatus(status, YES) isEqual:status], @"current snapshot overwrote history evidence");
         CoolWearHistoryBatch *history = [CoolWearHistoryBatch new];
         NSCAssert([[history status] isEqual:@"not_received"], @"missing callback claimed complete");
-        NSDictionary *last = @{@"curItemCount":@1, @"remainItemCount":@0, @"heartInfos":@[@{@"time":@1791000000,@"heartNum":@76}]};
-        NSDictionary *first = @{@"curItemCount":@1, @"remainItemCount":@1, @"heartInfos":@[@{@"time":@1790999940,@"heartNum":@75}]};
+        NSDictionary *last = @{@"curItemCount":@1, @"remainItemCount":@1, @"heartInfos":@[@{@"time":@1791000000,@"heartNum":@76}]};
+        NSDictionary *first = @{@"curItemCount":@1, @"remainItemCount":@2, @"heartInfos":@[@{@"time":@1790999940,@"heartNum":@75}]};
         [history accept:first key:@"heartInfos"];
         [history accept:first key:@"heartInfos"];
         NSCAssert(history.rows.count == 1 && [[history status] isEqual:@"partial"], @"duplicate packet completed sync");
@@ -200,6 +200,13 @@ int main(void) {
         NSCAssert([[empty status] isEqual:@"no_data"], @"empty data is failure");
         [empty accept:@{@"curItemCount":@1,@"remainItemCount":@0,@"heartInfos":@[]} key:@"heartInfos"];
         NSCAssert([[empty status] isEqual:@"partial"], @"missing rows claimed complete");
+        CoolWearHistoryBatch *gap = [CoolWearHistoryBatch new];
+        [gap accept:@{@"curItemCount":@1,@"remainItemCount":@3,@"heartInfos":first[@"heartInfos"]} key:@"heartInfos"];
+        [gap accept:last key:@"heartInfos"];
+        NSCAssert([[gap status] isEqual:@"partial"], @"missing middle packet completed sync");
+        CoolWearHistoryBatch *badCount = [CoolWearHistoryBatch new];
+        [badCount accept:@{@"curItemCount":@1,@"remainItemCount":@0,@"heartInfos":last[@"heartInfos"]} key:@"heartInfos"];
+        NSCAssert([[badCount status] isEqual:@"partial"], @"impossible remaining count accepted");
         NSArray *sleep = @[@{@"SleepStartTime":@1790990000,@"SleepType":@1},
             @{@"SleepStartTime":@1790990060,@"SleepType":@2},
             @{@"SleepStartTime":@1790993660,@"SleepType":@3},

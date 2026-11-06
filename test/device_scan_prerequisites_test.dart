@@ -477,7 +477,7 @@ void main() {
           await _pumpSearch(tester, controller);
 
           expect(wearable.lookups, 1);
-          expect(wearable.scans, hasCachedDevice ? 0 : 1);
+          expect(wearable.scans, 1);
           expect(controller.connectedDevice, isNull);
           expect(wearable.connects, 0);
           expect(
@@ -508,7 +508,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(wearable.connectedIds, [_CachedScanWearable.ring.id]);
-        expect(wearable.scans, 1);
+        expect(wearable.scans, 2);
         expect(controller.connectedDevice, isNull);
         expect(controller.scannedDevices, [_ScanWearable.watch]);
         expect(find.text(_ScanWearable.watch.name), findsOneWidget);

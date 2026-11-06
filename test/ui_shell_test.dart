@@ -4009,7 +4009,7 @@ void main() {
           ),
           findsOneWidget,
         );
-        expect(find.textContaining('不同型号的触控次数和动作可能不同'), findsOneWidget);
+        expect(find.textContaining('晃动手指或双击戒指'), findsOneWidget);
         expect(
           find.textContaining('打开“${DeviceFeature.camera.label}”'),
           findsOneWidget,

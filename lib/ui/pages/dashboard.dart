@@ -119,7 +119,6 @@ class DashboardPage extends StatelessWidget {
       if (controller.isWellnessOnly) ...[
         HealthMetric.steps,
         HealthMetric.distance,
-        HealthMetric.calories,
       ],
       HealthMetric.bloodPressure,
       HealthMetric.heartRate,

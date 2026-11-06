@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:path/path.dart' as path;
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/read_only_health_features.dart';
 import 'package:saydian_app/domain/sleep_timeline.dart';
 import 'package:saydian_app/domain/wellness_release_policy.dart';
 import 'package:saydian_app/services/api_client.dart';
@@ -160,6 +161,38 @@ void main() {
       {'steps': 100},
     );
   });
+
+  test(
+    'workout heart data follows the current read lease; calorie data is retained but hidden',
+    () {
+      var now = DateTime.utc(2026, 11, 6);
+      final features = ReadOnlyHealthFeatures(now: () => now);
+      features.replace({HealthMetric.heartRate}, const Duration(seconds: 60));
+      final leased = WellnessReleasePolicy(
+        enabled: true,
+        readOnlyFeatures: features,
+      );
+      const values = {
+        'steps': 100,
+        'heartRate': 78,
+        'calories': 8,
+        'bloodPressure': 120,
+      };
+      expect(leased.projectSportValues(values), {
+        'steps': 100,
+        'heartRate': 78,
+        'calories': 8,
+      });
+      now = now.add(const Duration(seconds: 61));
+      expect(leased.projectSportValues(values), {'steps': 100, 'calories': 8});
+      expect(
+        WellnessReleasePolicy.displayMetricOrder,
+        isNot(contains(HealthMetric.calories)),
+      );
+      expect(leased.allowsMetric(HealthMetric.calories), isTrue);
+      expect(values['heartRate'], 78);
+    },
+  );
 
   test('disabled policy preserves Android records and feature behavior', () {
     const unrestricted = WellnessReleasePolicy();

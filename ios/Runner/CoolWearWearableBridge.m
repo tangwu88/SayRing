@@ -25,6 +25,15 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (K6_CMD_TYPE)cmdRequestType { return K6_CMD_TYPE_REQUEST; }
 @end
 
+// 历史同步只读：不复用设置同步、校时、恢复出厂或提醒写命令。
+@interface CoolWearReadHistoryCmd : CE_Cmd
+@property(nonatomic) K6_DataFuncType historyType;
+@end
+@implementation CoolWearReadHistoryCmd
+- (K6_DataFuncType)funcType { return self.historyType; }
+- (K6_CMD_TYPE)cmdRequestType { return K6_CMD_TYPE_REQUEST; }
+@end
+
 @interface CoolWearPreservingLongSitCmd : CE_SyncLongSitRemindCmd
 @end
 @implementation CoolWearPreservingLongSitCmd
@@ -78,6 +87,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, CoolWearHistoryBatch *> *syncBatches;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *syncRecords;
 @property(nonatomic) BOOL historySnapshotDelivered;
+@property(nonatomic, copy) NSArray<NSNumber *> *requiredSyncTypes;
 @property(nonatomic) BOOL currentActivitySeen;
 @property(nonatomic) BOOL freshActivityInSync;
 @property(nonatomic, copy) FlutterResult pendingSync;
@@ -921,7 +931,11 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (NSDictionary *)syncSnapshot {
     NSMutableDictionary *statuses = [NSMutableDictionary dictionary];
-    NSMutableSet *metrics = [NSMutableSet setWithArray:[self capabilities][@"historyMetrics"]];
+    NSMutableSet *metrics = [NSMutableSet set];
+    for (NSNumber *type in self.requiredSyncTypes) {
+        NSString *metric = CoolWearHistoryMetric(type.integerValue);
+        if (metric) [metrics addObject:metric];
+    }
     // A malformed observed batch must remain visible in the result even if
     // it cannot enable a current device capability.
     for (NSNumber *type in self.syncBatches) {
@@ -935,7 +949,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
         if ([metric isEqual:@"sleep"] && batch.rows.count && CoolWearClosedSleepSummaries(batch.rows.allValues, NSDate.date).count == 0) statuses[metric] = @"partial";
     }
     if (self.freshActivityInSync) statuses[@"steps"] = CoolWearActivitySyncStatus(statuses[@"steps"], YES);
-    return @{@"records": self.syncRecords.allValues, @"statuses": statuses};
+    // 旧固件的 hrvSupport 不代表支持新版 RRI 历史 61。未知协议独立
+    // 留待确认，不谎报空数据，也不阻塞已确认范围的正常更新。
+    BOOL unknownRri = SRActivitySleepMetricAllowed(@"hrv") && CoolWearFlag(self.flags, @"hrvSupport") &&
+        !self.historyBatches[@61];
+    return @{@"records": self.syncRecords.allValues, @"statuses": statuses,
+             @"protocolChecks": unknownRri ? @[@"hrv"] : @[]};
 }
 
 - (void)finishSync {
@@ -1049,13 +1068,34 @@ static void CoolWearOnMain(dispatch_block_t block) {
         self.historySnapshotDelivered = YES;
     }
     [CE_SensorCmd open];
-    CE_SyncTimeCmd *cmd = [[CE_SyncTimeCmd alloc] initWithAbsTime:NSDate.date.timeIntervalSince1970
-        offset:[NSTimeZone.localTimeZone secondsFromGMT] format:1 mdFormat:0];
-    cmd.overtime = 6; cmd.repeatSendTimes = 0;
-    // The vendor pushes history automatically; this ACK is never completion.
-    [self.product sendCmdToDevice:cmd complete:^(NSError *error) {}];
-    [self publishSyncReception];
+    NSMutableArray<NSNumber *> *required = [NSMutableArray arrayWithArray:@[@5, @6]];
+    NSDictionary *map = @{@"heart_rate":@8, @"blood_oxygen":@40, @"body_temperature":@47};
+    for (NSString *metric in [self capabilities][@"historyMetrics"]) {
+        NSNumber *type = map[metric];
+        if (type && SRActivitySleepMetricAllowed(metric)) [required addObject:type];
+    }
+    if (SRActivitySleepMetricAllowed(@"hrv") && self.historyBatches[@61]) [required addObject:@61];
+    self.requiredSyncTypes = required;
+    NSMutableArray<NSNumber *> *queries = [NSMutableArray arrayWithArray:@[@9, @4]];
+    [queries addObjectsFromArray:required];
+    if (SRActivitySleepMetricAllowed(@"hrv") && CoolWearFlag(self.flags, @"hrvSupport") &&
+        ![required containsObject:@61]) [queries addObject:@61];
     __weak typeof(self) weakSelf = self;
+    [queries enumerateObjectsUsingBlock:^(NSNumber *type, NSUInteger index, BOOL *stop) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(index * 450 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+            if (!weakSelf || generation != weakSelf.connectionGeneration || sync != weakSelf.syncGeneration ||
+                !weakSelf.pendingSync || ![weakSelf isResolved]) return;
+            NSString *metric = CoolWearHistoryMetric(type.integerValue);
+            if (metric && !SRActivitySleepMetricAllowed(metric)) return;
+            CoolWearReadHistoryCmd *query = [CoolWearReadHistoryCmd new];
+            query.historyType = type.integerValue;
+            query.overtime = 2; query.repeatSendTimes = 0;
+            // SDK 队列负责请求顺序；真正的数据批次在 receiveData 中处理。
+            // 超时或 ACK 都不能被当成“无记录”，更不能触发写设置重试。
+            [weakSelf.product sendCmdToDevice:query complete:^(NSError *error) {}];
+        });
+    }];
+    [self publishSyncReception];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (generation == weakSelf.connectionGeneration && sync == weakSelf.syncGeneration && weakSelf.pendingSync) {
             [weakSelf finalizeSleepHistory];

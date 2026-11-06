@@ -1074,14 +1074,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     try {
       final session = widget.controller.session;
       widget.controller.clearError();
-      final count = await widget.controller.listBondedDevicesForSelection();
-      // 返回 0 也可能表示旧查询已被连接或换账号淘汰，并不代表当前没有设备。
+      await widget.controller.listBondedDevicesForSelection();
+      // 缓存候选可以立即连接，但不能代替这次附近搜索。保留本轮缓存项并继续
+      // 接收广播；换号、连接成功或离开页面后，旧查询不得重新启动扫描。
       if (mounted &&
-          count == 0 &&
           identical(session, widget.controller.session) &&
           widget.controller.canSearchForDevice &&
           ModalRoute.of(context)?.isCurrent == true) {
-        await _startScan();
+        await _startScan(preserveCandidates: true);
       }
     } finally {
       if (mounted) setState(() => _bondedLookupInFlight = false);
@@ -1098,7 +1098,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     super.dispose();
   }
 
-  Future<void> _startScan() async {
+  Future<void> _startScan({bool preserveCandidates = false}) async {
     if (!mounted ||
         !widget.controller.canSearchForDevice ||
         _connectingDeviceId != null ||
@@ -1108,7 +1108,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _scanInFlight = true;
     try {
       widget.controller.clearError();
-      await widget.controller.scanDevices();
+      await widget.controller.scanDevices(
+        preserveCandidates: preserveCandidates,
+      );
     } finally {
       _scanInFlight = false;
     }

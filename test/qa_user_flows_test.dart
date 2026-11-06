@@ -615,46 +615,47 @@ void main() {
     },
   );
 
-  test('iOS CoolWear retains its existing manual history scope', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    const ring = DeviceInfo(
-      id: 'coolwear:42:57:50:04:AB:4C',
-      name: 'HR01',
-      model: 'HR01',
-      rssi: -40,
-    );
-    final wearable = _QaWearable(scannedDevice: ring);
-    final controller = _controller(wearable: wearable);
-    await controller.initialize();
-    addTearDown(controller.dispose);
+  test(
+    'iOS CoolWear automatically reads history after connect and recovery',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const ring = DeviceInfo(
+        id: 'coolwear:42:57:50:04:AB:4C',
+        name: 'R7 Pro',
+        model: 'R7 Pro',
+        rssi: -40,
+      );
+      final wearable = _QaWearable(scannedDevice: ring);
+      final controller = _controller(wearable: wearable);
+      await controller.initialize();
+      addTearDown(controller.dispose);
 
-    final scan = controller.scanDevices();
-    await Future<void>.delayed(Duration.zero);
-    await controller.connectDevice(ring);
-    await scan;
-    await Future<void>.delayed(Duration.zero);
-    await Future<void>.delayed(Duration.zero);
-    expect(wearable.syncCount, 0);
-    expect(controller.syncStatus, contains('手动同步'));
+      final scan = controller.scanDevices();
+      await Future<void>.delayed(Duration.zero);
+      await controller.connectDevice(ring);
+      await scan;
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(wearable.syncCount, 1);
 
-    wearable.emitEvent(
-      const WearableEvent(
-        type: 'disconnected',
-        payload: {'deviceId': 'coolwear:42:57:50:04:AB:4C'},
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    wearable.emitEvent(
-      WearableEvent(type: 'reconnected', payload: ring.toJson()),
-    );
-    await Future<void>.delayed(Duration.zero);
-    await Future<void>.delayed(Duration.zero);
+      wearable.emitEvent(
+        const WearableEvent(
+          type: 'disconnected',
+          payload: {'deviceId': 'coolwear:42:57:50:04:AB:4C'},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      wearable.emitEvent(
+        WearableEvent(type: 'reconnected', payload: ring.toJson()),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
 
-    expect(controller.deviceState, DeviceConnectionState.ready);
-    expect(wearable.syncCount, 0);
-    expect(controller.syncStatus, contains('手动同步'));
-  });
+      expect(controller.deviceState, DeviceConnectionState.ready);
+      expect(wearable.syncCount, 2);
+    },
+  );
 
   test(
     'CoolWear timeout preserves received activity without claiming success',
@@ -1231,7 +1232,9 @@ void main() {
     'sport session shows watch values and pauses only when reported',
     (tester) async {
       final wearable = _QaSportWearable();
-      final controller = _controller(wearable: wearable)
+      final controller = _controller(wearable: wearable);
+      await controller.initialize();
+      controller
         ..isBooting = false
         ..connectedDevice = wearable.scannedDevice
         ..capabilities = const DeviceCapabilities(
@@ -1260,8 +1263,15 @@ void main() {
 
       expect(find.text('1.28 km'), findsOneWidget);
       expect(find.text('2048 步'), findsOneWidget);
+      expect(find.text('等待读数'), findsOneWidget);
+      wearable.emitEvent(
+        const WearableEvent(type: 'sportData', payload: {'heartRate': 96}),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(controller.liveSportHeartRate, 96);
       expect(find.text('96 bpm'), findsOneWidget);
-      expect(find.text('75.0 kcal'), findsOneWidget);
+      expect(find.textContaining('kcal'), findsNothing);
       expect(find.byKey(const Key('sport-session-pause')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('sport-session-pause')));
@@ -1587,6 +1597,17 @@ void main() {
       startCompleter.complete();
       expect(await starting, isTrue);
       expect(controller.liveSportData['heartRate'], 94);
+      expect(controller.liveSportHeartRate, 94);
+      controller.sportPaused = true;
+      expect(controller.liveSportHeartRate, isNull);
+      controller.sportPaused = false;
+      wearable.emitEvent(
+        const WearableEvent(type: 'sportData', payload: {'heartRate': 0}),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.liveSportHeartRate, isNull);
+      controller.activeSport = null;
+      expect(controller.liveSportHeartRate, isNull);
     },
   );
 

@@ -32,7 +32,6 @@ class WellnessReleasePolicy {
     HealthMetric.stress,
     HealthMetric.steps,
     HealthMetric.distance,
-    HealthMetric.calories,
     HealthMetric.sleep,
   ];
 
@@ -124,7 +123,8 @@ class WellnessReleasePolicy {
   }
 
   SportRecord projectSport(SportRecord record) {
-    if (!enabled) return record;
+    // 运动心率与健康卡片复用真实的读取许可，不再用旧的整个 iOS 开关遮蔽。
+    if (allowsMetric(HealthMetric.heartRate)) return record;
     return SportRecord(
       id: record.id,
       mode: record.mode,
@@ -152,7 +152,9 @@ class WellnessReleasePolicy {
     };
     return Map.unmodifiable({
       for (final entry in values.entries)
-        if (keys.contains(entry.key)) entry.key: entry.value,
+        if (keys.contains(entry.key) ||
+            (entry.key == 'heartRate' && allowsMetric(HealthMetric.heartRate)))
+          entry.key: entry.value,
     });
   }
 }

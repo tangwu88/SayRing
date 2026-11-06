@@ -575,11 +575,11 @@ class _SportSessionPageState extends State<SportSessionPage> {
   };
 
   void _handleControllerChange() {
-    if (!widget.controller.isWellnessOnly &&
+    if (widget.controller.isMetricAvailableInRelease(HealthMetric.heartRate) &&
         _startedAt != null &&
         widget.controller.activeSport == widget.mode &&
         !widget.controller.sportPaused) {
-      final bpm = (widget.controller.liveSportData['heartRate'] ?? 0).toInt();
+      final bpm = widget.controller.liveSportHeartRate ?? 0;
       if (bpm >= 20 &&
           bpm <= 250 &&
           (_heartRateSamples.isEmpty ||
@@ -691,13 +691,18 @@ class _SportSessionPageState extends State<SportSessionPage> {
                 'distanceKm',
               if (!watchData.containsKey('calories')) 'calories',
               if (!watchData.containsKey('steps')) 'steps',
-              if (widget.controller.isWellnessOnly ||
+              if (!widget.controller.isMetricAvailableInRelease(
+                    HealthMetric.heartRate,
+                  ) ||
                   ((watchData['heartRate'] ?? 0) <= 0 &&
                       _heartRateSamples.isEmpty))
                 'heartRate',
             },
             steps: (watchData['steps'] ?? 0).toInt(),
-            heartRate: widget.controller.isWellnessOnly
+            heartRate:
+                !widget.controller.isMetricAvailableInRelease(
+                  HealthMetric.heartRate,
+                )
                 ? 0
                 : (watchData['heartRate'] ??
                           (_heartRateSamples.isEmpty
@@ -705,7 +710,10 @@ class _SportSessionPageState extends State<SportSessionPage> {
                               : _heartRateSamples.last.bpm))
                       .toInt(),
             routePoints: List.unmodifiable(_routePoints),
-            heartRateSamples: widget.controller.isWellnessOnly
+            heartRateSamples:
+                !widget.controller.isMetricAvailableInRelease(
+                  HealthMetric.heartRate,
+                )
                 ? const []
                 : List.unmodifiable(_heartRateSamples),
           ),
@@ -914,30 +922,18 @@ class _SportSessionPageState extends State<SportSessionPage> {
                         ? '--'
                         : context.l10n.stepCount(liveData['steps']!.toInt()),
                   ),
-                  if (!widget.controller.isWellnessOnly)
+                  if (widget.controller.isMetricAvailableInRelease(
+                    HealthMetric.heartRate,
+                  ))
                     _SportLiveMetric(
                       label: context.l10n.liveHeartRate,
-                      value: (liveData['heartRate'] ?? 0) > 0
-                          ? '${(liveData['heartRate'] ?? 0).toInt()} bpm'
-                          : '--',
+                      value: widget.controller.liveSportHeartRate != null
+                          ? '${widget.controller.liveSportHeartRate} bpm'
+                          : '等待读数',
                     ),
                   _SportLiveMetric(label: '平均配速', value: pace),
-                  _SportLiveMetric(
-                    label: context.l10n.watchCalories,
-                    value: liveData['calories'] == null
-                        ? '--'
-                        : '${liveData['calories']!.toDouble().toStringAsFixed(1)} kcal',
-                  ),
                 ],
               ),
-              if (liveData['calories'] == null &&
-                  widget.controller.connectedDevice?.model == 'HR05') ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'HR05 运动实时协议未回传热量；结束后同步戒指记录查看，不显示估算值。',
-                  style: TextStyle(color: SaydianColors.muted, fontSize: 12),
-                ),
-              ],
             ],
             const SizedBox(height: 18),
             InlineNotice(
@@ -1209,8 +1205,7 @@ class _SportRecordTile extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w800),
         ),
         subtitle: Text(
-          '${record.missingMetrics.contains('distanceKm') ? '--' : distance.toStringAsFixed(2)} $distanceUnit · '
-          '${record.missingMetrics.contains('calories') ? '--' : record.calories.toStringAsFixed(1)} 千卡 · $durationText',
+          '${record.missingMetrics.contains('distanceKm') ? '--' : distance.toStringAsFixed(2)} $distanceUnit · $durationText',
         ),
         trailing: Text(
           record.startedAt == null
@@ -1295,7 +1290,10 @@ class SportRecordDetailPage extends StatelessWidget {
                     trailing: Text('${record.steps} 步'),
                   ),
                 ],
-                if (!controller.isWellnessOnly && record.heartRate > 0) ...[
+                if (controller.isMetricAvailableInRelease(
+                      HealthMetric.heartRate,
+                    ) &&
+                    record.heartRate > 0) ...[
                   const Divider(indent: 16),
                   ListTile(
                     title: Text(context.l10n.workoutWatchHeartRate),
@@ -1314,7 +1312,9 @@ class SportRecordDetailPage extends StatelessWidget {
                     ),
                   ),
                 ],
-                if (!controller.isWellnessOnly &&
+                if (controller.isMetricAvailableInRelease(
+                      HealthMetric.heartRate,
+                    ) &&
                     record.heartRateSamples.isNotEmpty) ...[
                   const Divider(indent: 16),
                   ListTile(

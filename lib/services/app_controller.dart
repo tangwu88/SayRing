@@ -1379,6 +1379,24 @@ class AppController extends ChangeNotifier {
   SportMode? _startingSport;
   bool sportPaused = false;
   Map<String, num> liveSportData = const {};
+  DateTime? _liveSportHeartRateAt;
+
+  /// 仅展示当前运动收到的新鲜心率；不拿最近一次历史测量冒充实时值。
+  int? get liveSportHeartRate {
+    if (activeSport == null ||
+        sportPaused ||
+        !isMetricAvailableInRelease(HealthMetric.heartRate) ||
+        _liveSportHeartRateAt == null ||
+        DateTime.now().difference(_liveSportHeartRateAt!) >
+            const Duration(seconds: 30)) {
+      return null;
+    }
+    final value = liveSportData['heartRate'];
+    return value != null && value.isFinite && value >= 20 && value <= 250
+        ? value.toInt()
+        : null;
+  }
+
   List<DeviceInfo> scannedDevices = const [];
   DeviceScanIssue? deviceScanIssue;
   int _deviceScanGeneration = 0;
@@ -2712,7 +2730,7 @@ class AppController extends ChangeNotifier {
         DeviceConnectionState.error,
       }.contains(deviceState);
 
-  Future<void> scanDevices() async {
+  Future<void> scanDevices({bool preserveCandidates = false}) async {
     if (!canSearchForDevice || deviceState == DeviceConnectionState.scanning) {
       return;
     }
@@ -2724,7 +2742,7 @@ class AppController extends ChangeNotifier {
     isWearableRecovering = false;
     errorMessage = null;
     deviceScanIssue = null;
-    scannedDevices = const [];
+    if (!preserveCandidates) scannedDevices = const [];
     try {
       final granted = await _ensureBluetoothPermissions();
       if (!current()) return;
@@ -2778,6 +2796,7 @@ class AppController extends ChangeNotifier {
     if (!canSearchForDevice || !supportsBondedDeviceSelection) {
       return 0;
     }
+    scannedDevices = const [];
     // 搜索和恢复共用轮次。权限弹窗、系统缓存或 SDK 的结果，都可能在用户离开后才回来。
     final scan = ++_deviceScanGeneration, session = _sessionGeneration;
     bool current() =>
@@ -3027,20 +3046,7 @@ class AppController extends ChangeNotifier {
         unawaited(_recoverExistingMemberBindingDecision());
         return;
       }
-      if (device.sdkSource == WearableSdkSource.coolwear &&
-          defaultTargetPlatform != TargetPlatform.android) {
-        // HR01 links observed in the field can briefly reconnect before the
-        // vendor's 30-second history command completes. Starting that command
-        // automatically leaves no stable window for a manual measurement.
-        // Keep history available from the device page and prioritise live
-        // measurements immediately after connection.
-        syncStatus = capabilities?.supportsHistorySync == false
-            ? '设备已连接'
-            : '设备已连接，可手动同步历史数据';
-        notifyListeners();
-      } else {
-        unawaited(_syncInitialDeviceData(device.id));
-      }
+      unawaited(_syncInitialDeviceData(device.id));
     } on WearableSdkNotConfigured catch (_) {
       if (!isCurrent()) return;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
@@ -3624,6 +3630,7 @@ class AppController extends ChangeNotifier {
     if (_accountTransitioning ||
         connectedDevice?.id != deviceId ||
         isDeviceSyncing ||
+        activeSport != null ||
         _activeMeasurementMetric != null) {
       return false;
     }
@@ -8683,6 +8690,9 @@ class AppController extends ChangeNotifier {
       }
     } else if (event.type == 'sportData') {
       if (activeSport != null || _startingSport != null) {
+        if (event.payload.containsKey('heartRate')) {
+          _liveSportHeartRateAt = DateTime.now();
+        }
         liveSportData = healthReleasePolicy.projectSportValues({
           ...liveSportData,
           for (final entry in event.payload.entries)
@@ -8805,17 +8815,7 @@ class AppController extends ChangeNotifier {
       }
       unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
       notifyListeners();
-      if (device.sdkSource == WearableSdkSource.coolwear &&
-          defaultTargetPlatform != TargetPlatform.android) {
-        // Do not issue the vendor's long-running history command during a
-        // short recovery window. History remains available from the device
-        // page and manual measurements can start as soon as the link returns.
-        syncStatus = capabilities?.supportsHistorySync == false
-            ? '设备已自动重连'
-            : '设备已自动重连，可手动同步历史数据';
-      } else {
-        unawaited(_syncInitialDeviceData(device.id));
-      }
+      unawaited(_syncInitialDeviceData(device.id));
     } on PlatformException catch (error) {
       // 异常也是旧异步任务的回包：换号、换设备或断开后，不能清掉新连接。
       if (!isCurrentRecovery()) return;

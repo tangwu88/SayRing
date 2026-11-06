@@ -181,11 +181,16 @@ static inline NSArray *SRActivitySleepRecords(id source) {
 }
 
 static inline NSDictionary *SRActivitySleepSport(NSDictionary *source) {
-    return SRActivitySleepKeepFields(source, @[
+    NSMutableDictionary *result = [SRActivitySleepKeepFields(source, @[
         @"id", @"mode", @"startedAt", @"endedAt", @"durationSeconds", @"distanceMeters",
         @"calories", @"steps", @"source", @"deviceId", @"firmwareVersion", @"origin",
         @"sourceModel", @"sourceVendor", @"sourceDeviceCategory", @"sourceApp"
-    ]);
+    ]) mutableCopy];
+    // 运动回包里的心率与健康页使用同一读取许可，不触发新的手动测量。
+    if (SRActivitySleepMetricAllowed(@"heart_rate"))
+        for (NSString *key in @[@"heartRate", @"minimumHeartRate", @"maximumHeartRate", @"heartRateSamples"])
+            if (source[key]) result[key] = source[key];
+    return result;
 }
 
 // Errors and unrelated metadata retain their actual type and value.
