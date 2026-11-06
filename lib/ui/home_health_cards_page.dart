@@ -170,8 +170,7 @@ class _HomeHealthCardsPageState extends State<HomeHealthCardsPage> {
               const SizedBox(height: 16),
               for (final metric in hidden) _tile(metric, shown: false),
               if (eligible.isEmpty) const Text('连接戒指后可添加卡片'),
-              if (eligible.isNotEmpty && hidden.isEmpty)
-                const Text('卡片已全部添加'),
+              if (eligible.isNotEmpty && hidden.isEmpty) const Text('卡片已全部添加'),
               const SizedBox(height: 36),
               const Text(
                 '长按右侧拖动排序。隐藏卡片会保留记录。',
