@@ -12,6 +12,7 @@ import 'app_theme.dart';
 import 'report_visual_summary.dart';
 import 'health_ui_owner.dart';
 import 'wellness_release.dart';
+import 'widgets/usage_info_button.dart';
 
 // Retries only read existing reports. Creating/retrying analysis still requires
 // the separate explicit upload confirmation below.
@@ -607,9 +608,6 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                   ),
                   ReportAdviceList(items: _strings(content['suggestions'])),
                   _section('如何看这份报告', _strings(content['limitations'])),
-                  _section('使用说明', [
-                    '${content['safetyNotice'] ?? '仅供日常健康管理参考，不用于诊断或治疗。'}',
-                  ]),
                 ] else ...[
                   _section('评分与建议', [
                     _readFailed
@@ -625,7 +623,6 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                           : _readFailed
                           ? '正在重试'
                           : '完成后自动刷新',
-                    '不向 AI 提供分段明细。报告不用于诊断或治疗。',
                   ]),
                   if (!_readFailed &&
                       (_report == null ||
@@ -646,6 +643,11 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                       ),
                     ),
                 ],
+                UsageInfoButton(
+                  title: '报告说明',
+                  message:
+                      '报告由 AI 根据睡眠汇总生成。\n${content['safetyNotice'] ?? '供日常参考，不用于诊断或治疗。'}',
+                ),
                 TextButton(
                   key: const Key('sleep-ai-withdraw-consent'),
                   onPressed: _working ? null : _withdraw,

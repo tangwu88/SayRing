@@ -235,8 +235,7 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
               wellnessOnly: controller.isWellnessOnly,
             ),
             const SizedBox(height: 12),
-            const Text('仅展示已授权的睡眠汇总'),
-            Text(context.l10n.healthDisclaimer),
+            UsageInfoButton(message: context.l10n.healthDisclaimer),
           ],
         ),
       );

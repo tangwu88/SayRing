@@ -1883,7 +1883,7 @@ void main() {
   });
 
   testWidgets(
-    'empty health notice is centered, opens device search, and keeps legal copy at bottom',
+    'empty health notice opens search and health explanation stays available on demand',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(430, 932));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1934,6 +1934,15 @@ void main() {
             tester.getBottomLeft(legalNotice).dy,
         inInclusiveRange(16, 32),
       );
+
+      const explanation = '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。';
+      expect(find.text(explanation), findsNothing);
+      await tester.tap(legalNotice);
+      await tester.pumpAndSettle();
+      expect(find.text(explanation), findsOneWidget);
+      await tester.tap(find.byKey(const Key('usage-info-close')));
+      await tester.pumpAndSettle();
+      expect(find.text(explanation), findsNothing);
 
       await tester.tap(emptyNotice);
       await tester.pumpAndSettle();
@@ -3941,8 +3950,8 @@ void main() {
         expect(
           find.textContaining(
             platform == TargetPlatform.iOS
-                ? '在iPhone“设置 → 蓝牙”检查配对'
-                : '在安卓手机“设置 → 蓝牙”检查配对',
+                ? '到iPhone“设置 → 蓝牙”确认配对'
+                : '到安卓手机“设置 → 蓝牙”确认配对',
           ),
           findsOneWidget,
         );

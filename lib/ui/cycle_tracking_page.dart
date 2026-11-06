@@ -3,6 +3,7 @@ import '../services/user_message.dart';
 import 'cycle_day_widgets.dart';
 import 'cycle_diary_sheet.dart';
 import 'cycle_night_trend.dart';
+import 'widgets/usage_info_button.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import '../domain/cycle_tracking.dart';
@@ -296,13 +297,6 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                       ),
                     ),
                   if (_working && !c.busy) const LinearProgressIndicator(),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      '生活安排参考，不用于避孕或诊断。',
-                      style: TextStyle(fontSize: 13, color: Colors.grey),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -957,6 +951,10 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
             ),
             const Divider(),
             _title('提醒与隐私', Icons.notifications_none),
+            const UsageInfoButton(
+              title: '关于生理周期',
+              message: '经期参考用于生活安排，不用于避孕或诊断。记录自动同步到当前账号，可随时导出或删除。AI 分析需单独同意。',
+            ),
             if (c.settings.enabled)
               ListTile(
                 title: const Text('提醒时间与日程'),

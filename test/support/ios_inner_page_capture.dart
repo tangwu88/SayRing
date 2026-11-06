@@ -3,6 +3,9 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:ui' as ui;
+import '../health_reminder_layout_test.dart' show LayoutController;
+import 'cycle_diary_fixture.dart' as cycle_fixture;
+import 'package:saydian_app/domain/cycle_tracking.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -480,6 +483,7 @@ void main() {
       }
       const nestedActions = {
         'connection-help': '连接说明',
+        'home-explanation': '健康数据说明',
         'about-privacy': '隐私政策',
         'article-image': '查看大图',
         'after-sale-form': '申请售后',
@@ -487,6 +491,34 @@ void main() {
         'demo-profile': '我的',
         'ecg-report': '查看完整报告',
       };
+      // 补充已启用的合成状态，避免把未登录/无能力截图当作完整功能验收。
+      final reminders = LayoutController();
+      addTearDown(reminders.dispose);
+      final cycle = cycle_fixture.Controller();
+      addTearDown(cycle.dispose);
+      await tester.runAsync(() async {
+        await cycle.cycles.load();
+        await cycle.cycles.saveSettings(
+          const CycleSettings(
+            enabled: true,
+            adultConfirmed: true,
+            purposeAccepted: true,
+            recordOnly: true,
+          ),
+        );
+        await cycle.cycles.save(
+          CycleEntry(
+            id: 'copy-fixture-period',
+            kind: 'period',
+            data: {'start': shiftCycleDate(cycle.cycles.today, -2)},
+          ),
+        );
+      });
+      pages.addAll({
+        'home-explanation': pages['home']!,
+        'reminders-ready': HealthReminderCenterPage(controller: reminders),
+        'cycle-recorded': CycleTrackingPage(controller: cycle),
+      });
       const permissions = MethodChannel(
         'flutter.baseflow.com/permissions/methods',
       );

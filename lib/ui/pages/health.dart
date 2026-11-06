@@ -367,10 +367,6 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                       height: 1.5,
                     ),
                   ),
-                  if (isNew && widget.controller.isWellnessOnly) ...[
-                    const SizedBox(height: 12),
-                    const Text('戒指测量结果，仅供日常健康参考。', textAlign: TextAlign.center),
-                  ],
                   if (isNew && !widget.controller.isWellnessOnly) ...[
                     const SizedBox(height: 12),
                     Builder(

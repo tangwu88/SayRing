@@ -243,7 +243,16 @@ class _AiChatPageState extends State<AiChatPage> {
 
   Widget _buildContent(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.app == 2 ? '运动问答' : '健康问答')),
+      appBar: AppBar(
+        title: Text(widget.app == 2 ? '运动问答' : '健康问答'),
+        actions: const [
+          UsageInfoButton(
+            iconOnly: true,
+            title: '说明',
+            message: '回答由 AI 生成，供日常健康参考，不能代替医生诊疗。',
+          ),
+        ],
+      ),
       backgroundColor: SaydianColors.canvas,
       body: ListenableBuilder(
         listenable: widget.controller,
@@ -262,8 +271,8 @@ class _AiChatPageState extends State<AiChatPage> {
                             child: Center(
                               child: FeatureStateCard(
                                 message: '暂无对话',
-                                detail: 'AI 回答仅供参考，不用于诊断。',
-                                icon: Icons.health_and_safety_outlined,
+                                detail: '输入你想了解的问题',
+                                icon: Icons.chat_bubble_outline_rounded,
                                 color: SaydianColors.brandRed,
                               ),
                             ),

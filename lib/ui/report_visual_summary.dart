@@ -98,10 +98,7 @@ class ReportVisualSummary extends StatelessWidget {
                             ),
                           ),
                           SizedBox(height: 5),
-                          Text(
-                            'AI 估算，非设备评分',
-                            style: TextStyle(fontSize: 12),
-                          ),
+                          Text('AI 估算，非设备评分', style: TextStyle(fontSize: 12)),
                         ],
                       ),
                     ],
@@ -166,7 +163,7 @@ class ReportVisualSummary extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.only(bottom: 12),
             child: Text(
-              '图中为每日样本均值，缺失日期不补零。步数、距离和热量的样本均值不代表全天累计。',
+              '图中为每日样本均值；活动数据并非全天累计。',
               style: TextStyle(fontSize: 12, height: 1.6),
             ),
           ),

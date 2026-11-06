@@ -367,15 +367,11 @@ class DashboardPage extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 child: Align(
                   alignment: Alignment.bottomCenter,
-                  child: InlineNotice(
+                  child: UsageInfoButton(
                     key: const Key('dashboard-health-notice'),
                     message: controller.isWellnessOnly
                         ? '活动和睡眠为戒指估算，仅供日常作息参考。'
                         : context.l10n.healthDisclaimer,
-                    icon: Icons.health_and_safety_outlined,
-                    color: SaydianColors.green,
-                    compact: true,
-                    legal: true,
                   ),
                 ),
               ),

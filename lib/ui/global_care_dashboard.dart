@@ -8,6 +8,7 @@ import '../services/app_controller.dart';
 import '../services/health_view_data_source.dart';
 import 'health_trend_page.dart';
 import 'pages.dart' show HealthMetricCard;
+import 'widgets/usage_info_button.dart';
 
 class GlobalCareDashboard extends StatefulWidget {
   const GlobalCareDashboard({
@@ -163,10 +164,7 @@ class _GlobalCareDashboardState extends State<GlobalCareDashboard> {
                     ),
                     const SizedBox(height: 16),
                   ],
-                  Text(
-                    l.healthDisclaimer,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  UsageInfoButton(message: l.healthDisclaimer),
                 ],
               ),
             ),

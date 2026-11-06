@@ -131,9 +131,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
                 ExpansionTile(
                   title: Text('为什么健康数据暂时为空？'),
                   childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  children: [
-                    Text('请确认设备已连接并完成同步。设备不支持的项目不会开放入口；新测量数据同步后才会显示趋势。'),
-                  ],
+                  children: [Text('请先连接戒指并同步数据，再查看相应日期。')],
                 ),
               ],
             ),

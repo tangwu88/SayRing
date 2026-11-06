@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../domain/sleep_timeline.dart';
 import 'app_theme.dart';
 import 'sleep_detail_widgets.dart';
+import 'widgets/usage_info_button.dart';
 
 /// Public, account-free review access. All content is synthetic and stays in
 /// memory. Never pass an AppController, repository or wearable bridge here.
@@ -162,10 +163,7 @@ class _DemoHealthPage extends StatelessWidget {
           ),
         ),
       const SizedBox(height: 16),
-      const Text(
-        '本应用记录健康趋势，不用于疾病诊断、治疗或紧急情况处理。',
-        style: TextStyle(color: SaydianColors.muted),
-      ),
+      const UsageInfoButton(message: '本应用记录健康趋势，不用于疾病诊断、治疗或紧急情况处理。'),
     ],
   );
 }

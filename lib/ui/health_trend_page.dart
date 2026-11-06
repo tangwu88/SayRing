@@ -18,6 +18,7 @@ import 'prototype_pages.dart';
 import 'sleep_detail_widgets.dart' show SleepTimelineCard, sleepMinutesLabel;
 import 'sleep_ai_report_page.dart';
 import 'wellness_release.dart';
+import 'widgets/usage_info_button.dart';
 
 class HealthMetricMiniChart extends StatefulWidget {
   const HealthMetricMiniChart({
@@ -750,16 +751,14 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
             controller: widget.dataSource == null ? widget.controller : null,
             wellnessOnly: widget.controller.isWellnessOnly,
           ),
-          if (widget.dataSource != null) const Text('仅展示已授权的睡眠汇总'),
           if (data.records.first.sleepTimeline?.hasSegments == true)
             SleepTimelineCard(timeline: data.records.first.sleepTimeline!),
           const SizedBox(height: 12),
         ],
         if (widget.metric == HealthMetric.bodyTemperature) ...[
-          const _MessageCard(
-            icon: Icons.thermostat_rounded,
-            title: '皮肤温度不是核心体温',
-            detail: '可参考个人皮温变化。确认体温请用体温计。',
+          const UsageInfoButton(
+            title: '皮温说明',
+            message: '皮温用于观察个人变化，不等于核心体温。确认体温请使用体温计。',
           ),
           const SizedBox(height: 12),
         ],

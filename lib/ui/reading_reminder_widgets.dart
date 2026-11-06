@@ -422,17 +422,16 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                           _copy(
                             context,
                             switch (widget.kind) {
-                              HealthReminderKind.lowHrv =>
-                                '仅供恢复与疲劳变化参考，不是疲劳度诊断。',
+                              HealthReminderKind.lowHrv => '结合近期休息和自身感受观察变化。',
                               HealthReminderKind.highSkinTemperature =>
-                                '皮温不等于核心体温，请用体温计确认体温。',
+                                '确认体温请使用体温计。',
                               _ => '胸部不适、明显气短或晕厥时，立即求助。',
                             },
                             switch (widget.kind) {
                               HealthReminderKind.lowHrv =>
-                                'A recovery and fatigue reference, not a fatigue diagnosis.',
+                                'Consider recent rest and how you feel.',
                               HealthReminderKind.highSkinTemperature =>
-                                'Skin temperature is not core temperature. Confirm with a thermometer.',
+                                'Confirm body temperature with a thermometer.',
                               _ =>
                                 'Chest discomfort, severe breathlessness or fainting? Seek urgent help.',
                             },
@@ -727,12 +726,10 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
               Text(
                 _copy(
                   context,
+                  hrv ? '参考同一戒指多次静坐测量的结果设置。' : '参考同一戒指、相近环境下的皮温设置。',
                   hrv
-                      ? '按同一戒指多次稳定测量设置个人参考，仅用于恢复与疲劳变化参考。'
-                      : '按同一戒指、相近环境设置个人皮温参考。皮温不等于核心体温。',
-                  hrv
-                      ? 'Use repeated stable readings from this ring as your reference. This is a recovery and fatigue reference.'
-                      : 'Use this ring in similar surroundings to set your skin-temperature reference. It is not core temperature.',
+                      ? 'Use repeated stable readings from this ring as your reference.'
+                      : 'Use this ring in similar surroundings to set your skin-temperature reference.',
                 ),
                 style: const TextStyle(
                   color: SaydianColors.muted,
@@ -791,8 +788,8 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
               Text(
                 _copy(
                   context,
-                  '变化幅度可自行调整，不是医学诊断界限。',
-                  'Adjust this personal comparison; it is not a medical cutoff.',
+                  '按个人情况调整提醒幅度。',
+                  'Adjust the reminder range to your needs.',
                 ),
                 style: const TextStyle(
                   color: SaydianColors.muted,

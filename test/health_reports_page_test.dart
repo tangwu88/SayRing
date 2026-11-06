@@ -122,7 +122,13 @@ void main() {
     expect(find.byKey(const Key('health-report-detail')), findsOneWidget);
     expect(find.text('近30天记录整体较稳定。'), findsOneWidget);
     expect(find.text('保持规律作息。'), findsOneWidget);
+    expect(find.textContaining('如有明显不适，请及时就医'), findsNothing);
+    await tester.scrollUntilVisible(find.text('报告说明'), 250);
+    await tester.tap(find.text('报告说明'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('如有明显不适，请及时就医'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('usage-info-close')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('health-report-share')), findsOneWidget);
   });
 }
