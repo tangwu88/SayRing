@@ -56,7 +56,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     expect(find.byType(DeviceFirmwarePage), findsOneWidget);
-    expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+    expect(find.text('暂不支持在线升级。'), findsOneWidget);
     expect(find.text('已是最新版本'), findsNothing);
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 600));

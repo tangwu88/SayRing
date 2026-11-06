@@ -64,7 +64,7 @@ void main() {
         await settle();
       }
 
-      app.selectTab(0);
+      app.selectTab(2);
       await settle();
       await tapVisible(find.byKey(const Key('health-reminder-entry')));
       expect(find.byType(HealthReminderCenterPage), findsOneWidget);

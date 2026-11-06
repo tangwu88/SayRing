@@ -18,13 +18,24 @@ class _AppShellState extends State<AppShell> {
       return;
     }
     _scheduledError = message;
+    final controller = widget.controller;
+    final owner = controller.homeHealthCardOwner;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || _scheduledError != message) return;
+      _scheduledError = null;
+      if (widget.controller != controller ||
+          controller.homeHealthCardOwner != owner ||
+          controller.errorMessage?.trim() != message) {
+        return;
+      }
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
-      widget.controller.clearError();
-      _scheduledError = null;
+        ..showSnackBar(
+          SnackBar(
+            content: Text(userFacingMessage(message, fallback: '操作未完成，请重试')),
+          ),
+        );
+      controller.clearError();
     });
   }
 
@@ -155,14 +166,63 @@ class DashboardPage extends StatelessWidget {
                       _DashboardActivity(controller: controller),
                       const SizedBox(height: 12),
                     ],
-                    if (controller.shouldShowHealthMetric(
-                      HealthMetric.sleep,
-                    )) ...[
+                    if (!controller.shouldShowHealthMetric(
+                          HealthMetric.steps,
+                        ) &&
+                        controller.canBrowseSavedActivity) ...[
+                      Card(
+                        margin: EdgeInsets.zero,
+                        child: ListTile(
+                          key: const Key('dashboard-saved-ring-activity'),
+                          leading: const Icon(
+                            Icons.directions_walk_rounded,
+                            color: SaydianColors.blue,
+                          ),
+                          title: Text(context.l10n.savedActivity),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () async {
+                            final ring = controller.connectedDevice;
+                            if (ring == null) return;
+                            final source = SavedRingActivitySource(
+                              controller,
+                              ring,
+                            );
+                            final latest = controller.healthRecords
+                                .where(
+                                  (r) =>
+                                      r.deviceId == ring.id &&
+                                      r.metric == HealthMetric.steps,
+                                )
+                                .firstOrNull;
+                            final route = MaterialPageRoute<void>(
+                              settings: const RouteSettings(
+                                name: 'saved-ring-activity',
+                              ),
+                              builder: (_) => HealthTrendPage(
+                                controller: controller,
+                                metric: HealthMetric.steps,
+                                initialDate: latest == null
+                                    ? null
+                                    : HealthAnalysisService.displayTime(latest),
+                                initialPeriod: HealthTrendPeriod.month,
+                                dataSource: source,
+                              ),
+                            );
+                            try {
+                              await Navigator.of(context).push(route);
+                              await route.completed;
+                            } finally {
+                              source.dispose();
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (controller.canOpenSleepOverview) ...[
                       _SleepQuickCard(controller: controller),
                       const SizedBox(height: 12),
                     ],
-                    HealthReminderShortcut(controller: controller),
-                    const SizedBox(height: 12),
                     _FeatureEntryGrid(
                       commerceEnabled: controller.mallVisible,
                       encyclopediaEnabled: controller.healthLibraryVisible,
@@ -307,15 +367,11 @@ class DashboardPage extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 child: Align(
                   alignment: Alignment.bottomCenter,
-                  child: InlineNotice(
+                  child: UsageInfoButton(
                     key: const Key('dashboard-health-notice'),
                     message: controller.isWellnessOnly
                         ? '活动和睡眠为戒指估算，仅供日常作息参考。'
                         : context.l10n.healthDisclaimer,
-                    icon: Icons.health_and_safety_outlined,
-                    color: SaydianColors.green,
-                    compact: true,
-                    legal: true,
                   ),
                 ),
               ),
@@ -364,17 +420,6 @@ class _DashboardHeader extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 21,
                   fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                context.l10n.dailyGreeting,
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: SaydianColors.muted,
-                  fontSize: 15,
                 ),
               ),
             ],
@@ -463,9 +508,7 @@ class _MindBodyReadinessCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    available == inputs.length
-                        ? '正在建立个人基线，暂不生成未经确认的评分'
-                        : '数据不足 · 已具备 $available/${inputs.length} 项基线数据',
+                    available == inputs.length ? '继续佩戴，积累个人记录' : '记录还不够，请继续佩戴',
                     style: const TextStyle(
                       color: SaydianColors.muted,
                       fontSize: 15,
@@ -493,7 +536,7 @@ class _AiHealthAssistantCard extends StatelessWidget {
     final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
     final stacked = textScale >= 1.8;
     final doctor = SizedBox(
-      height: stacked ? 196 : 140,
+      height: stacked ? 64 : 140,
       child: ClipRect(
         child: stacked
             ? Image.asset(
@@ -530,15 +573,6 @@ class _AiHealthAssistantCard extends StatelessWidget {
               color: Color(0xFF244BA8),
               fontSize: 19,
               fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            context.l10n.aiAssistantIntro,
-            style: const TextStyle(
-              color: SaydianColors.ink,
-              fontSize: 14,
-              height: 1.2,
             ),
           ),
           const SizedBox(height: 5),
@@ -691,7 +725,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
         ? '睡眠缓存刷新失败，点击查看或重试'
         : latest == null
         ? sleepSyncUnavailable(controller)
-              ? '当前戒指的睡眠同步暂未开放'
+              ? '暂无睡眠记录，可按日期查看'
               : '暂无睡眠记录，佩戴戒指睡眠后同步数据'
         : '最近一次 · ${DateFormat('M月d日').format(DateTime.parse(sleepRecordSdkDate(latest)))}';
     return Material(
@@ -731,19 +765,20 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
                   Icon(Icons.chevron_right_rounded, color: SaydianColors.sleep),
                 ],
               ),
-              const SizedBox(height: 12),
-              Text(
-                _loading || _failed ? '--' : _sleepDurationLabel(latest),
-                style: const TextStyle(
-                  color: SaydianColors.midnight,
-                  fontSize: 32,
-                  height: 1.2,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -.6,
+              if (!_loading && !_failed && latest != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _sleepDurationLabel(latest),
+                  style: const TextStyle(
+                    color: SaydianColors.midnight,
+                    fontSize: 32,
+                    height: 1.2,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -.6,
+                  ),
                 ),
-              ),
-              if (!_loading && !_failed && latest != null)
                 SleepStageMiniBar(record: latest),
+              ],
               const SizedBox(height: 9),
               Text(
                 caption,
@@ -1500,9 +1535,16 @@ class HealthMetricCard extends StatelessWidget {
             _HomeMetricStatus.low => context.l10n.statusLow,
             _HomeMetricStatus.high => context.l10n.statusHigh,
           };
+    // 迷你图只显示今天。旧记录仍显示真实日期，但无需为不存在的今日曲线留白。
+    final hasToday =
+        record != null &&
+        DateUtils.isSameDay(
+          HealthAnalysisService.displayTime(record!),
+          DateTime.now(),
+        );
     return ConstrainedBox(
       key: ValueKey('health-metric-${metric.name}'),
-      constraints: const BoxConstraints(minHeight: 190),
+      constraints: BoxConstraints(minHeight: hasToday ? 170 : 120),
       child: DecoratedBox(
         key: ValueKey('health-metric-surface-${metric.name}'),
         decoration: BoxDecoration(
@@ -1538,7 +1580,7 @@ class HealthMetricCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 42),
+                    constraints: const BoxConstraints(minHeight: 26),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1562,7 +1604,7 @@ class HealthMetricCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
                   Wrap(
                     crossAxisAlignment: WrapCrossAlignment.end,
                     spacing: 5,
@@ -1598,16 +1640,18 @@ class HealthMetricCard extends StatelessWidget {
                           : SaydianColors.muted,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  HealthMetricMiniChart(
-                    controller: controller,
-                    metric: metric,
-                    color: style.accent,
-                    showEmptyLabel: false,
-                    height: 60,
-                    fitToSamples: true,
-                    records: readOnly ? records ?? const [] : records,
-                  ),
+                  if (hasToday) ...[
+                    const SizedBox(height: 12),
+                    HealthMetricMiniChart(
+                      controller: controller,
+                      metric: metric,
+                      color: style.accent,
+                      showEmptyLabel: false,
+                      height: 44,
+                      fitToSamples: true,
+                      records: readOnly ? records ?? const [] : records,
+                    ),
+                  ],
                   if (record != null) ...[
                     const SizedBox(height: 6),
                     Text(

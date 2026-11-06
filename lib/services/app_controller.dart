@@ -492,7 +492,7 @@ class AppController extends ChangeNotifier {
     int page = 1,
   }) => _moduleRead(
     SayRingModule.mall,
-    () => (_api as GlobalCommerceApi).getGlobalShopProducts(
+    () => _globalCommerceApi.getGlobalShopProducts(
       keyword: keyword,
       categoryId: categoryId,
       page: page,
@@ -501,7 +501,7 @@ class AppController extends ChangeNotifier {
 
   Future<Map<String, Object?>> loadGlobalShopProduct(String id) => _moduleRead(
     SayRingModule.mall,
-    () => (_api as GlobalCommerceApi).getGlobalShopProduct(id),
+    () => _globalCommerceApi.getGlobalShopProduct(id),
   );
 
   GlobalCommerceApi get _globalCommerceApi {
@@ -530,7 +530,7 @@ class AppController extends ChangeNotifier {
     return result;
   });
 
-  Future<Map<String, Object?>> loadGlobalCommerceCapabilities() =>
+  Future<Map<String, Object?>> loadGlobalCommerceCapabilities() async =>
       _globalCommerceApi.getGlobalCommerceCapabilities();
 
   // Keep existing iOS purchase ceilings closed. Native checkout is additive
@@ -1325,6 +1325,9 @@ class AppController extends ChangeNotifier {
   ({DeviceInfo device, int generation})? _accountWearableResume;
   DeviceInfo? _latestDeviceDetails;
   String? _deviceSyncErrorMessage;
+  // 页面按本次同步结果显示重试，不依赖某句中文包含哪些字。
+  bool get deviceHistoryNeedsRetry => _deviceSyncErrorMessage != null;
+
   Future<void>? _deviceSettingsRefresh;
   int _deviceSettingsGeneration = 0;
   Future<void> _notificationIngestTail = Future<void>.value();
@@ -1421,8 +1424,11 @@ class AppController extends ChangeNotifier {
   int get pushDeviceRegistrationRetryAttempt => _pushRegistrationRetryAttempt;
   List<Map<String, Object?>> orders = const [];
   List<Map<String, Object?>> addresses = const [];
+  String? addressLoadError;
+  int _addressReadRevision = 0;
   List<Map<String, Object?>> shopCart = const [];
   Map<String, Object?> memberProfile = const {};
+  String? memberProfileReadError;
   final Map<int, String> _aiSessionIds = {};
   String aiStatus = '等待加载';
   String notificationStatus = '等待加载';
@@ -1562,6 +1568,27 @@ class AppController extends ChangeNotifier {
       connectedDevice != null &&
       _hasResolvedDeviceCapabilities &&
       capabilities?.supports(metric) == true;
+
+  // 握手给出了历史读取能力，但这几款戒指不一定每次都重发活动和睡眠能力位。
+  // 只允许浏览保存的数据；不能用历史数据解锁测量、同步指令或其他型号的卡片。
+  bool get _canBrowseIntermittentRingHistory {
+    final device = connectedDevice;
+    return device != null &&
+        deviceCapabilityState == DeviceCapabilityState.ready &&
+        capabilities?.supportsHistorySync == true &&
+        WearableDeviceClassifier.transportForScopedId(device.id) ==
+            WearableTransport.coolwear &&
+        const {'R7Pro', 'HR05', 'R7Ultra'}.contains(device.model);
+  }
+
+  bool get canOpenSleepOverview =>
+      shouldShowHealthMetric(HealthMetric.sleep) ||
+      (isMetricAvailableInRelease(HealthMetric.sleep) &&
+          _canBrowseIntermittentRingHistory);
+
+  bool get canBrowseSavedActivity =>
+      isMetricAvailableInRelease(HealthMetric.steps) &&
+      _canBrowseIntermittentRingHistory;
 
   HomeHealthCardLayout homeHealthCardLayout = HomeHealthCardLayout();
   bool homeHealthCardsLoading = false;
@@ -1758,10 +1785,13 @@ class AppController extends ChangeNotifier {
     careMembers = const [];
     careInvitations = const [];
     memberProfile = const {};
+    memberProfileReadError = null;
     aiMessages = const [];
     _aiSessionIds.clear();
     orders = const [];
     addresses = const [];
+    addressLoadError = null;
+    _addressReadRevision++;
     notifications = const [];
     remoteNotificationUnreadCount = null;
     cloudSyncStatus = session == null ? '未登录，数据仅保存在本机' : '尚未上传';
@@ -2587,6 +2617,8 @@ class AppController extends ChangeNotifier {
       await _notificationService.deactivate();
       orders = const [];
       addresses = const [];
+      addressLoadError = null;
+      _addressReadRevision++;
       selectedTab = 0;
       _accountTransitioning = false;
       isBusy = false;
@@ -3764,14 +3796,16 @@ class AppController extends ChangeNotifier {
           !receivedRecords.complete) {
         if (records.isNotEmpty &&
             receivedRecords.statuses.values.contains('current')) {
-          syncStatus = '活动数据已更新，历史记录尚未确认';
-          _deviceSyncErrorMessage = '活动数据已更新，历史记录尚未确认';
+          syncStatus = '活动已更新，历史同步未完成';
+          _deviceSyncErrorMessage = '活动已更新，历史同步未完成';
         } else if (receivedRecords.partial) {
           syncStatus = records.isEmpty ? '部分数据未同步' : '已更新 ${records.length} 条';
-          _deviceSyncErrorMessage = '已保留收到的记录，但戒指未返回完整同步确认，请稍后重试';
+          _deviceSyncErrorMessage = records.isEmpty
+              ? '同步未完成，可稍后重试'
+              : '已保存 ${records.length} 条，可稍后再次同步';
         } else {
-          syncStatus = '戒指尚未确认数据读取完成';
-          _deviceSyncErrorMessage = '戒指尚未确认数据读取完成，请稍后重试';
+          syncStatus = '同步未完成';
+          _deviceSyncErrorMessage = '同步未完成，可稍后重试';
         }
         errorMessage = _deviceSyncErrorMessage;
       } else {
@@ -3861,8 +3895,7 @@ class AppController extends ChangeNotifier {
             return false;
           }
           syncStatus = '已更新 ${records.length} 条';
-          _deviceSyncErrorMessage =
-              '已更新 ${records.length} 条，戒指尚未确认完整同步；已有记录已保留';
+          _deviceSyncErrorMessage = '已更新 ${records.length} 条，同步未完成，可稍后重试';
           errorMessage = _deviceSyncErrorMessage;
           return false;
         }
@@ -5091,9 +5124,7 @@ class AppController extends ChangeNotifier {
           ),
         );
       if (partial) {
-        errorMessage = received
-            ? '已保留读到的运动记录，但戒指未确认同步完成；稍后可重试'
-            : '戒指暂未返回运动记录；已有记录仍可查看，稍后可重试';
+        errorMessage = received ? '收到的运动记录已保存，可稍后再同步' : '运动记录暂未更新，可稍后重试';
       }
     } on PlatformException catch (error) {
       if (!stillCurrent()) return;
@@ -6126,6 +6157,7 @@ class AppController extends ChangeNotifier {
     final generation = _sessionGeneration;
     if (session == null) {
       memberProfile = const {};
+      memberProfileReadError = null;
       notifyListeners();
       return;
     }
@@ -6133,9 +6165,10 @@ class AppController extends ChangeNotifier {
       final profile = await _api.getMemberProfile();
       if (!_isCurrentSessionGeneration(generation)) return;
       memberProfile = profile;
+      memberProfileReadError = null;
     } on ApiException catch (error) {
       if (!_isCurrentSessionGeneration(generation)) return;
-      errorMessage = _apiErrorMessage(error, fallback: '个人资料暂时无法读取');
+      memberProfileReadError = _apiErrorMessage(error, fallback: '个人资料暂时无法读取');
     }
     if (_isCurrentSessionGeneration(generation)) notifyListeners();
   }
@@ -7350,7 +7383,7 @@ class AppController extends ChangeNotifier {
     }
     if (session == null) {
       aiMessages = const [];
-      errorMessage = '请先登录后使用 AI 管家';
+      errorMessage = '请先登录后提问';
       notifyListeners();
       return;
     }
@@ -7403,7 +7436,7 @@ class AppController extends ChangeNotifier {
     final generation = _sessionGeneration;
     final owner = session;
     if (session == null) {
-      errorMessage = '请先登录后使用 AI 管家';
+      errorMessage = '请先登录后提问';
       notifyListeners();
       return false;
     }
@@ -7434,13 +7467,14 @@ class AppController extends ChangeNotifier {
           displayGeneration != _aiDisplayGeneration) {
         return false;
       }
-      errorMessage = aiChatFailureMessage(error);
+      // 错误显示在这条未发送的问题下，不再跨页重复弹窗。
+      final reason = aiChatFailureMessage(error);
       aiMessages = [
         ...aiMessages.take(aiMessages.length - 1),
         <String, Object?>{
           ...aiMessages.last,
           'send_failed': true,
-          'send_error': errorMessage,
+          'send_error': reason,
         },
       ];
       return false;
@@ -7497,17 +7531,32 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> loadAddresses() async {
+    final generation = _sessionGeneration;
+    final owner = session;
+    final revision = ++_addressReadRevision;
     await Future<void>.delayed(Duration.zero);
-    if (session == null) {
-      addresses = const [];
-      errorMessage = '请先登录后查看收货地址';
-      notifyListeners();
+    if (!_isCurrentSessionGeneration(generation) ||
+        _accountTransitioning ||
+        revision != _addressReadRevision) {
       return;
     }
-    try {
-      addresses = await _api.getAddresses();
-    } on ApiException catch (error) {
-      errorMessage = _apiErrorMessage(error, fallback: '收货地址暂时无法加载');
+    if (owner == null) {
+      addresses = const [];
+      addressLoadError = '请先登录后查看收货地址';
+    } else {
+      // 仅使用本次、当前账号的地址请求结果，别把其它页面的错误显示成地址错误。
+      bool active() =>
+          revision == _addressReadRevision &&
+          _isCurrentAccountRequest(generation, owner);
+      try {
+        final rows = await _api.getAddresses();
+        if (!active()) return;
+        addresses = rows;
+        addressLoadError = null;
+      } on ApiException catch (error) {
+        if (!active()) return;
+        addressLoadError = _apiErrorMessage(error, fallback: '收货地址暂时无法加载');
+      }
     }
     notifyListeners();
   }
@@ -8122,15 +8171,8 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<List<Map<String, Object?>>> loadOrderExpress(int orderId) async {
-    try {
-      return await _requiredShopApi.getOrderExpress(orderId);
-    } on ApiException catch (error) {
-      errorMessage = _apiErrorMessage(error, fallback: '物流信息暂时无法加载');
-      notifyListeners();
-      return const [];
-    }
-  }
+  Future<List<Map<String, Object?>>> loadOrderExpress(int orderId) =>
+      _requiredShopApi.getOrderExpress(orderId);
 
   Future<Map<String, Object?>> _shopMapRequest(
     String label,

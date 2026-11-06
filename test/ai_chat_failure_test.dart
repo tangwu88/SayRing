@@ -52,7 +52,7 @@ void main() {
       contains('暂时无法完成'),
     );
   });
-  test('only bounded numeric diagnostics are displayed', () {
+  test('even valid diagnostic codes never appear in user copy', () {
     expect(
       aiChatFailureMessage(
         const AiProviderApiException(
@@ -62,7 +62,7 @@ void main() {
           providerCode: '1211',
         ),
       ),
-      contains('HTTP 400，服务代码 1211'),
+      '问答暂不可用，请稍后重试',
     );
     expect(
       aiChatFailureMessage(

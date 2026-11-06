@@ -382,7 +382,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
                   child: Text(
-                    '当前展示离线缓存；安装前会重新验证已连接戒指。',
+                    '显示上次保存的样式。',
                     style: TextStyle(color: SaydianColors.orange),
                   ),
                 ),

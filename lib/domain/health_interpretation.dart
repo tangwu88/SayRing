@@ -33,15 +33,10 @@ HealthInterpretation interpretHealthRecord(HealthRecord record) {
     case HealthMetric.heartRate:
       final value = values['value'];
       if (value == null) return _insufficient;
-      if (value < 60 || value > 100) {
-        return const HealthInterpretation(
-          title: '本次静息心率超出常见参考范围',
-          detail: '运动、情绪和药物等都会影响心率；静坐复测后仍异常或有不适时请咨询医务人员。',
-        );
-      }
+      // 历史心率只有数值，无法据此确认测量时处于静息状态。
       return const HealthInterpretation(
-        title: '本次静息心率处于常见参考范围',
-        detail: '建议结合个人长期趋势观察，不以单次结果作诊断。',
+        title: '本次心率已记录',
+        detail: '可与相同活动状态下的记录比较，查看自己的心率变化。',
       );
     case HealthMetric.bloodOxygen:
       final value = values['value'];

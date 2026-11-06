@@ -13,8 +13,11 @@ import 'health_trend_page.dart' show SleepStructureCard;
 import 'health_ui_owner.dart';
 
 bool sleepSyncUnavailable(AppController controller) {
-  // Missing capabilities keep the existing guide, never imply no support.
-  return controller.capabilities?.supportsHistorySync == false;
+  final capabilities = controller.capabilities;
+  // 总历史通道可用不代表这枚戒指已确认睡眠回包。旧协议若未列举指标，
+  // 仍采用原有提示；明确缺少睡眠时，只引导用户按日期查看。
+  return capabilities?.supportsHistorySync == false ||
+      capabilities?.historyMetrics?.contains(HealthMetric.sleep) == false;
 }
 
 String sleepMinutesLabel(double minutes) {
@@ -327,9 +330,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                 SleepTimelineCard(timeline: timeline!)
               else
                 _SleepNotice(
-                  message: syncUnavailable
-                      ? '已记录睡眠总时长，暂未展示分段详情'
-                      : '已记录睡眠总时长。连接戒指后下拉更新，可查看最新的睡眠详情',
+                  message: syncUnavailable ? '仅有总时长，暂无分段' : '仅有总时长。连接戒指后可下拉更新。',
                   icon: Icons.schedule_outlined,
                 ),
               const SizedBox(height: 16),
@@ -348,7 +349,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               children: const [
                 Text(
-                  '睡眠总时长包含已记录的夜间睡眠和小睡，清醒及暂未分类的时段不计入。睡眠时长与阶段由戒指估算，长时间静止或未佩戴可能影响结果，请结合实际作息查看，仅供日常参考。建议睡眠时保持佩戴，并在起床后连接更新。时间明细仅保存在手机中；使用 AI 报告前，会另行征求你上传睡眠汇总的同意。',
+                  '总时长含夜间睡眠和小睡，不含清醒和未分类时段。生成报告前会请你同意上传汇总。',
                   style: TextStyle(color: SaydianColors.muted, height: 1.6),
                 ),
               ],
@@ -441,7 +442,7 @@ class _SleepStageDistribution extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const Text(
-              '已返回阶段的时长占比',
+              '各睡眠阶段占比',
               style: TextStyle(fontSize: 14, color: SaydianColors.muted),
             ),
           ],

@@ -9,6 +9,31 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get savedActivity => 'Aktivitätsverlauf';
+
+  @override
+  String get activitySourceChanged =>
+      'Konto oder Ring wurde gewechselt. Öffne den Aktivitätsverlauf erneut.';
+
+  @override
+  String get noSavedWorkouts => 'Noch keine Trainings gespeichert';
+
+  @override
+  String get unitsTemperature => 'Temperatur';
+
+  @override
+  String get unitKmLabel => 'Kilometer (km)';
+
+  @override
+  String get unitMilesLabel => 'Meilen (mi)';
+
+  @override
+  String get unitCelsiusLabel => 'Celsius (°C)';
+
+  @override
+  String get unitFahrenheitLabel => 'Fahrenheit (°F)';
+
+  @override
   String get deviceSearchHelpTitle => 'Ring nicht gefunden?';
 
   @override
@@ -1109,7 +1134,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get findSystemPairedRingsHint =>
-      'Zeigt unterstützte, im Telefon gekoppelte oder zuvor mit Say Ring verbundene Ringe. Die Auswahl wird erneut über das Ring-SDK geprüft.';
+      'Wähle einen gekoppelten oder zuvor verbundenen Ring.';
 
   @override
   String get systemPairedDevice => 'Wiederherstellbar';
@@ -1353,11 +1378,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get signInCloudHint => 'Für Cloud-Gesundheitsdienste anmelden';
 
   @override
-  String get aiQuestion => 'KI fragen';
+  String get aiQuestion => 'Frage stellen';
 
   @override
-  String get aiQuestionHint =>
-      'Fragen Sie Ihren KI-Assistenten zum Wohlbefinden';
+  String get aiQuestionHint => 'Fragen zum Wohlbefinden';
 
   @override
   String get language => 'Sprache';
@@ -1547,17 +1571,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get defaultUser => 'Say Ring-Nutzer';
 
   @override
-  String get dailyGreeting => 'Achten Sie heute auf sich';
-
-  @override
   String get messages => 'Nachrichten';
 
   @override
-  String get aiAssistant => 'KI-Gesundheitsassistent';
-
-  @override
-  String get aiAssistantIntro =>
-      'Stellen Sie mir eine Frage zu Ihrem Wohlbefinden.';
+  String get aiAssistant => 'Gesundheitsfragen';
 
   @override
   String get askNow => 'Jetzt fragen';
@@ -1726,7 +1743,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get downloadAndInstall => 'Sicher herunterladen und installieren';
 
   @override
-  String get gettingReady => 'Wird vorbereitet…';
+  String get gettingReady => 'Wird geladen…';
 
   @override
   String get enableNotifications => 'Say Ring-Mitteilungen aktivieren';

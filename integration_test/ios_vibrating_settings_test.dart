@@ -141,7 +141,7 @@ void main() {
             await settle();
           }
 
-          app.selectTab(0);
+          app.selectTab(2);
           await settle();
           await tapVisible(find.byKey(const Key('health-reminder-entry')));
           expect(find.byType(HealthReminderCenterPage), findsOneWidget);
@@ -180,7 +180,7 @@ void main() {
           await tester.binding.handlePopRoute();
           await settle();
           await checked(
-            'home_sedentary_entry_filters_and_large_editor_cancelled_without_write',
+            'profile_sedentary_entry_filters_and_large_editor_cancelled_without_write',
           );
           for (final item in rows) {
             expect(item['enabled'], isA<bool>());

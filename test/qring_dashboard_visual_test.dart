@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
+import 'package:saydian_app/services/health_view_data_source.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/app_theme.dart';
@@ -169,6 +171,108 @@ Future<void> _mount(
 
 void main() {
   setUpAll(() => initializeDateFormatting('zh_Hans'));
+
+  const ring = DeviceInfo(
+    id: 'coolwear:qa-saved-only',
+    name: 'SD-RING-R7 Ultra',
+    model: 'R7Ultra',
+  );
+  testWidgets(
+    'intermittent grant opens saved activity, without granting steps measurement',
+    (tester) async {
+      final store = MemoryHealthStore();
+      final controller = _Controller(store)
+        ..connectedDevice = ring
+        ..deviceCapabilityState = DeviceCapabilityState.ready
+        ..capabilities = const DeviceCapabilities(
+          metrics: {HealthMetric.heartRate},
+          supportsHistorySync: true,
+        );
+      final own = _record(
+        'retained',
+        HealthMetric.steps,
+        456,
+        _today().subtract(const Duration(days: 1)),
+      ).copyWith(deviceId: ring.id);
+      await store.upsert([own]);
+      controller.healthRecords = await store.recent();
+      await _mount(tester, controller);
+      expect(controller.shouldShowHealthMetric(HealthMetric.steps), isFalse);
+      expect(_activity, findsNothing);
+      final entry = find.byKey(const Key('dashboard-saved-ring-activity'));
+      expect(entry, findsOneWidget);
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('health-trend-steps')), findsOneWidget);
+      expect(find.text('手动测量'), findsNothing);
+      expect(find.textContaining('456'), findsWidgets);
+      final trend = tester.widget<HealthTrendPage>(
+        find.byType(HealthTrendPage),
+      );
+      expect(trend.initialDate?.day, own.measuredAt.day);
+      controller.connectedDevice = _device;
+      controller.announceChange();
+      await tester.pump();
+      expect(find.text('账号或戒指已切换，请重新打开活动记录'), findsOneWidget);
+      expect(find.textContaining('456'), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(entry, findsNothing);
+      expect((await store.recent()).single.toJson(), own.toJson());
+    },
+  );
+  test(
+    'saved activity ignores another ring and discards in-flight reads after switching account',
+    () async {
+      final c = _Controller(MemoryHealthStore())..connectedDevice = ring;
+      final source = SavedRingActivitySource(c, ring);
+      addTearDown(c.dispose);
+      addTearDown(source.dispose);
+      final foreign = _record('other', HealthMetric.steps, 654, _today());
+      final own = _record(
+        'mine',
+        HealthMetric.steps,
+        456,
+        _today(),
+      ).copyWith(deviceId: ring.id);
+      final day = _today();
+      c.readOverride = (_, _, _) async => [foreign, own];
+      expect(await source.load(HealthMetric.steps, day, day), [own]);
+      final reply = Completer<List<HealthRecord>>();
+      c.readOverride = (_, _, _) => reply.future;
+      final stale = source.load(HealthMetric.steps, day, day);
+      c.session = _session('owner-b');
+      c.announceChange();
+      reply.complete([own]);
+      expect(await stale, isEmpty);
+      expect(source.valid, isFalse);
+    },
+  );
+  testWidgets(
+    'old measurements show their timestamp without a blank today chart',
+    (tester) async {
+      final c = _Controller(MemoryHealthStore());
+      final at = _today().subtract(const Duration(days: 2));
+      final old = _record('old', HealthMetric.heartRate, 77, at);
+      await _mount(
+        tester,
+        c,
+        width: 320,
+        textScale: 2,
+        page: Scaffold(
+          body: HealthMetricCard(
+            controller: c,
+            metric: HealthMetric.heartRate,
+            record: old,
+          ),
+        ),
+      );
+      expect(find.text('77'), findsOneWidget);
+      expect(find.byType(HealthMetricMiniChart), findsNothing);
+      expect(find.textContaining('${at.month}月${at.day}日'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final (unit, provenance) in [
     for (final unit in ['kcal', 'unknown'])

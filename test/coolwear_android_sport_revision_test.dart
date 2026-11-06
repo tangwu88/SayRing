@@ -94,7 +94,7 @@ void main() {
           ],
           [130, 96, 130, 96],
         );
-        if (partial) expect(app.errorMessage, contains('已保留读到的运动记录'));
+        if (partial) expect(app.errorMessage, contains('收到的运动记录已保存'));
         await receive(workout(400, 300, id: localId));
         await receive(workout(400, 310, id: otherRingId));
         final local = (await store.localSportRecords()).firstWhere(

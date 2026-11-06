@@ -50,20 +50,11 @@ class AiPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'AI 健康管家',
+                            '健康问答',
                             style: TextStyle(
                               color: Color(0xFF27479C),
                               fontSize: 20,
                               fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          SizedBox(height: 6),
-                          Text(
-                            '我是您的健康管家，有任何问题都可以跟我提问哦~',
-                            style: TextStyle(
-                              color: Color(0xFF516392),
-                              fontSize: 13,
-                              height: 1.45,
                             ),
                           ),
                         ],
@@ -94,19 +85,11 @@ class AiPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Hi，我是你的运动管家',
+                            '运动问答',
                             style: TextStyle(
                               color: Color(0xFF27479C),
                               fontSize: 17,
                               fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          SizedBox(height: 7),
-                          Text(
-                            '我可以帮助你提升健身和运动水平！',
-                            style: TextStyle(
-                              color: Color(0xFF6881C1),
-                              fontSize: 12,
                             ),
                           ),
                         ],
@@ -127,28 +110,26 @@ class AiPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              Text(
-                context.l10n.healthLibrary,
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-              ),
-              const Spacer(),
-              Text(
-                controller.aiStatus,
-                style: const TextStyle(
-                  color: SaydianColors.muted,
-                  fontSize: 11,
-                ),
-              ),
-            ],
+          Text(
+            context.l10n.healthLibrary,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 10),
           if (controller.aiArticles.isEmpty)
-            const Card(
+            Card(
               child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: Text('暂无健康百科内容')),
+                padding: const EdgeInsets.all(24),
+                child: Center(
+                  child: switch (controller.aiStatus) {
+                    '正在加载' => const CircularProgressIndicator(),
+                    '暂无百科内容' || '等待加载' => const Text('暂无文章'),
+                    _ => TextButton.icon(
+                      onPressed: controller.refreshAiArticles,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('重新加载文章'),
+                    ),
+                  },
+                ),
               ),
             )
           else
@@ -234,7 +215,7 @@ class _AiChatPageState extends State<AiChatPage> {
       app: widget.app,
       message: message,
     );
-    if (sent) {
+    if (mounted && sent) {
       _input.clear();
       _scrollToLatest();
     }
@@ -262,7 +243,16 @@ class _AiChatPageState extends State<AiChatPage> {
 
   Widget _buildContent(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.app == 2 ? '运动管家' : 'AI 健康管家')),
+      appBar: AppBar(
+        title: Text(widget.app == 2 ? '运动问答' : '健康问答'),
+        actions: const [
+          UsageInfoButton(
+            iconOnly: true,
+            title: '说明',
+            message: '回答由 AI 生成，供日常健康参考，不能代替医生诊疗。',
+          ),
+        ],
+      ),
       backgroundColor: SaydianColors.canvas,
       body: ListenableBuilder(
         listenable: widget.controller,
@@ -280,9 +270,9 @@ class _AiChatPageState extends State<AiChatPage> {
                             padding: EdgeInsets.all(28),
                             child: Center(
                               child: FeatureStateCard(
-                                message: '您好，我是 AI 健康管家',
-                                detail: '可以向我咨询日常健康管理问题，回答仅供参考，不能替代医生诊断。',
-                                icon: Icons.health_and_safety_outlined,
+                                message: '暂无对话',
+                                detail: '输入你想了解的问题',
+                                icon: Icons.chat_bubble_outline_rounded,
                                 color: SaydianColors.brandRed,
                               ),
                             ),
@@ -334,6 +324,11 @@ class _AiChatPageState extends State<AiChatPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              if (!mine)
+                                Text(
+                                  'AI 回答',
+                                  style: Theme.of(context).textTheme.labelSmall,
+                                ),
                               Text(
                                 text,
                                 style: TextStyle(
@@ -346,8 +341,10 @@ class _AiChatPageState extends State<AiChatPage> {
                               if (failed) ...[
                                 const SizedBox(height: 5),
                                 Text(
-                                  message['send_error']?.toString() ??
-                                      '消息发送失败，请稍后重试',
+                                  userFacingMessage(
+                                    message['send_error']?.toString(),
+                                    fallback: '消息未发送，请重试',
+                                  ),
                                   style: TextStyle(
                                     color: Color(0xFFFFD7D7),
                                     fontSize: 12,

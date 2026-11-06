@@ -212,14 +212,14 @@ class RingGestureGuide extends StatelessWidget {
         if (tapControl && defaultTargetPlatform == TargetPlatform.iOS)
           const _GuideSection('iPhone 短视频设置', [
             '设置 → 辅助功能 → 触控 → 辅助触控：开启“辅助触控”和“执行触控手势”，将“跟踪灵敏度”调至最高。',
-            'App 不能读取这些系统开关；请在系统中核对后，再打开目标 App 实际试用。',
+            '设置完成后，打开短视频 App 试用。',
           ]),
         const _GuideSection('阅读翻页', [
           '若阅读 App 提供“音量键翻页”，请先开启；部分 App 还需要切换翻页方式。',
         ]),
         _GuideSection('没有反应？', [
           '先确认戒指仍已连接、场景已确认，目标 App 在前台。',
-          '在$phone“设置 → 蓝牙”检查配对。App 已连接不代表系统配对已完成；若弹出配对请求，请核对这枚戒指后确认。',
+          '到$phone“设置 → 蓝牙”确认配对；出现请求时，选择当前戒指。',
           '若戒指连接了其他手机或戒指 App，先断开那边。',
           '仍无反应时关闭模式再重选。部分手机、固件或 App 不支持手势控制。',
         ]),

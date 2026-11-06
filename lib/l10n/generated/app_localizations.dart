@@ -110,6 +110,54 @@ abstract class AppLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
   ];
 
+  /// No description provided for @savedActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'Activity history'**
+  String get savedActivity;
+
+  /// No description provided for @activitySourceChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The account or ring has changed. Reopen activity history.'**
+  String get activitySourceChanged;
+
+  /// No description provided for @noSavedWorkouts.
+  ///
+  /// In en, this message translates to:
+  /// **'No workouts saved yet'**
+  String get noSavedWorkouts;
+
+  /// No description provided for @unitsTemperature.
+  ///
+  /// In en, this message translates to:
+  /// **'Temperature'**
+  String get unitsTemperature;
+
+  /// No description provided for @unitKmLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Kilometers (km)'**
+  String get unitKmLabel;
+
+  /// No description provided for @unitMilesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Miles (mi)'**
+  String get unitMilesLabel;
+
+  /// No description provided for @unitCelsiusLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Celsius (°C)'**
+  String get unitCelsiusLabel;
+
+  /// No description provided for @unitFahrenheitLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Fahrenheit (°F)'**
+  String get unitFahrenheitLabel;
+
   /// No description provided for @deviceSearchHelpTitle.
   ///
   /// In en, this message translates to:
@@ -2069,7 +2117,7 @@ abstract class AppLocalizations {
   /// No description provided for @findSystemPairedRingsHint.
   ///
   /// In en, this message translates to:
-  /// **'Shows supported rings paired in phone settings or previously connected by Say Ring. Selection still requires fresh ring SDK verification.'**
+  /// **'Choose a paired or previously connected ring.'**
   String get findSystemPairedRingsHint;
 
   /// No description provided for @systemPairedDevice.
@@ -2531,13 +2579,13 @@ abstract class AppLocalizations {
   /// No description provided for @aiQuestion.
   ///
   /// In en, this message translates to:
-  /// **'Ask AI'**
+  /// **'Ask a question'**
   String get aiQuestion;
 
   /// No description provided for @aiQuestionHint.
   ///
   /// In en, this message translates to:
-  /// **'Ask your AI assistant about wellbeing'**
+  /// **'Ask about everyday wellbeing'**
   String get aiQuestionHint;
 
   /// No description provided for @language.
@@ -2894,12 +2942,6 @@ abstract class AppLocalizations {
   /// **'Say Ring user'**
   String get defaultUser;
 
-  /// No description provided for @dailyGreeting.
-  ///
-  /// In en, this message translates to:
-  /// **'Take care of yourself today'**
-  String get dailyGreeting;
-
   /// No description provided for @messages.
   ///
   /// In en, this message translates to:
@@ -2909,14 +2951,8 @@ abstract class AppLocalizations {
   /// No description provided for @aiAssistant.
   ///
   /// In en, this message translates to:
-  /// **'AI wellness assistant'**
+  /// **'Wellness questions'**
   String get aiAssistant;
-
-  /// No description provided for @aiAssistantIntro.
-  ///
-  /// In en, this message translates to:
-  /// **'Ask me a question about your wellbeing.'**
-  String get aiAssistantIntro;
 
   /// No description provided for @askNow.
   ///
@@ -3245,7 +3281,7 @@ abstract class AppLocalizations {
   /// No description provided for @gettingReady.
   ///
   /// In en, this message translates to:
-  /// **'Getting things ready…'**
+  /// **'Loading…'**
   String get gettingReady;
 
   /// No description provided for @enableNotifications.

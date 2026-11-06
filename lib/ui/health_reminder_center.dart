@@ -95,7 +95,7 @@ class _EmergencyHelpPageState extends State<EmergencyHelpPage> {
         Text(
           _copy(
             context,
-            '有严重不适时，请立即寻求急救帮助',
+            '严重不适，立即求助',
             'Seek emergency help for serious symptoms',
           ),
           style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
@@ -143,30 +143,29 @@ class _EmergencyHelpPageState extends State<EmergencyHelpPage> {
         Text(
           _copy(
             context,
-            '如出现胸部不适、明显气短、晕厥等警示症状，请及时联系当地急救服务。不要等待戒指再次测量，也不要因读数正常而延迟求助。',
-            'For warning symptoms such as chest discomfort, severe shortness of breath or fainting, contact local emergency services promptly. Do not wait for another ring reading or delay because a reading looks normal.',
+            '胸部不适、明显气短或晕厥时，立即联系急救。即使读数正常，也不要等待复测。',
+            'Chest discomfort, severe breathlessness or fainting? Call emergency services now, even if the reading is normal. Do not wait to remeasure.',
           ),
         ),
         const SizedBox(height: 12),
         Text(
           _copy(
             context,
-            '其他地区请使用当地急救号码。打开拨号界面不代表已经接通或救援已受理。',
-            'Elsewhere, use the local emergency number. Opening the dialler does not confirm a connected call or accepted rescue request.',
-          ),
-        ),
-        const SizedBox(height: 20),
-        Text(
-          _copy(
-            context,
-            '戒指不能诊断或排除心肌梗死。本页不提供药物或剂量建议。',
-            'The ring cannot diagnose or rule out a heart attack. This page does not provide medication or dosage advice.',
+            '打开拨号后请确认拨出并接通。其他地区请使用当地急救号码。',
+            'Confirm and connect the call in your dialler. Elsewhere, use the local emergency number.',
           ),
         ),
         ExpansionTile(
           tilePadding: EdgeInsets.zero,
           title: Text(_copy(context, '信息来源', 'Sources')),
           children: [
+            Text(
+              _copy(
+                context,
+                '戒指无法诊断或排除心肌梗死。',
+                'The ring cannot diagnose or rule out a heart attack.',
+              ),
+            ),
             _SourceLink(
               label: _copy(
                 context,
@@ -621,13 +620,7 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
             (event) => event.reminder == null,
           ))
             ExpansionTile(
-              title: Text(
-                _copy(
-                  context,
-                  '历史提醒（旧规则）',
-                  'Historical reminders (previous rules)',
-                ),
-              ),
+              title: Text(_copy(context, '历史提醒', 'Past reminders')),
               children: [
                 for (final event in controller.healthWarningAlerts.where(
                   (event) => event.reminder == null,
@@ -635,7 +628,7 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
                   ListTile(
                     title: Text(event.title.replaceAll('健康预警', '健康提醒')),
                     subtitle: Text(
-                      '${_time(event.triggeredAt)}\n${event.message}\n${_copy(context, '历史记录不代表当前异常。', 'A historical record is not a current event.')}',
+                      '${_time(event.triggeredAt)}\n${event.message}',
                     ),
                   ),
               ],
@@ -679,7 +672,7 @@ class _HealthReminderSymptomsPageState
           Text(
             _copy(
               context,
-              '先求助，再记录。保存不是求助的前置条件。',
+              '如需急救，请先求助。',
               'Get help first. Saving a record is not required to seek help.',
             ),
           ),
@@ -711,7 +704,7 @@ class _HealthReminderSymptomsPageState
             Text(
               _copy(
                 context,
-                '登录后可保存本机记录；急症求助无需登录。',
+                '登录可保存记录，急症求助可直接使用。',
                 'Sign in to save records. Urgent help never requires sign-in.',
               ),
             ),
@@ -938,8 +931,8 @@ class _HealthReminderDetailPageState extends State<HealthReminderDetailPage> {
                   Text(
                     _copy(
                       context,
-                      '知晓不代表异常已经消失，发起拨号不代表已经接通或获救。',
-                      'Acknowledgement does not mean recovery. Opening the dialler does not confirm a call or rescue.',
+                      '不适持续时请及时就医。',
+                      'Seek medical care if symptoms persist.',
                     ),
                   ),
                   const SizedBox(height: 16),

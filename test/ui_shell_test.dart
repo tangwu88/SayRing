@@ -83,6 +83,37 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets(
+    'shell hides a diagnostic and preserves the next actionable error',
+    (tester) async {
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      )..isBooting = false;
+      addTearDown(controller.dispose);
+      Widget host() => MaterialApp(
+        theme: buildSaydianTheme(),
+        home: AppShell(controller: controller),
+      );
+      controller.errorMessage = 'HTTP 503: unsafe_fixture_trace';
+      await tester.pumpWidget(host());
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.textContaining('unsafe_fixture_trace'), findsNothing);
+      expect(find.text('操作未完成，请重试'), findsOneWidget);
+      controller.errorMessage = 'AI_PROVIDER_AUTH';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.errorMessage = '请先打开手机蓝牙';
+      });
+      await tester.pumpWidget(host());
+      expect(controller.errorMessage, '请先打开手机蓝牙');
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+      expect(find.text('请先打开手机蓝牙'), findsOneWidget);
+      expect(find.text('AI_PROVIDER_AUTH'), findsNothing);
+    },
+  );
 
   for (final example in <(String, Map<String, Object?>, String)>[
     ('canonical', {'memberNo': '29', 'promo_code': '30'}, '29'),
@@ -1153,7 +1184,6 @@ void main() {
       await tester.tap(find.text('全部数据'));
       await tester.pumpAndSettle();
       expect(find.text('全部健康数据'), findsOneWidget);
-      expect(find.text('健康数据总览'), findsOneWidget);
       expect(find.byKey(const Key('health-sport-entries')), findsNothing);
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -1181,7 +1211,9 @@ void main() {
         tester
             .getSize(find.byKey(const ValueKey('health-metric-heartRate')))
             .height,
-        greaterThanOrEqualTo(184),
+        // 不同记录时区可能使最近一条属于昨日。卡片均需可点击；
+        // 仅有真实今日数据才为曲线留空间，详细形态在首页专项测试中覆盖。
+        greaterThanOrEqualTo(120),
       );
       expect(
         tester
@@ -1648,6 +1680,182 @@ void main() {
     expect(find.text('/10000步'), findsOneWidget);
   });
 
+  for (final model in ['R7Pro', 'HR05', 'R7Ultra']) {
+    testWidgets('$model sleep overview opens before the first sleep packet', (
+      tester,
+    ) async {
+      final store = MemoryHealthStore();
+      await store.initialize();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              store,
+              _NoopWearable(),
+            )
+            ..connectedDevice = DeviceInfo(
+              id: 'coolwear:test',
+              name: 'Test ring',
+              model: model,
+            )
+            ..deviceCapabilityState = DeviceCapabilityState.ready
+            ..capabilities = const DeviceCapabilities(
+              metrics: {HealthMetric.heartRate},
+              historyMetrics: {HealthMetric.heartRate},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(body: DashboardPage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final entry = find.byKey(const Key('home-sleep-overview-entry'));
+      expect(entry, findsOneWidget);
+      expect(
+        find.descendant(of: entry, matching: find.textContaining('暂无睡眠记录')),
+        findsOneWidget,
+      );
+      expect(controller.shouldShowHealthMetric(HealthMetric.sleep), isFalse);
+      expect(
+        controller.capabilities!.supportsHistoryMetric(HealthMetric.sleep),
+        isFalse,
+      );
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(find.text('最近一次睡眠'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('sleep-previous-day')));
+      await tester.pumpAndSettle();
+      expect(find.text('按日期查看'), findsOneWidget);
+      expect(find.text('这一天暂无睡眠记录，你可以选择其他日期查看'), findsOneWidget);
+      expect(find.text('0小时0分'), findsNothing);
+
+      final saved = HealthRecord(
+        id: 'saved-sleep',
+        metric: HealthMetric.sleep,
+        values: const {'value': 6.5},
+        unit: 'h',
+        measuredAt: DateTime.now().subtract(const Duration(days: 2)),
+        timezone: '+08:00',
+        deviceId: 'coolwear:test',
+        firmwareVersion: 'test',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        rawVersion: 1,
+      );
+      await store.upsert([saved]);
+      await tester.tap(find.byKey(const Key('sleep-latest-day')));
+      await tester.pumpAndSettle();
+      expect(find.text('6小时30分'), findsWidgets);
+      expect(
+        controller.capabilities!.supportsHistoryMetric(HealthMetric.sleep),
+        isFalse,
+      );
+    });
+  }
+
+  test(
+    'sleep overview fallback requires a confirmed device and history transport',
+    () {
+      const ring = DeviceInfo(
+        id: 'coolwear:test',
+        name: 'SD-RING-R7 Pro',
+        model: 'R7Pro',
+      );
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..rememberedDevice = ring
+            ..capabilities = const DeviceCapabilities(
+              metrics: {HealthMetric.heartRate},
+            );
+      addTearDown(controller.dispose);
+      expect(controller.canOpenSleepOverview, isFalse);
+      controller.connectedDevice = ring;
+      for (final state in [
+        DeviceCapabilityState.disconnected,
+        DeviceCapabilityState.loading,
+        DeviceCapabilityState.unavailable,
+      ]) {
+        controller.deviceCapabilityState = state;
+        expect(controller.canOpenSleepOverview, isFalse);
+      }
+      controller.deviceCapabilityState = DeviceCapabilityState.ready;
+      for (final device in const [
+        DeviceInfo(id: 'coolwear:test', name: 'SD-RING-R7 Pro'),
+        DeviceInfo(id: 'qring:test', name: 'R7 Pro', model: 'R7Pro'),
+        DeviceInfo(id: 'coolwear:test', name: 'Other', model: 'K80'),
+      ]) {
+        controller.connectedDevice = device;
+        expect(controller.canOpenSleepOverview, isFalse);
+      }
+      controller.connectedDevice = ring;
+      controller.capabilities = const DeviceCapabilities(
+        metrics: {},
+        supportsHistorySync: false,
+      );
+      expect(controller.canOpenSleepOverview, isFalse);
+    },
+  );
+
+  testWidgets('health reminder opens from device and profile only', (
+    tester,
+  ) async {
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..connectedDevice = const DeviceInfo(
+            id: 'coolwear:test',
+            name: 'R7 Pro',
+            model: 'R7Pro',
+          )
+          ..deviceCapabilityState = DeviceCapabilityState.ready
+          ..capabilities = const DeviceCapabilities(
+            metrics: {HealthMetric.heartRate},
+            features: {DeviceFeature.healthReminders},
+            integratedFeatures: {DeviceFeature.healthReminders},
+          );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: ListenableBuilder(
+          listenable: controller,
+          builder: (context, _) => AppShell(controller: controller),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final profileEntry = find.byKey(const Key('health-reminder-entry'));
+    expect(profileEntry, findsNothing);
+    for (final tab in [1, 2]) {
+      controller.selectTab(tab);
+      await tester.pumpAndSettle();
+      final entry = tab == 1
+          ? find.byKey(
+              Key('device-feature-${DeviceFeature.healthReminders.wireName}'),
+            )
+          : profileEntry;
+      await Scrollable.ensureVisible(tester.element(entry), alignment: .5);
+      await tester.pumpAndSettle();
+      await tester.tap(entry.hitTestable());
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('health-reminder-center')), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+    }
+  });
+
   testWidgets('home sleep entry opens real stages and the same dated trend', (
     tester,
   ) async {
@@ -1729,7 +1937,7 @@ void main() {
   });
 
   testWidgets(
-    'empty health notice is centered, opens device search, and keeps legal copy at bottom',
+    'empty health notice opens search and health explanation stays available on demand',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(430, 932));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1780,6 +1988,15 @@ void main() {
             tester.getBottomLeft(legalNotice).dy,
         inInclusiveRange(16, 32),
       );
+
+      const explanation = '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。';
+      expect(find.text(explanation), findsNothing);
+      await tester.tap(legalNotice);
+      await tester.pumpAndSettle();
+      expect(find.text(explanation), findsOneWidget);
+      await tester.tap(find.byKey(const Key('usage-info-close')));
+      await tester.pumpAndSettle();
+      expect(find.text(explanation), findsNothing);
 
       await tester.tap(emptyNotice);
       await tester.pumpAndSettle();
@@ -3382,7 +3599,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(bridge.lastWrite, {'mode': 4});
       expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
-      expect(find.text('手势模式指令已确认'), findsOneWidget);
+      expect(find.text('戒指已收到设置'), findsOneWidget);
     },
   );
 
@@ -3421,7 +3638,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('gesture-mode-4')));
       await tester.pumpAndSettle();
       expect(bridge.lastWrite, {'mode': 4, 'expectedMode': 2});
-      expect(find.text('手势模式已保存并读回确认'), findsOneWidget);
+      expect(find.text('手势模式已保存'), findsOneWidget);
       expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
@@ -3513,7 +3730,7 @@ void main() {
         await tester.tap(aboutFirmware);
         await tester.pumpAndSettle();
         expect(find.byType(DeviceFirmwarePage), findsOneWidget);
-        expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+        expect(find.text('暂不支持在线升级。'), findsOneWidget);
         expect(controller.capabilities!.supportsOta, isFalse);
         await tester.pageBack();
         await tester.pumpAndSettle();
@@ -3665,7 +3882,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DeviceFirmwarePage), findsOneWidget);
     expect(find.text('当前固件：758.2.1.9.0'), findsOneWidget);
-    expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+    expect(find.text('暂不支持在线升级。'), findsOneWidget);
     expect(find.textContaining('已是最新'), findsNothing);
     expect(find.text('立即升级'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -3686,7 +3903,7 @@ void main() {
       MaterialApp(home: DeviceFirmwarePage(controller: controller)),
     );
     await tester.pumpAndSettle();
-    expect(find.text('当前固件：未知'), findsOneWidget);
+    expect(find.text('未读到固件版本'), findsOneWidget);
     await tester.tap(find.byKey(const Key('firmware-refresh-device')));
     await tester.pumpAndSettle();
     expect(find.text('设备信息刷新失败，重试'), findsOneWidget);
@@ -3695,14 +3912,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('设备信息刷新失败，重试'), findsNothing);
     expect(find.text('未连接设备'), findsOneWidget);
-    expect(
-      tester
-          .widget<OutlinedButton>(
-            find.byKey(const Key('firmware-refresh-device')),
-          )
-          .onPressed,
-      isNull,
-    );
+    expect(find.text('连接戒指后可查看最新的固件信息。'), findsOneWidget);
+    expect(find.byKey(const Key('firmware-refresh-device')), findsNothing);
     expect(bridge.reads, 1);
     expect(tester.takeException(), isNull);
   });
@@ -3793,8 +4004,8 @@ void main() {
         expect(
           find.textContaining(
             platform == TargetPlatform.iOS
-                ? '在iPhone“设置 → 蓝牙”检查配对'
-                : '在安卓手机“设置 → 蓝牙”检查配对',
+                ? '到iPhone“设置 → 蓝牙”确认配对'
+                : '到安卓手机“设置 → 蓝牙”确认配对',
           ),
           findsOneWidget,
         );

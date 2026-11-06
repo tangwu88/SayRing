@@ -9,6 +9,12 @@ void main() {
       'HTTP 500 token=private',
       '服务端接口未实现',
       '<html>error</html>',
+      'worker failed; trace_id=sample',
+      '采样任务队列未就绪',
+      'GATT connect timeout',
+      'worker timeout',
+      'APP_REPORT_WORKER_FAILED',
+      '安装包 SHA-256 配置不正确',
       '微信 AppID/Universal Link 未配置',
     ]) {
       expect(userFacingMessage(message, fallback: '暂不可用，请重试'), '暂不可用，请重试');

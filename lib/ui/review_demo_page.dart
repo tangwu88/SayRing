@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../domain/sleep_timeline.dart';
 import 'app_theme.dart';
 import 'sleep_detail_widgets.dart';
+import 'widgets/usage_info_button.dart';
 
 /// Public, account-free review access. All content is synthetic and stays in
 /// memory. Never pass an AppController, repository or wearable bridge here.
@@ -22,7 +23,7 @@ class _ReviewDemoPageState extends State<ReviewDemoPage> {
   Widget build(BuildContext context) => Scaffold(
     key: const Key('review-demo-page'),
     appBar: AppBar(
-      title: const Text('Say Ring · 只读演示'),
+      title: const Text('功能演示'),
       actions: [
         TextButton(
           key: const Key('review-demo-exit'),
@@ -91,7 +92,7 @@ class _DemoNotice extends StatelessWidget {
         SizedBox(width: 8),
         Expanded(
           child: Text(
-            '只读演示 · 所有数值均为虚构示例，非戒指测量',
+            '示例数据 · 非戒指实测',
             style: TextStyle(
               color: SaydianColors.techBlueDark,
               fontWeight: FontWeight.w700,
@@ -115,8 +116,6 @@ class _DemoHealthPage extends StatelessWidget {
     padding: const EdgeInsets.all(16),
     children: [
       Text('健康概览', style: Theme.of(context).textTheme.headlineSmall),
-      const SizedBox(height: 4),
-      const Text('了解佩戴戒指后可查看的健康与睡眠记录。'),
       const SizedBox(height: 16),
       Card(
         child: ListTile(
@@ -134,7 +133,6 @@ class _DemoHealthPage extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               children: [
                 const Text('示例日期：2026年10月1日'),
-                const Text('阶段和时间点可展开查看；真实数据以戒指同步结果为准。'),
                 const SizedBox(height: 8),
                 SleepTimelineCard(
                   timeline: reviewDemoSleepTimeline,
@@ -154,7 +152,6 @@ class _DemoHealthPage extends StatelessWidget {
             key: Key('review-demo-metric-${metric.key}'),
             leading: Icon(metric.icon, color: SaydianColors.techIndigo),
             title: Text(metric.title),
-            subtitle: const Text('示例记录 · 非实时测量'),
             trailing: Text(
               metric.value,
               style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
@@ -166,10 +163,7 @@ class _DemoHealthPage extends StatelessWidget {
           ),
         ),
       const SizedBox(height: 16),
-      const Text(
-        '本应用记录健康趋势，不用于疾病诊断、治疗或紧急情况处理。',
-        style: TextStyle(color: SaydianColors.muted),
-      ),
+      const UsageInfoButton(message: '本应用记录健康趋势，不用于疾病诊断、治疗或紧急情况处理。'),
     ],
   );
 }
@@ -221,8 +215,8 @@ class _DemoMetricDetail extends StatelessWidget {
       const SizedBox(height: 12),
       const ListTile(
         leading: Icon(Icons.info_outline),
-        title: Text('正式使用时如何获取数据'),
-        subtitle: Text('登录后绑定兼容戒指，完成设备握手与同步，才能查看自己的记录。'),
+        title: Text('如何查看自己的记录'),
+        subtitle: Text('登录后连接戒指，点「同步数据」。'),
       ),
     ],
   );
@@ -243,8 +237,8 @@ class _DemoDevicePage extends StatelessWidget {
       const Card(
         child: ListTile(
           leading: Icon(Icons.circle_outlined),
-          title: Text('R21 智能戒指 · 兼容设备示意'),
-          subtitle: Text('未连接；演示模式不申请蓝牙权限，也不搜索或连接设备。'),
+          title: Text('R21 戒指 · 示例'),
+          subtitle: Text('演示不会连接戒指。'),
         ),
       ),
       Card(
@@ -258,27 +252,20 @@ class _DemoDevicePage extends StatelessWidget {
             ListView(
               padding: EdgeInsets.all(20),
               children: [
-                ListTile(
-                  title: Text('1. 登录并允许蓝牙'),
-                  subtitle: Text('真实连接仅在已登录的正式模式中提供。'),
-                ),
+                ListTile(title: Text('1. 登录并允许蓝牙'), subtitle: Text('打开手机蓝牙。')),
                 ListTile(
                   title: Text('2. 选择身边的兼容戒指'),
-                  subtitle: Text('App 必须完成厂商 SDK 握手和能力读取。'),
+                  subtitle: Text('把戒指放在手机旁，点「连接」。'),
                 ),
                 ListTile(
                   title: Text('3. 同步与恢复'),
-                  subtitle: Text('保存绑定后，戒指重新靠近时尝试自动连接；实际结果依赖系统与设备状态。'),
+                  subtitle: Text('连接后可同步数据。再次靠近时会尝试重连。'),
                 ),
-                SizedBox(height: 12),
-                Text('此页面是流程说明，不代表已完成任何真实连接。'),
               ],
             ),
           ),
         ),
       ),
-      const SizedBox(height: 8),
-      const Text('设备设置、测量和同步在只读演示中不可操作。真实流程另附实体戒指录屏供审核。'),
     ],
   );
 }
@@ -298,7 +285,7 @@ class _DemoProfilePage extends StatelessWidget {
         child: ListTile(
           leading: CircleAvatar(child: Icon(Icons.person_outline)),
           title: Text('演示用户'),
-          subtitle: Text('没有真实账号、头像、手机号或健康数据'),
+          subtitle: Text('未登录账号'),
         ),
       ),
       Card(
@@ -306,7 +293,7 @@ class _DemoProfilePage extends StatelessWidget {
           key: const Key('review-demo-profile-guide'),
           leading: const Icon(Icons.manage_accounts_outlined),
           title: const Text('资料与账号管理'),
-          subtitle: const Text('查看昵称、头像和注销功能的位置'),
+          subtitle: const Text('昵称、头像与账号注销'),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => onOpen(
             '资料与账号 · 流程说明',

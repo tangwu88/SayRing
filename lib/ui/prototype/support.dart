@@ -131,9 +131,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
                 ExpansionTile(
                   title: Text('为什么健康数据暂时为空？'),
                   childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  children: [
-                    Text('请确认设备已连接并完成同步。设备不支持的项目不会开放入口；新测量数据同步后才会显示趋势。'),
-                  ],
+                  children: [Text('请先连接戒指并同步数据，再查看相应日期。')],
                 ),
               ],
             ),
@@ -319,28 +317,12 @@ class CustomerServicePage extends StatelessWidget {
                 final validPhone = RegExp(
                   r'^\+?[0-9][0-9 -]{4,20}$',
                 ).hasMatch(phone);
-                final chinese =
-                    Localizations.localeOf(context).languageCode == 'zh';
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (snapshot.hasError ||
-                        !configured ||
-                        (!validPhone && account.isEmpty))
-                      FeatureStateCard(
-                        message: !chinese
-                            ? snapshot.hasError
-                                  ? 'Other contact details could not be loaded. WeChat service above remains available.'
-                                  : 'Other contact details are not configured. WeChat service above remains available.'
-                            : snapshot.hasError
-                            ? '电话及公众号信息加载失败，仍可使用上方微信客服'
-                            : !configured
-                            ? '电话及公众号暂未配置，仍可使用上方微信客服'
-                            : '电话及公众号信息不完整，仍可使用上方微信客服',
-                        detail: context.l10n.supportPrivacyWarning,
-                        icon: Icons.support_agent,
-                      )
-                    else ...[
+                    if (!snapshot.hasError &&
+                        configured &&
+                        (validPhone || account.isNotEmpty)) ...[
                       Card(
                         child: Column(
                           children: [
@@ -402,28 +384,20 @@ class CustomerServicePage extends StatelessWidget {
           Card(
             child: Column(
               children: [
-                ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.phone_outlined),
-                  ),
-                  title: Text(context.l10n.contactPhoneLabel),
-                  subtitle: const Text(_phone),
-                  trailing: FilledButton.tonal(
-                    onPressed: () => _call(context, _phone),
-                    child: Text(context.l10n.call),
-                  ),
+                _configuredContact(
+                  title: context.l10n.contactPhoneLabel,
+                  value: _phone,
+                  icon: Icons.phone_outlined,
+                  actionLabel: context.l10n.call,
+                  onPressed: () => _call(context, _phone),
                 ),
-                const Divider(indent: 72, height: 1),
-                ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.wechat_rounded),
-                  ),
-                  title: Text(context.l10n.wechatOfficialAccount),
-                  subtitle: const Text(_officialAccount),
-                  trailing: FilledButton.tonal(
-                    onPressed: () => _copyAccount(context, _officialAccount),
-                    child: Text(context.l10n.addSupportContact),
-                  ),
+                const Divider(height: 1),
+                _configuredContact(
+                  title: context.l10n.wechatOfficialAccount,
+                  value: _officialAccount,
+                  icon: Icons.wechat_rounded,
+                  actionLabel: context.l10n.addSupportContact,
+                  onPressed: () => _copyAccount(context, _officialAccount),
                 ),
               ],
             ),

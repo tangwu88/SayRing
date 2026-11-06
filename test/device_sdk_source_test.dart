@@ -236,7 +236,7 @@ void main() {
       ).readAsStringSync();
       expect(panel, contains('使用戒指支持的拍照动作'));
       expect(source, contains('打开相机后，按戒指支持的动作控制手机拍照'));
-      expect(source, contains('请按戒指支持的方式双击或晃动拍照，具体操作以戒指型号为准。'));
+      expect(source, contains('按戒指说明双击或晃动，即可拍照。'));
       expect(source, isNot(contains('按戒指拍照键')));
       expect(source, isNot(contains('戒指弹出确认')));
     },

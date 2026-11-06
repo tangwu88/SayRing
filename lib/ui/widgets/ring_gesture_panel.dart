@@ -235,7 +235,7 @@ class RingGesturePanel extends StatelessWidget {
               initialValue: selectedStrength,
               decoration: const InputDecoration(
                 labelText: '手势力度',
-                helperText: '戒指尚未设置力度，请选择后再开启场景',
+                helperText: '先选力度，再选场景',
                 helperMaxLines: 2,
               ),
               hint: const Text('请选择1～10'),
@@ -343,7 +343,7 @@ class RingGesturePanel extends StatelessWidget {
         if (ready && availableModes.length == 1)
           const Padding(
             padding: EdgeInsets.only(top: 12),
-            child: Text('戒指尚未上报可开启的控制模式，目前仅可关闭。'),
+            child: Text('暂时只能关闭手势。'),
           ),
         const SizedBox(height: 12),
         RingGestureGuide(tapControl: tapControl),

@@ -20,6 +20,14 @@ class _UnitSettingsPageState extends State<UnitSettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Semantics(
+            header: true,
+            child: Text(
+              context.l10n.distance,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          const SizedBox(height: 4),
           Card(
             child: RadioGroup<String>(
               groupValue: _distance,
@@ -27,23 +35,29 @@ class _UnitSettingsPageState extends State<UnitSettingsPage> {
                 setState(() => _distance = value!);
                 widget.controller.setUnits(distance: value);
               },
-              child: const Column(
+              child: Column(
                 children: [
                   RadioListTile<String>(
                     value: '公里',
-                    title: Text('公里'),
-                    subtitle: Text('距离使用 km'),
+                    title: Text(context.l10n.unitKmLabel),
                   ),
                   RadioListTile<String>(
                     value: '英里',
-                    title: Text('英里'),
-                    subtitle: Text('距离使用 mi'),
+                    title: Text(context.l10n.unitMilesLabel),
                   ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 12),
+          Semantics(
+            header: true,
+            child: Text(
+              context.l10n.unitsTemperature,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          const SizedBox(height: 4),
           Card(
             child: RadioGroup<String>(
               groupValue: _temperature,
@@ -51,19 +65,19 @@ class _UnitSettingsPageState extends State<UnitSettingsPage> {
                 setState(() => _temperature = value!);
                 widget.controller.setUnits(temperature: value);
               },
-              child: const Column(
+              child: Column(
                 children: [
-                  RadioListTile<String>(value: '摄氏度（℃）', title: Text('摄氏度（℃）')),
-                  RadioListTile<String>(value: '华氏度（℉）', title: Text('华氏度（℉）')),
+                  RadioListTile<String>(
+                    value: '摄氏度（℃）',
+                    title: Text(context.l10n.unitCelsiusLabel),
+                  ),
+                  RadioListTile<String>(
+                    value: '华氏度（℉）',
+                    title: Text(context.l10n.unitFahrenheitLabel),
+                  ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          InlineNotice(
-            message: context.l10n.unitChangesHint,
-            icon: Icons.info_outline_rounded,
-            color: SaydianColors.blue,
           ),
         ],
       ),
@@ -366,7 +380,11 @@ class AccountSettingsPage extends StatelessWidget {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(controller.errorMessage ?? '注销失败，请稍后重试')),
+      SnackBar(
+        content: Text(
+          userFacingMessage(controller.errorMessage, fallback: '注销失败，请稍后重试'),
+        ),
+      ),
     );
   }
 }
@@ -533,7 +551,8 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     setState(() {
       _isLoadingProfile = false;
       if (profile.isEmpty) {
-        _profileLoadError = widget.controller.errorMessage ?? '个人资料读取失败，请稍后重试';
+        _profileLoadError =
+            widget.controller.memberProfileReadError ?? '暂未读取到个人资料，请重新读取';
         return;
       }
       _registeredMobile = _mobileFromProfile(profile);
@@ -1024,7 +1043,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                             ),
                           )
                         : null,
-                    child: const Text('查找设备'),
+                    child: MediaQuery.textScalerOf(context).scale(16) > 22
+                        ? const Icon(Icons.radar_rounded, semanticLabel: '查找设备')
+                        : const Text('查找设备'),
                   ),
                 );
               },
@@ -1281,16 +1302,22 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
           ),
         ],
       ),
-      Text(
-        controller.deviceSettingsStatus,
-        style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
-      ),
+      if (tiles.isNotEmpty)
+        Text(
+          controller.deviceSettingsStatus,
+          style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
+        ),
       const SizedBox(height: 8),
       if (controller.connectedDevice == null)
         FeatureStateCard(
           message: context.l10n.connectWatchToUse,
           detail: context.l10n.monitoringHint,
           icon: Icons.watch_outlined,
+        )
+      else if (tiles.isEmpty && controller.isDeviceSettingsLoading)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(controller.deviceSettingsStatus),
         )
       else if (tiles.isEmpty)
         FeatureStateCard(

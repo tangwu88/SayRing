@@ -46,6 +46,39 @@ void main() {
     expect(week.previousEnd, week.start);
   });
 
+  test(
+    'calendar navigation keeps month ends and never opens a future date',
+    () {
+      final today = DateTime(2026, 11, 6);
+      DateTime shift(
+        DateTime date,
+        int by, [
+        HealthTrendPeriod period = HealthTrendPeriod.month,
+      ]) => HealthTrendRange.shiftAnchor(period, date, by, today: today);
+      expect(shift(DateTime(2024, 3, 31), -1), DateTime(2024, 2, 29));
+      expect(shift(DateTime(2025, 12, 31), 1), DateTime(2026, 1, 31));
+      expect(shift(DateTime(2026, 10, 31), 1), today);
+      expect(shift(DateTime(2026, 10, 31), 1, HealthTrendPeriod.week), today);
+      for (final date in [DateTime(2026, 3, 8), DateTime(2026, 11, 1)]) {
+        final nextDay = DateTime(date.year, date.month, date.day + 1);
+        expect(shift(date, 1, HealthTrendPeriod.day), nextDay);
+        final range = HealthTrendRange.forPeriod(HealthTrendPeriod.day, date);
+        expect(range.end, nextDay);
+        expect(
+          range.previousStart,
+          DateTime(date.year, date.month, date.day - 1),
+        );
+        final week = HealthTrendRange.forPeriod(HealthTrendPeriod.week, date);
+        expect(week.start.weekday, DateTime.monday);
+        expect(week.start.hour, 0);
+        expect(
+          week.end,
+          DateTime(week.start.year, week.start.month, week.start.day + 7),
+        );
+      }
+    },
+  );
+
   HealthRecord record({
     required String id,
     required HealthMetric metric,

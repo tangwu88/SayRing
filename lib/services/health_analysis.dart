@@ -27,6 +27,27 @@ class HealthTrendRange {
   final DateTime previousStart;
   final DateTime previousEnd;
 
+  // 以日历日而非固定 24 小时移动，跨夏令时仍停在本地零点。
+  static DateTime shiftAnchor(
+    HealthTrendPeriod period,
+    DateTime day,
+    int direction, {
+    required DateTime today,
+  }) {
+    final y = day.year, m = day.month, d = day.day;
+    final shifted = switch (period) {
+      HealthTrendPeriod.day => DateTime(y, m, d + direction),
+      HealthTrendPeriod.week => DateTime(y, m, d + 7 * direction),
+      HealthTrendPeriod.month => DateTime(
+        y,
+        m + direction,
+        math.min(d, DateTime(y, m + direction + 1, 0).day),
+      ),
+    };
+    final limit = DateTime(today.year, today.month, today.day);
+    return shifted.isAfter(limit) ? limit : shifted;
+  }
+
   static HealthTrendRange forPeriod(HealthTrendPeriod period, DateTime anchor) {
     final local = DateTime(anchor.year, anchor.month, anchor.day);
     final DateTime start;
@@ -34,24 +55,31 @@ class HealthTrendRange {
     switch (period) {
       case HealthTrendPeriod.day:
         start = local;
-        end = local.add(const Duration(days: 1));
+        end = DateTime(local.year, local.month, local.day + 1);
         break;
       case HealthTrendPeriod.week:
-        start = local.subtract(Duration(days: local.weekday - 1));
-        end = start.add(const Duration(days: 7));
+        start = DateTime(
+          local.year,
+          local.month,
+          local.day - local.weekday + 1,
+        );
+        end = DateTime(start.year, start.month, start.day + 7);
         break;
       case HealthTrendPeriod.month:
         start = DateTime(local.year, local.month);
         end = DateTime(local.year, local.month + 1);
         break;
     }
-    final span = end.difference(start);
     return HealthTrendRange(
       start: start,
       end: end,
       previousStart: period == HealthTrendPeriod.month
           ? DateTime(start.year, start.month - 1)
-          : start.subtract(span),
+          : DateTime(
+              start.year,
+              start.month,
+              start.day - (period == HealthTrendPeriod.day ? 1 : 7),
+            ),
       previousEnd: start,
     );
   }

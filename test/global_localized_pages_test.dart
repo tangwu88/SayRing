@@ -434,21 +434,19 @@ void main() {
         find.text(
           'Other contact details are not configured. WeChat service above remains available.',
         ),
-        findsOneWidget,
+        findsNothing,
       );
       expect(tester.takeException(), isNull);
     },
   );
 
-  testWidgets('Chinese support explains that no contact is configured', (
-    tester,
-  ) async {
+  testWidgets('Chinese support offers available contacts only', (tester) async {
     await _pump(
       tester,
       const CustomerServicePage(isGlobalEdition: true),
       locale: const Locale('zh'),
     );
-    expect(find.text('电话及公众号暂未配置，仍可使用上方微信客服'), findsOneWidget);
+    expect(find.textContaining('暂未配置'), findsNothing);
     expect(
       find.byKey(const Key('say-ring-open-wechat-service')),
       findsOneWidget,

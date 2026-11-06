@@ -11,7 +11,7 @@ void main() {
       MaterialApp(home: ReviewDemoPage(onExit: () => exited = true)),
     );
     expect(find.byKey(const Key('review-demo-disclaimer')), findsOneWidget);
-    expect(find.textContaining('虚构示例'), findsOneWidget);
+    expect(find.text('示例数据 · 非戒指实测'), findsOneWidget);
     expect(find.byKey(const Key('review-demo-health')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('review-demo-sleep')));
@@ -39,10 +39,11 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: ReviewDemoPage(onExit: () {})));
       await tester.tap(find.text('设备').last);
       await tester.pumpAndSettle();
-      expect(find.textContaining('演示模式不申请蓝牙权限'), findsOneWidget);
+      expect(find.text('演示不会连接戒指。'), findsOneWidget);
       await tester.tap(find.byKey(const Key('review-demo-device-guide')));
       await tester.pumpAndSettle();
-      expect(find.textContaining('不代表已完成任何真实连接'), findsOneWidget);
+      expect(find.text('把戒指放在手机旁，点「连接」。'), findsOneWidget);
+      expect(find.textContaining('SDK'), findsNothing);
       await tester.pageBack();
       await tester.pumpAndSettle();
 

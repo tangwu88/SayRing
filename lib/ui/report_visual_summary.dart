@@ -46,7 +46,7 @@ class ReportVisualSummary extends StatelessWidget {
                       Semantics(
                         label: value == null
                             ? '证据不足，未评分'
-                            : 'AI 睡眠参考评分 $value / 100',
+                            : '睡眠参考评分 $value / 100',
                         child: SizedBox.square(
                           dimension: 160,
                           child: Stack(
@@ -91,17 +91,14 @@ class ReportVisualSummary extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'AI 睡眠参考评分',
+                            '睡眠参考评分',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 16,
                             ),
                           ),
                           SizedBox(height: 5),
-                          Text(
-                            'AI 参考 · 非设备评分 · 非临床评估',
-                            style: TextStyle(fontSize: 12),
-                          ),
+                          Text('AI 估算，非设备评分', style: TextStyle(fontSize: 12)),
                         ],
                       ),
                     ],
@@ -166,7 +163,7 @@ class ReportVisualSummary extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.only(bottom: 12),
             child: Text(
-              '图中为每日样本均值，缺失日期不补零。步数、距离和热量的样本均值不代表全天累计。',
+              '图中为每日样本均值；活动数据并非全天累计。',
               style: TextStyle(fontSize: 12, height: 1.6),
             ),
           ),

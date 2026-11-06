@@ -86,7 +86,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('正在为你准备…'), findsOneWidget);
+      expect(find.text('正在加载…'), findsOneWidget);
       expect(controller.pendingNotificationRoute, isNotNull);
 
       requiredRead.complete(_requiredInfo());

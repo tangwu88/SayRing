@@ -14,6 +14,7 @@ import '../services/app_controller.dart';
 import '../services/app_payment_bridge.dart';
 import 'app_theme.dart';
 import 'ai_content_gate.dart';
+import 'widgets/usage_info_button.dart';
 
 class HealthProfilePage extends StatefulWidget {
   const HealthProfilePage({required this.controller, super.key});
@@ -210,12 +211,10 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                 if (global)
                   SelectableText(reviewedText!)
                 else ...[
-                  const Text(
-                    '为了生成详细报告，我们会分析你近30天的有效健康数据。分析结果仅用于日常健康管理参考，不用于诊断或治疗。',
-                  ),
+                  const Text('分析近 30 天的健康汇总，生成日常参考报告。'),
                   const SizedBox(height: 12),
                   const Text(
-                    '系统只向分析服务提供去除姓名、手机号和设备地址后的汇总信息。你可以随时在本页撤回授权。',
+                    '分析服务会接收去除姓名、手机号及设备地址的汇总。可在本页撤回授权。',
                     style: TextStyle(fontSize: 13, color: SaydianColors.muted),
                   ),
                 ],
@@ -765,10 +764,6 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
               key: const Key('health-report-detail'),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               children: [
-                _AiLabel(
-                  text: '${content['aiLabel'] ?? widget.report.aiLabel}',
-                ),
-                const SizedBox(height: 12),
                 ReportVisualSummary(visuals: _map(_payload?['visuals'])),
                 _DetailSection(
                   title: '报告概览',
@@ -1391,67 +1386,14 @@ class _BulletList extends StatelessWidget {
   );
 }
 
-class _AiLabel extends StatelessWidget {
-  const _AiLabel({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Align(
-    alignment: Alignment.centerLeft,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-      decoration: BoxDecoration(
-        color: SaydianColors.techBlueSoft,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.auto_awesome_rounded, size: 17),
-          const SizedBox(width: 6),
-          Text(
-            text.trim().isEmpty ? 'AI生成的健康管理参考' : text,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
 class _SafetyNotice extends StatelessWidget {
-  const _SafetyNotice({
-    this.message = '健康数据和AI分析仅供日常健康管理参考，不用于诊断或治疗；如有明显不适，请及时就医。',
-  });
+  const _SafetyNotice({this.message = '报告供日常参考，不用于诊断或治疗。如有明显不适，请及时就医。'});
 
   final String message;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: const Color(0xFFFFF4E5),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0xFFFFD7A0)),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Icon(
-          Icons.health_and_safety_outlined,
-          color: SaydianColors.warning,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            message,
-            style: const TextStyle(fontSize: 14, height: 1.5),
-          ),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) =>
+      UsageInfoButton(title: '报告说明', message: '报告由 AI 根据健康汇总生成。\n$message');
 }
 
 class _EmptyReports extends StatelessWidget {

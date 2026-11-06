@@ -239,10 +239,11 @@ void main() {
         ..report = _report(
           'queued',
           attempts: 2,
-          progress: '上次分析未完成，正在等待自动重试。',
+          progress: 'worker retry; trace_id=fixture',
         );
       await _pump(tester, c);
-      expect(find.text('上次分析未完成，正在等待自动重试。'), findsOneWidget);
+      expect(find.text('等待自动重试'), findsOneWidget);
+      expect(find.textContaining('trace_id'), findsNothing);
       expect(find.byKey(const Key('sleep-ai-generate')), findsNothing);
       c.report = _report('ready', score: 78);
       await tester.pump(const Duration(seconds: 5));
@@ -319,7 +320,7 @@ void main() {
       await tester.pump();
     }
     expect(c.reads, 3);
-    expect(find.textContaining('自动刷新已暂停'), findsOneWidget);
+    expect(find.textContaining('点右上角刷新'), findsOneWidget);
     expect(find.text('完成后自动刷新'), findsNothing);
     expect(find.byKey(const Key('sleep-ai-generate')), findsNothing);
     await tester.pump(const Duration(seconds: 30));
@@ -348,7 +349,7 @@ void main() {
       await tester.pump(const Duration(seconds: 5));
       await tester.pump();
     }
-    expect(find.text('报告读取失败，点击刷新状态'), findsOneWidget);
+    expect(find.text('报告未加载，点此重试'), findsOneWidget);
     expect(c.reads, 3);
     await tester.pump(const Duration(seconds: 30));
     expect(c.reads, 3);
@@ -365,14 +366,14 @@ void main() {
       await tester.pump(const Duration(seconds: 5));
       await tester.pump();
     }
-    expect(find.textContaining('自动刷新已暂停'), findsOneWidget);
+    expect(find.textContaining('点右上角刷新'), findsOneWidget);
     final reads = c.reads;
     await tester.pump(const Duration(seconds: 30));
     expect(c.reads, reads);
     await tester.tap(find.byKey(const Key('sleep-ai-refresh')));
     await tester.pump();
     expect(c.reads, reads + 1);
-    expect(find.textContaining('自动刷新已暂停'), findsNothing);
+    expect(find.textContaining('点右上角刷新'), findsNothing);
     expect(c.uploads + c.grants + c.retries, 0);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -456,7 +457,8 @@ void main() {
           progress: 'AI 分析超时，自动尝试已结束；可稍后手动重试。',
         );
       await _pump(tester, c);
-      expect(find.text('AI 分析超时，自动尝试已结束；可稍后手动重试。'), findsOneWidget);
+      expect(find.text('报告未生成，请重试'), findsOneWidget);
+      expect(find.textContaining('自动尝试已结束'), findsNothing);
       expect(find.text('重试睡眠分析'), findsOneWidget);
       expect(find.textContaining('/ 100'), findsNothing);
       final reads = c.reads;
@@ -474,7 +476,8 @@ void main() {
     await _pump(tester, c);
     await tester.tap(find.byKey(const Key('sleep-ai-generate')));
     await tester.pumpAndSettle();
-    expect(find.text(c.unavailableReason!), findsOneWidget);
+    expect(find.text('分析说明暂不可用，请稍后重试'), findsOneWidget);
+    expect(find.text(c.unavailableReason!), findsNothing);
     expect(c.grants, 0);
     expect(c.uploads, 0);
     expect(find.byKey(const Key('sleep-ai-upload-consent')), findsNothing);

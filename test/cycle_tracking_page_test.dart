@@ -14,7 +14,7 @@ void main() {
       expect(find.text('记录周期，提前准备'), findsOneWidget);
       await t.tap(find.byKey(const Key('cycle-enable')));
       await t.pumpAndSettle();
-      expect(find.textContaining('随当前账号自动同步'), findsOneWidget);
+      expect(find.textContaining('自动同步到当前账号的赛电云端'), findsOneWidget);
       expect(c.cycles.settings.enabled, false);
       await t.tap(find.text('保存'));
       await t.pumpAndSettle();
@@ -49,7 +49,7 @@ void main() {
         });
         await t.pumpAndSettle();
         expect(find.byKey(const Key('cycle-record-start')), findsOneWidget);
-        expect(find.text('从第一次经期开始日期记起。'), findsOneWidget);
+        expect(find.text('先记下经期开始日。'), findsOneWidget);
         expect(find.text('已结合戒指数据'), findsNothing);
         expect(find.text('已排卵'), findsNothing);
         expect(t.takeException(), isNull);

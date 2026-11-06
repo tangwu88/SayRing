@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import '../services/user_message.dart';
 import 'package:flutter/material.dart';
 import 'health_reminder_center.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'brand_assets.dart';
+import 'widgets/adaptive_action_pair.dart';
 import 'global_legal_page.dart';
 import 'global_auth_page.dart';
 
@@ -610,49 +612,45 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
-                Row(
+                AdaptiveChoiceRow(
                   key: const Key('code-login-consents-row'),
                   children: [
-                    Expanded(
-                      child: CheckboxListTile(
-                        key: const Key('code-login-minimum-age'),
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        visualDensity: VisualDensity.compact,
-                        value: _ageConfirmed,
-                        onChanged: _busy
-                            ? null
-                            : (value) =>
-                                  setState(() => _ageConfirmed = value == true),
-                        title: Text(
-                          Localizations.localeOf(context).languageCode == 'zh'
-                              ? '我确认已满14周岁'
-                              : 'I confirm that I am at least 14 years old.',
-                          style: const TextStyle(fontSize: 12, height: 1.4),
-                        ),
+                    CheckboxListTile(
+                      key: const Key('code-login-minimum-age'),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      visualDensity: VisualDensity.compact,
+                      value: _ageConfirmed,
+                      onChanged: _busy
+                          ? null
+                          : (value) =>
+                                setState(() => _ageConfirmed = value == true),
+                      title: Text(
+                        Localizations.localeOf(context).languageCode == 'zh'
+                            ? '我确认已满14周岁'
+                            : 'I confirm that I am at least 14 years old.',
+                        style: const TextStyle(fontSize: 12, height: 1.4),
                       ),
                     ),
-                    Expanded(
-                      child: CheckboxListTile(
-                        key: const Key('code-login-consent'),
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        visualDensity: VisualDensity.compact,
-                        value: _accepted,
-                        onChanged:
-                            _busy ||
-                                (!widget.controller.supportsLocalOnlyUse &&
-                                    !(_capabilities?.consentVersion
-                                            ?.trim()
-                                            .isNotEmpty ??
-                                        false))
-                            ? null
-                            : (value) =>
-                                  setState(() => _accepted = value == true),
-                        title: Text(
-                          l.agreeToTerms,
-                          style: const TextStyle(fontSize: 12, height: 1.4),
-                        ),
+                    CheckboxListTile(
+                      key: const Key('code-login-consent'),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      visualDensity: VisualDensity.compact,
+                      value: _accepted,
+                      onChanged:
+                          _busy ||
+                              (!widget.controller.supportsLocalOnlyUse &&
+                                  !(_capabilities?.consentVersion
+                                          ?.trim()
+                                          .isNotEmpty ??
+                                      false))
+                          ? null
+                          : (value) =>
+                                setState(() => _accepted = value == true),
+                      title: Text(
+                        l.agreeToTerms,
+                        style: const TextStyle(fontSize: 12, height: 1.4),
                       ),
                     ),
                   ],
@@ -714,12 +712,12 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     key: const Key('review-demo-entry'),
                     onPressed: _busy ? null : widget.controller.enterPreview,
                     icon: const Icon(Icons.visibility_outlined),
-                    label: const Text('无需手机号，查看只读演示'),
+                    label: const Text('免登录看演示'),
                   ),
                   const Padding(
                     padding: EdgeInsets.only(top: 6),
                     child: Text(
-                      '演示内容均为本机示例数据，不会连接戒指或保存资料。',
+                      '仅含示例，不连接戒指或保存资料。',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 12),
                     ),
@@ -822,7 +820,14 @@ class _GlobalWechatPhoneBindingPageState
         }
       });
     } on ApiException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) {
+        setState(
+          () => _error = userFacingMessage(
+            error.message,
+            fallback: l.serviceUnavailable,
+          ),
+        );
+      }
     } catch (_) {
       if (mounted) setState(() => _error = l.serviceUnavailable);
     } finally {

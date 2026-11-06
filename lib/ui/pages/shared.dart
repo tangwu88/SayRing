@@ -10,15 +10,11 @@ class _InfoPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 15, height: 1.7),
-          ),
-        ),
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Text(message, style: const TextStyle(fontSize: 15, height: 1.7)),
+        ],
       ),
     );
   }
