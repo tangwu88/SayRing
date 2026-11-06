@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../domain/health_reminder.dart';
 import '../domain/models.dart';
@@ -1525,49 +1524,6 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
                   fontSize: 13,
                   height: 1.5,
                 ),
-              ),
-              Wrap(
-                children: [
-                  for (final source in [
-                    if (heartRate)
-                      (
-                        '心率参考',
-                        'Heart rate',
-                        'https://support.apple.com/zh-cn/120276',
-                      ),
-                    if (oxygen)
-                      (
-                        '血氧使用说明',
-                        'Oxygen',
-                        'https://mpa.jl.gov.cn/gzfw/kpzs/ypaqzs/twzs2/202301/t20230114_8660579.html',
-                      ),
-                    if (oxygen)
-                      (
-                        '测量局限',
-                        'Limitations',
-                        'https://www.fda.gov/consumers/consumer-updates/maiboxueyangjiheyangnongsuoqiguanyujiatingyangliaoguanjianxinxi',
-                      ),
-                    if (hrv)
-                      (
-                        'HRV说明（Oura）',
-                        'About HRV',
-                        'https://support.ouraring.com/hc/zh-cn/articles/360025441974',
-                      ),
-                  ])
-                    TextButton(
-                      onPressed: () async {
-                        try {
-                          await launchUrl(
-                            Uri.parse(source.$3),
-                            mode: LaunchMode.externalApplication,
-                          );
-                        } catch (_) {
-                          /* Keep local settings usable offline. */
-                        }
-                      },
-                      child: Text(_copy(context, source.$1, source.$2)),
-                    ),
-                ],
               ),
             ],
           ),

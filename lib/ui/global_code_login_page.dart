@@ -581,6 +581,13 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     enabled: !_busy,
                     keyboardType: TextInputType.number,
                     autofillHints: const [AutofillHints.oneTimeCode],
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(
+                        6,
+                        maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                      ),
+                    ],
                     decoration: InputDecoration(labelText: l.verificationCode),
                   ),
                   Align(
@@ -923,6 +930,13 @@ class _GlobalWechatPhoneBindingPageState
                 enabled: !_busy,
                 keyboardType: TextInputType.number,
                 autofillHints: const [AutofillHints.oneTimeCode],
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(
+                    6,
+                    maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  ),
+                ],
                 decoration: InputDecoration(labelText: l.verificationCode),
               ),
               Align(

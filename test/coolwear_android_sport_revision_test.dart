@@ -149,23 +149,33 @@ void main() {
     },
   );
 
-  test('late overlapping read cannot roll back a newer completion', () async {
-    final store = MemoryHealthStore(), bridge = _Ring();
-    final app = _controller(store, bridge);
-    final started = Completer<void>(), old = Completer<List<SportRecord>>();
-    bridge.read = () {
-      started.complete();
-      return old.future;
-    };
-    final first = app.refreshSportRecords();
-    await started.future;
-    bridge.read = () async => [workout(140, 99)];
-    await app.refreshSportRecords();
-    old.complete([workout(120, 90)]);
-    await first;
-    expect(app.sportRecords.single.steps, 99);
-    expect((await store.localSportRecords()).single.durationSeconds, 140);
-  });
+  test(
+    'overlapping reads coalesce and late counters cannot roll back history',
+    () async {
+      final store = MemoryHealthStore(), bridge = _Ring();
+      final app = _controller(store, bridge);
+      final started = Completer<void>(), old = Completer<List<SportRecord>>();
+      var reads = 0;
+      bridge.read = () {
+        reads++;
+        started.complete();
+        return old.future;
+      };
+      final first = app.refreshSportRecords();
+      await started.future;
+      final overlapping = app.refreshSportRecords();
+      await Future<void>.delayed(Duration.zero);
+      expect(reads, 1);
+      old.complete([workout(120, 90)]);
+      await Future.wait([first, overlapping]);
+      bridge.read = () async => [workout(140, 99)];
+      await app.refreshSportRecords();
+      bridge.read = () async => [workout(120, 90)];
+      await app.refreshSportRecords();
+      expect(app.sportRecords.single.steps, 99);
+      expect((await store.localSportRecords()).single.durationSeconds, 140);
+    },
+  );
 
   test(
     'iOS keeps its previous duplicate policy for the same identifier',

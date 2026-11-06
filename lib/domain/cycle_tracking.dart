@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:math' as math;
 import 'models.dart';
 
@@ -191,6 +190,25 @@ const cycleSymptomLabels = {
   'headache': '头痛',
   'lower_back_ache': '腰酸',
   'bloating': '腹胀',
+};
+
+const cycleFeelingLabels = {
+  'flow': '经量',
+  'pain': '疼痛',
+  'mood': '心情',
+  'fatigue': '疲劳',
+};
+const cycleFeelingChoices = {
+  'flow': {'none': '无', 'light': '少', 'medium': '中等', 'heavy': '多'},
+  'pain': {'none': '无', 'mild': '轻微', 'moderate': '中等', 'severe': '明显'},
+  'mood': {'calm': '平稳', 'low': '低落', 'irritable': '烦躁'},
+  'fatigue': {'none': '无', 'mild': '轻微', 'strong': '明显'},
+};
+const cycleTagLabels = {
+  'travel': '旅行',
+  'unwell': '身体不适',
+  'medication': '用药',
+  'late_sleep': '晚睡',
 };
 
 /// 只对日历日做加减，不把本地午夜当作跨夏令时的 24 小时间隔。
@@ -510,5 +528,39 @@ List<String> cycleExplanation(CyclePrediction p, int nights) => [
 ];
 String cycleCsv(Iterable<CycleEntry> entries) {
   String cell(Object? v) => '"${'$v'.replaceAll('"', '""')}"';
-  return '\uFEFF类型,开始或日期,结束,记录\r\n${entries.where((e) => !e.deleted).map((e) => [e.kind, e.start, e.end ?? '', jsonEncode(e.data)].map(cell).join(',')).join('\r\n')}';
+  String description(CycleEntry e) {
+    if (e.kind == 'period') {
+      return '经期开始：${e.start}；经期结束：${e.end ?? '未填写'}';
+    }
+    final parts = <String>[
+      for (final field in cycleFeelingLabels.entries)
+        if (e.data.containsKey(field.key))
+          '${field.value}：${cycleFeelingChoices[field.key]?[e.data[field.key]] ?? '未识别的选项'}',
+      for (final group in [
+        ('symptoms', '身体感受', cycleSymptomLabels),
+        ('tags', '生活标记', cycleTagLabels),
+      ])
+        if (e.data[group.$1] case final List values)
+          '${group.$2}：${values.isEmpty ? '无' : values.map((v) => group.$3[v] ?? '未识别的选项').join('、')}',
+      if (e.data.keys.any(
+        (k) => !const {
+          'date',
+          'flow',
+          'pain',
+          'mood',
+          'fatigue',
+          'symptoms',
+          'tags',
+        }.contains(k),
+      ))
+        '其他记录：暂无法解读',
+    ];
+    return parts.isEmpty ? '仅记录日期' : parts.join('；');
+  }
+
+  return '\uFEFF类型,开始或日期,结束,记录\r\n${entries.where((e) => !e.deleted).map((e) => [switch (e.kind) {
+    'period' => '经期',
+    'daily' => '每日记录',
+    _ => '其他记录',
+  }, e.start, e.end ?? '', description(e)].map(cell).join(',')).join('\r\n')}';
 }

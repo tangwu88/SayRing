@@ -51,7 +51,10 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
     super.initState();
     _wasDeviceSyncing = widget.controller.isDeviceSyncing;
     widget.controller.addListener(_onDeviceSyncChanged);
-    unawaited(_refreshActivity());
+    // Opening the page must not start a new device history transfer immediately
+    // before the user starts a workout. Reconnect sync remains automatic;
+    // pulling to refresh remains an explicit device read.
+    unawaited(_refreshActivity(synchronize: false));
   }
 
   @override
@@ -66,13 +69,15 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
     _wasDeviceSyncing = syncing;
   }
 
-  Future<void> _refreshActivity() async {
+  Future<void> _refreshActivity({bool synchronize = true}) async {
     // Show already saved activity immediately. HR05 history can wait for a
     // vendor completion event that some firmware never sends.
     await _loadActivity();
     try {
-      if (widget.controller.connectedDevice != null &&
-          !widget.controller.isDeviceSyncing) {
+      if (synchronize &&
+          widget.controller.connectedDevice != null &&
+          !widget.controller.isDeviceSyncing &&
+          widget.controller.activeSport == null) {
         await widget.controller.syncDeviceData();
       }
       await widget.controller.refreshSportRecords(includeDevice: false);
@@ -602,6 +607,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
   @override
   void dispose() {
     widget.controller.removeListener(_handleControllerChange);
+    widget.controller.cancelPendingSportStart(widget.mode);
     _timer?.cancel();
     unawaited(_positionSubscription?.cancel());
     super.dispose();
@@ -988,6 +994,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
                     key: const Key('sport-session-toggle'),
                     onPressed:
                         widget.controller.connectedDevice == null ||
+                            widget.controller.isSportStarting ||
                             anotherSportActive ||
                             _finalizingSport
                         ? null
@@ -1007,6 +1014,8 @@ class _SportSessionPageState extends State<SportSessionPage> {
                     label: Text(
                       _finalizingSport
                           ? context.l10n.saving
+                          : widget.controller.isSportStarting
+                          ? context.l10n.loading
                           : anotherSportActive
                           ? context.l10n.finishOtherWorkout(
                               context.l10n.sportModeName(

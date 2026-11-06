@@ -3,10 +3,28 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/wearable_sync_result.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
+  test(
+    'routing preserves unknown RRI protocol evidence after scoping records',
+    () async {
+      final fixture = await _connectedCoolWearFixture();
+      addTearDown(fixture.bridge.dispose);
+      fixture.coolwear.history = WearableSyncResult(
+        [],
+        {'heart_rate': 'no_data'},
+        protocolChecks: {'hrv'},
+      );
+      final result =
+          await fixture.bridge.syncHealthData() as WearableSyncResult;
+      expect(result.confirmedRanges, isTrue);
+      expect(result.complete, isFalse);
+      expect(result.protocolChecks, {'hrv'});
+    },
+  );
   test(
     'fresh native snapshot confirms binding without waiting for optional reads',
     () async {
@@ -1444,6 +1462,9 @@ class _FakeWearableBridge extends Fake
   int stopScanCalls = 0;
   int disconnectCalls = 0;
   int restoreCalls = 0;
+  List<HealthRecord> history = const [];
+  @override
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async => history;
 
   @override
   Stream<WearableEvent> get events => _events.stream;

@@ -185,7 +185,7 @@ void main() {
         await _pumpSearch(tester, controller, settle: false);
         await tester.pump();
         expect(wearable.lookups, 1);
-        expect(wearable.scans, 0);
+        expect(wearable.scans, 1);
 
         // 用真实控制器连接推进代次，不能直接赋值伪造 ready 状态。
         // 添加页旧缓存查询仍在等待；后台恢复或另一路连接已经成功。
@@ -213,7 +213,7 @@ void main() {
         expect(controller.deviceCapabilityState, DeviceCapabilityState.ready);
         expect(controller.deviceState, DeviceConnectionState.ready);
         expect(controller.errorMessage, isNull);
-        expect(wearable.scans, 0);
+        expect(wearable.scans, 1);
         expect(tester.takeException(), isNull);
       },
     );
@@ -466,7 +466,7 @@ void main() {
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final hasCachedDevice in [false, true]) {
       testWidgets(
-        '$platform searches remembered or system devices before scanning; cached=$hasCachedDevice',
+        '$platform refreshes nearby devices even with cached choices; cached=$hasCachedDevice',
         (tester) async {
           environment.sdk = 31;
           final wearable = _CachedScanWearable(
@@ -477,17 +477,14 @@ void main() {
           await _pumpSearch(tester, controller);
 
           expect(wearable.lookups, 1);
-          expect(wearable.scans, hasCachedDevice ? 0 : 1);
+          expect(wearable.scans, 1);
           expect(controller.connectedDevice, isNull);
           expect(wearable.connects, 0);
-          expect(
-            find.text(
-              hasCachedDevice
-                  ? _CachedScanWearable.ring.name
-                  : _ScanWearable.watch.name,
-            ),
-            findsOneWidget,
-          );
+          expect(find.text(_ScanWearable.watch.name), findsOneWidget);
+          if (hasCachedDevice) {
+            expect(find.text(_CachedScanWearable.ring.name), findsOneWidget);
+          }
+          expect(controller.errorMessage, isNull);
           expect(tester.takeException(), isNull);
         },
         variant: TargetPlatformVariant.only(platform),
@@ -508,7 +505,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(wearable.connectedIds, [_CachedScanWearable.ring.id]);
-        expect(wearable.scans, 1);
+        expect(wearable.scans, 2);
         expect(controller.connectedDevice, isNull);
         expect(controller.scannedDevices, [_ScanWearable.watch]);
         expect(find.text(_ScanWearable.watch.name), findsOneWidget);
@@ -517,6 +514,26 @@ void main() {
       variant: TargetPlatformVariant.only(platform),
     );
   }
+
+  testWidgets('reopening search refreshes a previous cached device list', (
+    tester,
+  ) async {
+    environment.sdk = 31;
+    final wearable = _CachedScanWearable(cached: [_CachedScanWearable.ring]);
+    final controller = _controller(wearable);
+    addTearDown(controller.dispose);
+    await _pumpSearch(tester, controller);
+    expect(wearable.scans, 1);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pumpAndSettle();
+    await _pumpSearch(tester, controller);
+    expect(wearable.scans, 2);
+    expect(wearable.lookups, 2);
+    expect(find.text(_ScanWearable.watch.name), findsOneWidget);
+    expect(find.text(_CachedScanWearable.ring.name), findsOneWidget);
+    expect(wearable.connects, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final hasResults in [false, true]) {

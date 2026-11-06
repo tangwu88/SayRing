@@ -1065,26 +1065,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   Future<void> _findCachedOrScan() async {
     if (!mounted || !widget.controller.canSearchForDevice) return;
-    if (!widget.controller.supportsBondedDeviceSelection) {
-      await _startScan();
-      return;
-    }
-    if (_bondedLookupInFlight || _scanInFlight) return;
-    setState(() => _bondedLookupInFlight = true);
-    try {
-      final session = widget.controller.session;
-      widget.controller.clearError();
-      final count = await widget.controller.listBondedDevicesForSelection();
-      // 返回 0 也可能表示旧查询已被连接或换账号淘汰，并不代表当前没有设备。
-      if (mounted &&
-          count == 0 &&
-          identical(session, widget.controller.session) &&
-          widget.controller.canSearchForDevice &&
-          ModalRoute.of(context)?.isCurrent == true) {
-        await _startScan();
-      }
-    } finally {
-      if (mounted) setState(() => _bondedLookupInFlight = false);
+    final session = widget.controller.session;
+    // Always discover nearby devices first. A system-cached choice may be
+    // offline and must not suppress a fresh search when opening this page.
+    await _startScan();
+    if (mounted &&
+        identical(session, widget.controller.session) &&
+        widget.controller.canSearchForDevice &&
+        widget.controller.deviceState != DeviceConnectionState.error &&
+        widget.controller.deviceScanIssue == null &&
+        widget.controller.supportsBondedDeviceSelection &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      await _findBondedDevices();
     }
   }
 

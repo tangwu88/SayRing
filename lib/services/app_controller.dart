@@ -1377,6 +1377,11 @@ class AppController extends ChangeNotifier {
       DeviceCapabilityState.disconnected;
   SportMode? activeSport;
   SportMode? _startingSport;
+  int _sportStartGeneration = 0;
+  bool _sportStartDispatched = false;
+  bool get isSportStarting => _startingSport != null;
+  Completer<void>? _deviceSyncIdle;
+  (int, String?, Future<void>)? _sportHistoryRefresh;
   bool sportPaused = false;
   Map<String, num> liveSportData = const {};
   List<DeviceInfo> scannedDevices = const [];
@@ -1387,6 +1392,7 @@ class AppController extends ChangeNotifier {
           defaultTargetPlatform == TargetPlatform.iOS) &&
       _wearable is WearableBondedDeviceSelectionBridge;
   List<HealthRecord> healthRecords = const [];
+  int _healthCacheReadRevision = 0;
   final Map<String, Map<String, String>> _sleepStatusesByDevice = {};
   final Set<Future<void>> _pendingSleepWrites = {};
   bool _sleepReadFailedDuringSync = false;
@@ -2804,7 +2810,7 @@ class AppController extends ChangeNotifier {
         _upsertScannedDevice(device);
       }
       sdkStatus = '设备连接服务可用';
-      if (bonded.isEmpty) {
+      if (bonded.isEmpty && scannedDevices.isEmpty) {
         errorMessage = '没有找到可恢复的戒指';
       }
       notifyListeners();
@@ -3624,7 +3630,9 @@ class AppController extends ChangeNotifier {
     if (_accountTransitioning ||
         connectedDevice?.id != deviceId ||
         isDeviceSyncing ||
-        _activeMeasurementMetric != null) {
+        _activeMeasurementMetric != null ||
+        _startingSport != null ||
+        activeSport != null) {
       return false;
     }
     if (capabilities?.supportsHistorySync == false) {
@@ -3653,6 +3661,8 @@ class AppController extends ChangeNotifier {
             matchesTarget(record.sleepTimeline!.deviceId));
 
     final generation = ++_deviceSyncGeneration;
+    final idle = Completer<void>();
+    _deviceSyncIdle = idle;
     isDeviceSyncing = true;
     _sleepReadFailedDuringSync = false;
     var succeeded = false;
@@ -3929,6 +3939,8 @@ class AppController extends ChangeNotifier {
       _deviceSyncErrorMessage = '设备已连接，但数据读取失败，请稍后重试';
       errorMessage = _deviceSyncErrorMessage;
     } finally {
+      if (!idle.isCompleted) idle.complete();
+      if (identical(_deviceSyncIdle, idle)) _deviceSyncIdle = null;
       if (_deviceSyncGeneration == generation) {
         isDeviceSyncing = false;
         deviceSyncProgress = 0;
@@ -3971,6 +3983,13 @@ class AppController extends ChangeNotifier {
       connectedDevice?.id == deviceId;
 
   void _invalidateDeviceSync() {
+    _sportStartGeneration++;
+    _startingSport = null;
+    _sportStartDispatched = false;
+    _sportHistoryRefresh = null;
+    final idle = _deviceSyncIdle;
+    _deviceSyncIdle = null;
+    if (idle != null && !idle.isCompleted) idle.complete();
     // Reject events from the retiring native session during asynchronous
     // teardown, including while the next durable guard is being loaded.
     _connectedDeviceSessionGeneration = null;
@@ -4954,6 +4973,7 @@ class AppController extends ChangeNotifier {
       markNotificationEventRead(healthWarningEventId(alert));
 
   Future<bool> startSport(SportMode mode) async {
+    if (_startingSport != null) return false;
     if (_firstRingBindingPending) {
       errorMessage = '请重新连接戒指后重试';
       notifyListeners();
@@ -4976,9 +4996,30 @@ class AppController extends ChangeNotifier {
     // The native bridge can deliver a live sample before the start method
     // completes. Keep that sample instead of clearing it after the await.
     liveSportData = const {};
+    final owner = _sessionGeneration;
+    final target = connectedDevice!.id;
+    final operation = ++_sportStartGeneration;
+    bool current() =>
+        operation == _sportStartGeneration &&
+        _isCurrentSessionGeneration(owner) &&
+        connectedDevice?.id == target;
     _startingSport = mode;
+    _sportStartDispatched = false;
+    notifyListeners();
     try {
+      // Drain existing read-only transfers before sending a physical command.
+      // Do not bypass the native SDK barrier or fail a start because a hidden
+      // background sport-history query still owns the transport.
+      await _deviceSyncIdle?.future;
+      if (!current()) return false;
+      final history = _sportHistoryRefresh;
+      if (history != null && history.$1 == owner && history.$2 == target) {
+        await history.$3;
+      }
+      if (!current()) return false;
+      _sportStartDispatched = true;
       await _wearable.startSport(mode);
+      if (!current()) return false;
       activeSport = mode;
       _startingSport = null;
       sportPaused = false;
@@ -4988,16 +5029,30 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return true;
     } on PlatformException catch (error) {
+      if (!current()) return false;
       errorMessage = _wearableErrorMessage(error, fallback: '无法开始运动');
     } on WearableSdkNotConfigured catch (_) {
+      if (!current()) return false;
       errorMessage = '此功能暂时无法使用，请稍后再试';
     } catch (_) {
+      if (!current()) return false;
       errorMessage = '无法开始运动，请稍后重试';
+    } finally {
+      if (operation == _sportStartGeneration) {
+        _startingSport = null;
+        _sportStartDispatched = false;
+        if (activeSport == null) liveSportData = const {};
+        if (!_disposed) notifyListeners();
+      }
     }
-    _startingSport = null;
-    liveSportData = const {};
-    notifyListeners();
     return false;
+  }
+
+  void cancelPendingSportStart(SportMode mode) {
+    if (_startingSport != mode || _sportStartDispatched) return;
+    _sportStartGeneration++;
+    _startingSport = null;
+    if (!_disposed) notifyListeners();
   }
 
   Future<void> stopSport() async {
@@ -5049,7 +5104,25 @@ class AppController extends ChangeNotifier {
     return false;
   }
 
-  Future<void> refreshSportRecords({bool includeDevice = true}) async {
+  Future<void> refreshSportRecords({bool includeDevice = true}) {
+    if (!includeDevice || _startingSport != null || activeSport != null) {
+      return _refreshSportRecords(includeDevice: false);
+    }
+    final pending = _sportHistoryRefresh;
+    if (pending != null &&
+        pending.$1 == _sessionGeneration &&
+        pending.$2 == connectedDevice?.id) {
+      return pending.$3;
+    }
+    final task = _refreshSportRecords(includeDevice: true);
+    final slot = (_sessionGeneration, connectedDevice?.id, task);
+    _sportHistoryRefresh = slot;
+    return task.whenComplete(() {
+      if (_sportHistoryRefresh == slot) _sportHistoryRefresh = null;
+    });
+  }
+
+  Future<void> _refreshSportRecords({required bool includeDevice}) async {
     final generation = _sessionGeneration;
     final device = connectedDevice;
     final deviceId = device?.id;
@@ -9084,10 +9157,14 @@ class AppController extends ChangeNotifier {
   Future<void> _refreshHealthRecordCache({
     required int expectedGeneration,
   }) async {
+    final revision = ++_healthCacheReadRevision;
+    bool current() =>
+        _isCurrentSessionGeneration(expectedGeneration) &&
+        revision == _healthCacheReadRevision;
     final storedRecent = await _healthStore.recent();
-    if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+    if (!current()) return;
     final storedLatest = await _healthStore.latestForEachMetric();
-    if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+    if (!current()) return;
     final receivedAt = DateTime.now();
     bool validForDisplay(HealthRecord record) =>
         hasSaneWearableTransportValues(record) &&
@@ -9099,7 +9176,7 @@ class AppController extends ChangeNotifier {
         .toSet();
     if (invalidIds.isNotEmpty) {
       await _healthStore.markInvalid(invalidIds);
-      if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+      if (!current()) return;
     }
     final recent = storedRecent.where(validForDisplay);
     final latest = storedLatest.where(validForDisplay);

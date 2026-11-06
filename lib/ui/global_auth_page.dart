@@ -431,6 +431,14 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                           enabled: !_busy,
                           keyboardType: TextInputType.number,
                           autofillHints: const [AutofillHints.oneTimeCode],
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(
+                              6,
+                              maxLengthEnforcement:
+                                  MaxLengthEnforcement.enforced,
+                            ),
+                          ],
                           decoration: InputDecoration(
                             labelText: l.verificationCode,
                           ),
