@@ -1275,7 +1275,10 @@ public final class QRingBridge
             if (supportsManualTemperature(setTimeFlags, supportFlags))
                 manual.add("body_temperature");
         }
-        if (setTimeFlags.supportsSportRecord()) {
+        // PhoneSportReq is phone-initiated exercise, as on iOS. The separate
+        // stored-sport-record flag does not gate this command (e.g. R8).
+        // A resolved handshake exposes SDK command modes; start still needs ACK.
+        {
             String[] supported = {"running", "indoor_running", "walking", "cycling",
                     "indoor_cycling", "basketball", "football", "badminton",
                     "swimming", "jump_rope", "yoga", "hiking", "mountaineering"};
@@ -1650,11 +1653,14 @@ public final class QRingBridge
     }
 
     private void startSport(String mode, MethodChannel.Result result) {
+        if (factoryInitializationPending()) {
+            result.error("INITIALIZATION_PENDING", "请先在设备页恢复同步后再开始运动", null); return;
+        }
         if (!resolved() || !((List<?>) capabilities().get("sportModes")).contains(mode)) {
             result.error("QRING_SPORT_UNAVAILABLE", "此运动模式未获戒指确认", null);
             return;
         }
-        if (activeMeasurement != null || activeSportType != null) {
+        if (pendingSync != null || activeMeasurement != null || activeSportType != null) {
             result.error("DEVICE_BUSY", "请先结束当前测量或运动", null);
             return;
         }
@@ -1663,9 +1669,14 @@ public final class QRingBridge
             result.error("QRING_SPORT_UNAVAILABLE", "此运动模式暂不支持", null);
             return;
         }
+        final int generation = connectionGeneration;
+        final String id = connectedId, context = recoveryContext;
         CommandHandle.getInstance().executeReqCmd(
                 PhoneSportReq.getSportStatus((byte) 1, type.byteValue()),
                 (ICommandResponse<AppSportRsp>) response -> main.post(() -> {
+                    if (!isCurrentConnection(generation, id) || !java.util.Objects.equals(context, recoveryContext)) {
+                        result.error("QRING_SESSION_CHANGED", "戒指连接已改变，运动未开始", null); return;
+                    }
                     if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) {
                         result.error("QRING_SPORT_START_FAILED", "戒指未能开始运动", null);
                         return;
@@ -1687,9 +1698,14 @@ public final class QRingBridge
         }
         int type = activeSportType;
         String mode = activeSportMode;
+        final int generation = connectionGeneration;
+        final String id = connectedId, context = recoveryContext;
         CommandHandle.getInstance().executeReqCmd(
                 PhoneSportReq.getSportStatus((byte) 4, (byte) type),
                 (ICommandResponse<AppSportRsp>) response -> main.post(() -> {
+                    if (!isCurrentConnection(generation, id) || !java.util.Objects.equals(context, recoveryContext)) {
+                        result.error("QRING_SESSION_CHANGED", "戒指连接已改变，请检查运动记录", null); return;
+                    }
                     if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) {
                         result.error("QRING_SPORT_STOP_FAILED", "戒指未能结束运动", null);
                         return;

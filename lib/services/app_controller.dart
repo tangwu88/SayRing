@@ -1288,6 +1288,9 @@ class AppController extends ChangeNotifier {
   bool _firstRingBindingDecisionPending = false;
   bool _ringInitializationGuardReadable = false;
   Object? _bindingHistoryRecoveryToken;
+  Object? _devicePreparationRecoveryToken;
+  Future<void>? _ringInitializationCompletion;
+  int _ringInitializationReceiptRevision = 0;
   bool _nativeRingInitializationPending = false;
   RingInitializationStage? _ringInitializationStage;
   String? _ringInitializationOperationId;
@@ -1296,12 +1299,25 @@ class AppController extends ChangeNotifier {
   int? _firstRingInitializationReconnectGeneration;
   bool _firstRingInitializationReconnectScheduled = false;
   bool get isRingInitializationPending => _firstRingBindingPending;
-  bool get isDeviceSyncPreparing => _bindingHistoryRecoveryToken != null;
+  bool get isDeviceSyncPreparing =>
+      _bindingHistoryRecoveryToken != null ||
+      _devicePreparationRecoveryToken != null;
   bool get canRetryDeviceSyncPreparation =>
-      _ringInitializationGuardReadable &&
-      _ringInitializationStage == RingInitializationStage.decisionUnknown &&
-      !_nativeRingInitializationPending &&
-      (_api is SayRingBindingHistoryApi || _api is SayRingBindingDecisionApi) &&
+      !_disposed &&
+      _privacyConsentGranted &&
+      _firstRingBindingPending &&
+      connectedDevice != null &&
+      !_accountTransitioning &&
+      !isDeviceSyncPreparing &&
+      !isDeviceHistorySyncing &&
+      _activeMeasurementMetric == null &&
+      _measurementStopInFlight == null &&
+      activeSport == null &&
+      _startingSport == null &&
+      !isDeviceSettingsLoading &&
+      !isDeviceSettingsWriting &&
+      deviceFeatureBusy.isEmpty &&
+      !isDeviceReconnecting &&
       session != null &&
       !isLocalMode &&
       !isPreviewMode;
@@ -1356,6 +1372,20 @@ class AppController extends ChangeNotifier {
   bool isBooting = true;
   bool isBusy = false;
   bool isDeviceSyncing = false;
+  // The connection read has two stages: health history, then sport history.
+  // Keep the consumer busy state until both SDK reads and local imports settle.
+  (int, String, Object)? _initialDeviceHistorySync;
+  bool get _usesCoolWearAndroid =>
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.android &&
+      connectedDevice?.sdkSource == WearableSdkSource.coolwear;
+  bool get isDeviceHistorySyncing =>
+      isDeviceSyncing ||
+      (_usesCoolWearAndroid &&
+          ((_initialDeviceHistorySync?.$1 == _sessionGeneration &&
+                  _initialDeviceHistorySync?.$2 == connectedDevice?.id) ||
+              (_sportHistoryRefresh?.$1 == _sessionGeneration &&
+                  _sportHistoryRefresh?.$2 == connectedDevice?.id)));
   bool get isDeviceReconnecting => _wearableReconnectInFlight != null;
   double deviceSyncProgress = 0;
   bool isPreviewMode = false;
@@ -3447,7 +3477,20 @@ class AppController extends ChangeNotifier {
     return;
   }
 
-  Future<void> _completePersistedRingInitialization(String deviceId) async {
+  Future<void> _completePersistedRingInitialization(String deviceId) {
+    final pending = _ringInitializationCompletion;
+    if (pending != null) return pending;
+    late final Future<void> task;
+    task = _persistCompletedRingInitialization(deviceId).whenComplete(() {
+      if (identical(_ringInitializationCompletion, task)) {
+        _ringInitializationCompletion = null;
+      }
+    });
+    _ringInitializationCompletion = task;
+    return task;
+  }
+
+  Future<void> _persistCompletedRingInitialization(String deviceId) async {
     final owner = _ringInitializationOwner;
     final generation = _deviceSyncGeneration;
     try {
@@ -3587,10 +3630,42 @@ class AppController extends ChangeNotifier {
 
   Future<void> _syncInitialDeviceData(String deviceId) async {
     if (connectedDevice?.id != deviceId || _disposed) return;
-    final isCurrent = await _syncDeviceData(deviceId, initial: true);
-    if (!isCurrent) return;
-    unawaited(refreshSportRecords());
-    unawaited(synchronizeCloud());
+    if (!_usesCoolWearAndroid) {
+      final isCurrent = await _syncDeviceData(deviceId, initial: true);
+      if (!isCurrent) return;
+      unawaited(refreshSportRecords());
+      unawaited(synchronizeCloud());
+      return;
+    }
+    if (_initialDeviceHistorySync?.$1 == _sessionGeneration &&
+        _initialDeviceHistorySync?.$2 == deviceId) {
+      return;
+    }
+    final scope = (_sessionGeneration, deviceId, Object());
+    _initialDeviceHistorySync = scope;
+    notifyListeners();
+    try {
+      // Android's native sport reader joins the active health read window.
+      // Start it while that read is pending, rather than issuing a second
+      // mixed-data request and a second full transport deadline afterwards.
+      final healthRead = _syncDeviceData(deviceId, initial: true);
+      final sportRead = isDeviceSyncing ? refreshSportRecords() : null;
+      final isCurrent = await healthRead;
+      await sportRead;
+      if (!isCurrent) return;
+      if (_initialDeviceHistorySync != scope ||
+          !_isCurrentSessionGeneration(scope.$1) ||
+          connectedDevice?.id != deviceId) {
+        return;
+      }
+      unawaited(synchronizeCloud());
+    } finally {
+      if (_initialDeviceHistorySync == scope) {
+        _initialDeviceHistorySync = null;
+        if (!_disposed) notifyListeners();
+        _flushDeviceDetailsRefresh();
+      }
+    }
   }
 
   Future<bool> syncDeviceData() async {
@@ -3600,33 +3675,95 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    if (isDeviceSyncing || isDeviceSyncPreparing) return false;
+    if (isDeviceHistorySyncing || isDeviceSyncPreparing) return false;
     if (_firstRingBindingPending) {
-      // 手动重试先查原决定；仅服务端确认未提交时，复用持久编号补交。
-      // 已发出的清空授权绝不重放，也不通过重连打断正常蓝牙链路。
+      // 先查原决定与初始化回执；仅明确未提交时按原编号恢复初次申请。
+      // 已发出的清空/重置绝不重放。
       final generation = _sessionGeneration;
       errorMessage = null;
-      await _recoverExistingMemberBindingDecision(
-        startInitialSync: false,
-        reportFailure: true,
-      );
+      await _recoverDeviceSyncPreparation();
       if (_disposed ||
           generation != _sessionGeneration ||
           connectedDevice?.id != device.id) {
         return false;
       }
       if (_firstRingBindingPending) {
-        syncStatus = errorMessage ?? '设备正在准备，请稍后再试';
+        syncStatus = errorMessage ?? '设备准备尚未完成，请点击恢复同步重试';
         errorMessage = syncStatus;
         notifyListeners();
         return false;
       }
+      if (isDeviceHistorySyncing) return false;
     }
     final succeeded = await _syncDeviceData(device.id, initial: false);
     if (succeeded) {
       unawaited(synchronizeCloud());
     }
     return succeeded;
+  }
+
+  Future<void> _recoverDeviceSyncPreparation() async {
+    if (!canRetryDeviceSyncPreparation) return;
+    final device = connectedDevice!;
+    final owner = _healthOwnerFor(session);
+    final generation = _sessionGeneration;
+    final syncGeneration = _deviceSyncGeneration;
+    final nativeWasPending = _nativeRingInitializationPending;
+    final receiptRevision = _ringInitializationReceiptRevision;
+    final token = Object();
+    bool current() =>
+        !_disposed &&
+        !_accountTransitioning &&
+        generation == _sessionGeneration &&
+        syncGeneration == _deviceSyncGeneration &&
+        owner == _healthOwnerFor(session) &&
+        connectedDevice?.id == device.id;
+    _devicePreparationRecoveryToken = token;
+    notifyListeners();
+    try {
+      // Reload only this owner's durable guard. A failed read is never an
+      // empty guard. Already-issued/ambiguous physical resets are not replayed.
+      await _prepareRingInitializationGuard(device, allowNewDecision: false);
+      if (!current() || !_ringInitializationGuardReadable) return;
+      final readCapabilities = await refreshDeviceCapabilities(
+        announceFailure: false,
+      );
+      await _ringInitializationCompletion;
+      if (!current()) return;
+      if (!readCapabilities ||
+          (nativeWasPending &&
+              receiptRevision == _ringInitializationReceiptRevision)) {
+        // A failed snapshot or a missing replay of a known native receipt
+        // cannot turn the freshly loaded local guard into a cleared guard.
+        _nativeRingInitializationPending |= nativeWasPending;
+        _firstRingBindingPending = true;
+        errorMessage = '设备状态暂未确认，请保持戒指靠近后恢复同步';
+        notifyListeners();
+        return;
+      }
+      await _recoverExistingMemberBindingDecision(
+        startInitialSync: false,
+        reportFailure: true,
+      );
+      if (!current()) return;
+      if (_nativeRingInitializationPending &&
+          !_firstRingBindingDecisionPending &&
+          device.sdkSource == WearableSdkSource.qring &&
+          rememberedDevice?.id == device.id &&
+          _privacyConsentGranted &&
+          _wearableAccountRecoveryAllowed) {
+        // A fresh exact-target handshake can finish ACKed profile setup.
+        // The native durable receipt still decides; no reset is replayed.
+        await reconnectDevice();
+      }
+    } catch (_) {
+      if (current()) errorMessage = '暂时无法恢复同步，请保持戒指靠近后重试';
+    } finally {
+      if (identical(_devicePreparationRecoveryToken, token)) {
+        _devicePreparationRecoveryToken = null;
+        if (!_disposed) notifyListeners();
+      }
+    }
   }
 
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
@@ -3998,6 +4135,10 @@ class AppController extends ChangeNotifier {
       connectedDevice?.id == deviceId;
 
   void _invalidateDeviceSync() {
+    _initialDeviceHistorySync = null;
+    _devicePreparationRecoveryToken = null;
+    _ringInitializationCompletion = null;
+    _ringInitializationReceiptRevision++;
     _sportStartGeneration++;
     _startingSport = null;
     _sportStartDispatched = false;
@@ -4151,8 +4292,36 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  /// The visible action is reconnect, not the internal account-transition
-  /// disconnect. Only unbinding forgets the saved exact target.
+  bool get isGestureControlRecoveryBusy =>
+      isDeviceHistorySyncing ||
+      isDeviceSyncPreparing ||
+      _activeMeasurementMetric != null ||
+      _measurementStopInFlight != null ||
+      activeSport != null ||
+      _startingSport != null ||
+      _sportHistoryRefresh != null ||
+      _deviceSettingsRefresh != null ||
+      isDeviceSettingsWriting ||
+      deviceFeatureBusy.isNotEmpty ||
+      _wearableConnectInFlight != null ||
+      _wearableReconnectInFlight != null;
+
+  bool get canRecoverGestureControlConnection =>
+      !_disposed &&
+      defaultTargetPlatform == TargetPlatform.android &&
+      !_accountTransitioning &&
+      _privacyConsentGranted &&
+      _wearableAccountRecoveryAllowed &&
+      connectedDevice != null &&
+      connectedDevice?.id == rememberedDevice?.id &&
+      connectedDevice?.sdkSource == WearableSdkSource.coolwear &&
+      availabilityFor(DeviceFeature.gestureControl).isReady &&
+      deviceFeatureData[DeviceFeature.gestureControl]?['requiresReconnect'] ==
+          true &&
+      !_firstRingBindingPending &&
+      !isGestureControlRecoveryBusy;
+
+  /// Reconnect only the saved exact target; only unbinding forgets it.
   Future<void> reconnectDevice() async {
     final active = _wearableReconnectInFlight;
     if (active != null) {
@@ -4336,7 +4505,7 @@ class AppController extends ChangeNotifier {
     if (_deviceDetailsRefreshing) return true;
     if (_syncing ||
         _firstRingBindingPending ||
-        isDeviceSyncing ||
+        isDeviceHistorySyncing ||
         _activeMeasurementMetric != null ||
         _accountTransitioning) {
       _deviceDetailsRefreshQueued = true;
@@ -4426,7 +4595,7 @@ class AppController extends ChangeNotifier {
     }
 
     if (_firstRingBindingPending) {
-      return reject('请重新连接戒指后重试');
+      return reject('设备准备尚未完成，请在设备页点击恢复同步后再测量');
     }
     if (!healthReleasePolicy.allowsManualMeasurement(metric)) {
       return reject('此版本暂不支持手动测量');
@@ -4454,7 +4623,7 @@ class AppController extends ChangeNotifier {
     if (!(capabilities?.supportsManualMeasurement(metric) ?? false)) {
       return reject('当前设备不支持${metric.label}测量');
     }
-    if (isDeviceSyncing) {
+    if (isDeviceHistorySyncing) {
       return reject('戒指数据正在同步，请稍后再测量');
     }
     final sessionGeneration = _sessionGeneration;
@@ -5135,7 +5304,11 @@ class AppController extends ChangeNotifier {
     final slot = (_sessionGeneration, connectedDevice?.id, task);
     _sportHistoryRefresh = slot;
     return task.whenComplete(() {
-      if (_sportHistoryRefresh == slot) _sportHistoryRefresh = null;
+      if (_sportHistoryRefresh == slot) {
+        _sportHistoryRefresh = null;
+        if (!_disposed) notifyListeners();
+        _flushDeviceDetailsRefresh();
+      }
     });
   }
 
@@ -5799,6 +5972,13 @@ class AppController extends ChangeNotifier {
     DeviceFeature feature,
     Map<String, Object?> values,
   ) async {
+    if (feature == DeviceFeature.gestureControl &&
+        _usesCoolWearAndroid &&
+        isDeviceHistorySyncing) {
+      errorMessage = '正在同步戒指数据，完成后即可设置手势';
+      notifyListeners();
+      return false;
+    }
     final availability = availabilityFor(feature);
     if (!availability.isReady) {
       errorMessage = availability.message;
@@ -8494,6 +8674,7 @@ class AppController extends ChangeNotifier {
           _connectedDeviceSessionGeneration != _sessionGeneration) {
         return;
       }
+      _ringInitializationReceiptRevision++;
       final wasPending = _firstRingBindingPending;
       final complete = event.payload['status'] == 'complete';
       if (complete &&
@@ -8649,7 +8830,7 @@ class AppController extends ChangeNotifier {
     } else if (event.type == 'healthDataReady') {
       if (connectedDevice != null &&
           _connectedDeviceSessionGeneration == _sessionGeneration &&
-          !isDeviceSyncing) {
+          !isDeviceHistorySyncing) {
         unawaited(syncDeviceData());
       }
     } else if (event.type == 'measurementProgress') {

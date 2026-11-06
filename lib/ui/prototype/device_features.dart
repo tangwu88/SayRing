@@ -61,6 +61,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   int? _gestureStrength;
   bool _gestureWriteUncertain = false;
   String _gestureWriteContext = '';
+  bool _gestureRecovering = false;
+  bool _gestureRecoveryMayControl = false;
+  String? _gestureRecoveryTarget;
+  String get _gestureOwnerTarget =>
+      '${widget.controller.session?.accountKey}|${widget.controller.isLocalMode}|${widget.controller.connectedDevice?.id}';
   bool get _availableInRelease =>
       !widget.controller.isWellnessOnly ||
       !const {DeviceFeature.healthAssessment}.contains(widget.feature);
@@ -223,6 +228,49 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     }
   }
 
+  Future<void> _recoverGestureConnection() async {
+    if (!mounted ||
+        _gestureRecovering ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        !widget.controller.canRecoverGestureControlConnection) {
+      return;
+    }
+    final owner = widget.controller.session?.accountKey;
+    final local = widget.controller.isLocalMode;
+    final target = widget.controller.connectedDevice?.id;
+    setState(() {
+      _gestureRecovering = true;
+      _gestureRecoveryMayControl = true;
+      _gestureRecoveryTarget = _gestureOwnerTarget;
+    });
+    try {
+      // The old command cannot safely be replayed: only recover the exact
+      // saved connection, then read its state without selecting any scene.
+      await widget.controller.reconnectDevice();
+      if (mounted &&
+          owner == widget.controller.session?.accountKey &&
+          local == widget.controller.isLocalMode &&
+          target == widget.controller.connectedDevice?.id &&
+          widget.controller.availabilityFor(widget.feature).isReady) {
+        await _loadFeature();
+      }
+    } catch (_) {
+      if (mounted &&
+          owner == widget.controller.session?.accountKey &&
+          local == widget.controller.isLocalMode &&
+          target == widget.controller.connectedDevice?.id) {
+        setState(
+          () => _featureData = {
+            'requiresReconnect': true,
+            'errorMessage': '控制连接暂未准备好，可点击恢复控制重试',
+          },
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _gestureRecovering = false);
+    }
+  }
+
   Future<void> _loadFeature() async {
     if (!_availableInRelease) return;
     _gestureStrength = null;
@@ -331,7 +379,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     });
     if (!mounted || contextKey != _currentFeatureContext) return false;
     if (widget.feature == DeviceFeature.gestureControl) {
-      setState(() => _gestureWriteUncertain = !saved);
+      setState(() {
+        _gestureWriteUncertain = !saved;
+        if (saved) _gestureRecoveryMayControl = false;
+      });
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -800,14 +851,20 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               if ((widget.feature != DeviceFeature.gestureControl &&
                       widget.feature != DeviceFeature.camera &&
                       !_filteredRingReminders) ||
-                  !availability.isReady) ...[
+                  (!availability.isReady && !_gestureRecovering)) ...[
                 _DeviceFeatureHeader(
                   feature: widget.feature,
                   device: widget.controller.connectedDevice,
                 ),
                 const SizedBox(height: 14),
               ],
-              if (!availability.isReady)
+              if (!availability.isReady && _gestureRecovering)
+                const FeatureStateCard(
+                  message: '正在准备手势控制',
+                  detail: '正在恢复当前戒指的控制连接，请保持戒指靠近手机。',
+                  icon: Icons.bluetooth_connected_rounded,
+                )
+              else if (!availability.isReady)
                 FeatureStateCard(
                   message: availability.message,
                   detail: _deviceFeatureDescription(widget.feature),
@@ -881,6 +938,19 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         : <int>{};
     final ready = !qring || _featureData['readbackVerified'] == true;
     final reconnect = _featureData['requiresReconnect'] == true;
+    final autoRecovery =
+        reconnect &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        widget.controller.connectedDevice?.sdkSource ==
+            WearableSdkSource.coolwear;
+    final waitingForIdle =
+        (autoRecovery ||
+            (defaultTargetPlatform == TargetPlatform.android &&
+                widget.controller.connectedDevice?.sdkSource ==
+                    WearableSdkSource.coolwear &&
+                widget.controller.isDeviceHistorySyncing)) &&
+        !_gestureRecovering &&
+        widget.controller.isGestureControlRecoveryBusy;
     final confirmedMode = _featureData['confirmedMode'];
     return RingGesturePanel(
       availableModes: qring
@@ -888,16 +958,29 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           : {0, 1, 2, 3, 4, 5},
       confirmedMode: confirmedMode is int ? confirmedMode : null,
       ready: ready,
-      busy: busy,
+      busy: busy || _gestureRecovering || waitingForIdle,
+      preparingControl: _gestureRecovering,
+      waitingForIdle: waitingForIdle,
+      syncingData: waitingForIdle && widget.controller.isDeviceHistorySyncing,
       requiresReconnect: reconnect,
       readbackConfirmed: qring && ready,
       tapControl: qring && ready && _featureData['touch'] == false,
       error:
-          _featureData['errorMessage'] as String? ??
-          widget.controller.errorMessage,
+          autoRecovery &&
+              !widget.controller.canRecoverGestureControlConnection &&
+              !waitingForIdle &&
+              !_gestureRecovering
+          ? (widget.controller.isRingInitializationPending
+                ? '设备准备尚未完成，请回设备页查看状态'
+                : '请在设备页确认当前戒指后重试')
+          : _featureData['errorMessage'] as String? ??
+                widget.controller.errorMessage,
       uncertainControl:
-          _gestureWriteUncertain &&
-          _gestureWriteContext == _currentFeatureContext,
+          (_gestureWriteUncertain &&
+              _gestureWriteContext == _currentFeatureContext) ||
+          (_gestureRecoveryMayControl &&
+              _gestureRecoveryTarget == _gestureOwnerTarget &&
+              confirmedMode == null),
       onStop: qring && defaultTargetPlatform == TargetPlatform.android
           ? () => _saveFeature({
               'mode': 0,
@@ -913,7 +996,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       selectedStrength: _gestureStrength,
       onStrengthChanged: (value) => setState(() => _gestureStrength = value),
       onRefresh: _loadFeature,
-      onReconnect: widget.controller.reconnectDevice,
+      onReconnect: autoRecovery
+          ? (widget.controller.canRecoverGestureControlConnection
+                ? _recoverGestureConnection
+                : null)
+          : widget.controller.reconnectDevice,
       onSelect: (mode) => _saveFeature({
         'mode': mode,
         if (qring) 'expectedMode': _featureData['rawMode'],

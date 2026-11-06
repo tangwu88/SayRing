@@ -218,6 +218,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
     if (!started &&
         !(_ownsMeasurement &&
             widget.controller.measurementResult?.metric == widget.metric)) {
+      _stopWaitClock();
       setState(() {
         _startFailure =
             widget.controller.measurementErrorMessage ??

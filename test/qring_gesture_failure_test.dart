@@ -121,7 +121,7 @@ void main() {
       expect(panel.confirmedMode, isNull);
       expect(panel.availableModes, isEmpty);
       expect(panel.error, _message);
-      expect(find.text('重新连接'), findsOneWidget);
+      expect(find.text('恢复控制'), findsOneWidget);
       expect(find.text('刷新状态'), findsNothing);
       expect(find.byKey(const ValueKey('gesture-mode-2')), findsNothing);
       expect(bridge.reads, 1);

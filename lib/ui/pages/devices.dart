@@ -122,27 +122,31 @@ class DevicePage extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (controller.capabilities?.supportsHistorySync !=
-                        false) ...[
+                    if (controller.capabilities?.supportsHistorySync != false ||
+                        (connected != null &&
+                            controller.isRingInitializationPending)) ...[
                       SizedBox(
                         child: FilledButton(
                           key: const Key('device-sync-data'),
                           onPressed:
                               connected == null ||
-                                  controller.isDeviceSyncing ||
+                                  controller.isDeviceHistorySyncing ||
                                   controller.isDeviceSyncPreparing ||
                                   (controller.isRingInitializationPending &&
                                       !controller
                                           .canRetryDeviceSyncPreparation) ||
                                   controller
-                                          .capabilities
-                                          ?.supportsHistorySync ==
-                                      false
+                                              .capabilities
+                                              ?.supportsHistorySync ==
+                                          false &&
+                                      !controller.isRingInitializationPending
                               ? null
                               : () async {
                                   final succeeded = await controller
                                       .syncDeviceData();
                                   if (!context.mounted ||
+                                      controller.isDeviceHistorySyncing ||
+                                      controller.isDeviceSyncPreparing ||
                                       controller.syncStatus.isEmpty) {
                                     return;
                                   }
@@ -161,7 +165,8 @@ class DevicePage extends StatelessWidget {
                             minimumSize: const Size.fromHeight(48),
                             padding: const EdgeInsets.symmetric(horizontal: 10),
                             disabledForegroundColor: SaydianColors.muted,
-                            disabledBackgroundColor: controller.isDeviceSyncing
+                            disabledBackgroundColor:
+                                controller.isDeviceHistorySyncing
                                 ? SaydianColors.techBlueSoft
                                 : SaydianColors.line,
                           ),
@@ -179,7 +184,7 @@ class DevicePage extends StatelessWidget {
                                     Text('正在准备同步'),
                                   ],
                                 )
-                              : controller.isDeviceSyncing
+                              : controller.isDeviceHistorySyncing
                               ? DeviceWaitStatus(
                                   connected: connected != null,
                                   receivedRecords:
@@ -192,7 +197,11 @@ class DevicePage extends StatelessWidget {
                                     const Icon(Icons.sync_rounded),
                                     const SizedBox(width: 8),
                                     Flexible(
-                                      child: Text(context.l10n.syncData),
+                                      child: Text(
+                                        controller.isRingInitializationPending
+                                            ? '恢复同步'
+                                            : context.l10n.syncData,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -284,7 +293,7 @@ class DevicePage extends StatelessWidget {
                           ),
                           TextButton.icon(
                             key: const Key('device-unbind'),
-                            onPressed: controller.isDeviceSyncing
+                            onPressed: controller.isDeviceHistorySyncing
                                 ? null
                                 : () => _confirmUnbind(context),
                             icon: const Icon(Icons.link_off_rounded, size: 18),
