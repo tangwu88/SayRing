@@ -1,4 +1,7 @@
 {
+  "workoutReadPartial": "已保存收到的运动记录，可稍后刷新补充。",
+  "workoutReadIncomplete": "本次刷新尚未完成，已有运动记录不受影响。",
+  "workoutReadFailed": "暂时无法刷新运动记录，已有记录不受影响。",
   "savedActivity": "活动记录",
   "activitySourceChanged": "账号或戒指已切换，请重新打开活动记录",
   "noSavedWorkouts": "暂无已保存的运动记录",

@@ -9,6 +9,18 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get workoutReadPartial =>
+      'Einige Trainingsdaten wurden gespeichert. Später erneut aktualisieren.';
+
+  @override
+  String get workoutReadIncomplete =>
+      'Die Aktualisierung ist unvollständig. Gespeicherte Trainings bleiben erhalten.';
+
+  @override
+  String get workoutReadFailed =>
+      'Trainings können derzeit nicht aktualisiert werden. Gespeicherte Daten bleiben erhalten.';
+
+  @override
   String get savedActivity => 'Aktivitätsverlauf';
 
   @override

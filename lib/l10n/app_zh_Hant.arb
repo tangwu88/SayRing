@@ -1,4 +1,7 @@
 {
+  "workoutReadPartial": "已儲存收到的運動紀錄，可稍後重新整理補充。",
+  "workoutReadIncomplete": "本次重新整理尚未完成，已有運動紀錄不受影響。",
+  "workoutReadFailed": "暫時無法重新整理運動紀錄，已有紀錄不受影響。",
   "savedActivity": "活動記錄",
   "activitySourceChanged": "帳號或戒指已切換，請重新開啟活動記錄",
   "noSavedWorkouts": "尚無已儲存的運動記錄",

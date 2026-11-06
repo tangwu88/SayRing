@@ -75,6 +75,15 @@ enum PushDeviceRegistrationState {
 
 enum DeviceScanIssue { permissionsRequired, locationServiceDisabled }
 
+enum SportHistoryReadStatus {
+  idle,
+  reading,
+  complete,
+  partial,
+  incomplete,
+  failed,
+}
+
 const _defaultPushRegistrationRetryDelays = <Duration>[
   Duration(seconds: 2),
   Duration(seconds: 5),
@@ -1407,6 +1416,12 @@ class AppController extends ChangeNotifier {
   }
 
   List<SportRecord> sportRecords = const [];
+  SportHistoryReadStatus _sportHistoryReadStatus = SportHistoryReadStatus.idle;
+  (int, String?)? _sportHistoryReadScope;
+  SportHistoryReadStatus get sportHistoryReadStatus =>
+      _sportHistoryReadScope == (_sessionGeneration, connectedDevice?.id)
+      ? _sportHistoryReadStatus
+      : SportHistoryReadStatus.idle;
   List<Map<String, Object?>> careMembers = const [];
   List<Map<String, Object?>> careInvitations = const [];
   String careStatus = '等待加载';
@@ -3987,6 +4002,8 @@ class AppController extends ChangeNotifier {
     _startingSport = null;
     _sportStartDispatched = false;
     _sportHistoryRefresh = null;
+    _sportHistoryReadScope = null;
+    _sportHistoryReadStatus = SportHistoryReadStatus.idle;
     final idle = _deviceSyncIdle;
     _deviceSyncIdle = null;
     if (idle != null && !idle.isCompleted) idle.complete();
@@ -5131,15 +5148,32 @@ class AppController extends ChangeNotifier {
         connectedDevice?.id == deviceId;
     await Future<void>.delayed(Duration.zero);
     if (!stillCurrent()) return;
-    final localRecords = (await _healthStore.localSportRecords())
-        .map(healthReleasePolicy.projectSport)
-        .toList();
+    late final List<SportRecord> localRecords;
+    try {
+      localRecords = (await _healthStore.localSportRecords())
+          .map(healthReleasePolicy.projectSport)
+          .toList();
+    } catch (_) {
+      if (stillCurrent()) {
+        _sportHistoryReadScope = (generation, deviceId);
+        _sportHistoryReadStatus = SportHistoryReadStatus.failed;
+        notifyListeners();
+      }
+      return;
+    }
     if (!stillCurrent()) return;
     sportRecords = localRecords;
     if (device == null || !includeDevice || _firstRingBindingPending) {
+      if (includeDevice) {
+        _sportHistoryReadScope = (generation, deviceId);
+        _sportHistoryReadStatus = SportHistoryReadStatus.idle;
+      }
       notifyListeners();
       return;
     }
+    _sportHistoryReadScope = (generation, deviceId);
+    _sportHistoryReadStatus = SportHistoryReadStatus.reading;
+    notifyListeners();
     try {
       List<SportRecord> records;
       bool partial = false;
@@ -5196,15 +5230,14 @@ class AppController extends ChangeNotifier {
             a.startedAt ?? DateTime(1970),
           ),
         );
-      if (partial) {
-        errorMessage = received ? '收到的运动记录已保存，可稍后再同步' : '运动记录暂未更新，可稍后重试';
-      }
-    } on PlatformException catch (error) {
-      if (!stillCurrent()) return;
-      errorMessage = _wearableErrorMessage(error, fallback: '读取运动记录失败');
+      _sportHistoryReadStatus = partial
+          ? (received
+                ? SportHistoryReadStatus.partial
+                : SportHistoryReadStatus.incomplete)
+          : SportHistoryReadStatus.complete;
     } catch (_) {
       if (!stillCurrent()) return;
-      errorMessage = '运动记录读取失败，请稍后重试';
+      _sportHistoryReadStatus = SportHistoryReadStatus.failed;
     }
     notifyListeners();
   }

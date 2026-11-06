@@ -1,4 +1,7 @@
 {
+  "workoutReadPartial": "수신된 운동 기록을 저장했습니다. 나중에 새로고침해 추가 기록을 확인하세요.",
+  "workoutReadIncomplete": "새로고침이 완료되지 않았습니다. 저장된 운동 기록에는 영향이 없습니다.",
+  "workoutReadFailed": "운동 기록을 새로고침할 수 없습니다. 저장된 기록에는 영향이 없습니다.",
   "savedActivity": "활동 기록",
   "activitySourceChanged": "계정 또는 반지가 변경되었습니다. 활동 기록을 다시 여세요.",
   "noSavedWorkouts": "저장된 운동 기록이 없습니다",

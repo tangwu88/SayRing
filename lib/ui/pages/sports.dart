@@ -1110,6 +1110,17 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
         listenable: widget.controller,
         builder: (context, _) {
           final records = widget.controller.sportRecords;
+          final notice = _reading != null
+              ? null
+              : switch (widget.controller.sportHistoryReadStatus) {
+                  SportHistoryReadStatus.partial =>
+                    context.l10n.workoutReadPartial,
+                  SportHistoryReadStatus.incomplete =>
+                    context.l10n.workoutReadIncomplete,
+                  SportHistoryReadStatus.failed =>
+                    context.l10n.workoutReadFailed,
+                  _ => null,
+                };
           if (records.isEmpty) {
             final connected = widget.controller.connectedDevice != null;
             final loading = _reading != null;
@@ -1136,8 +1147,8 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
                       child: Text(
                         loading
                             ? context.l10n.readingData
-                            : _loadFailed
-                            ? context.l10n.serviceUnavailable
+                            : notice != null || _loadFailed
+                            ? notice ?? context.l10n.workoutReadFailed
                             : context.l10n.noSavedWorkouts,
                         textAlign: TextAlign.center,
                       ),
@@ -1149,12 +1160,17 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
                         textAlign: TextAlign.center,
                       ),
                     ],
-                    if (!loading && (connected || _loadFailed)) ...[
+                    if (!loading &&
+                        (connected || _loadFailed || notice != null)) ...[
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
                         onPressed: _refresh,
                         icon: const Icon(Icons.refresh_rounded),
-                        label: Text(context.l10n.refresh),
+                        label: Text(
+                          notice != null
+                              ? context.l10n.retry
+                              : context.l10n.refresh,
+                        ),
                       ),
                     ],
                   ],
@@ -1166,12 +1182,39 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
             onRefresh: _refresh,
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: records.length,
+              itemCount: records.length + (notice == null ? 0 : 1),
               separatorBuilder: (_, _) => const SizedBox(height: 10),
-              itemBuilder: (context, index) => _SportRecordTile(
-                controller: widget.controller,
-                record: records[index],
-              ),
+              itemBuilder: (context, index) {
+                if (notice != null && index == 0) {
+                  return Semantics(
+                    liveRegion: true,
+                    child: Card(
+                      key: const Key('sport-history-read-notice'),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          children: [
+                            Text(notice),
+                            TextButton(
+                              onPressed: _refresh,
+                              child: Text(context.l10n.retry),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                return _SportRecordTile(
+                  controller: widget.controller,
+                  record: records[index - (notice == null ? 0 : 1)],
+                );
+              },
             ),
           );
         },
