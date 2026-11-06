@@ -96,6 +96,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 }
 @end
 @interface QCSDKManager : NSObject
+@property(nonatomic, copy) id currentSportInfo;
 + (instancetype)shareInstance;
 - (void)removePeripheral:(CBPeripheral *)peripheral;
 - (void)removeAllPeripheral;
@@ -164,6 +165,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @property(nonatomic,strong) NSMutableDictionary *scanned;
 @property(nonatomic) BOOL recoveryConnecting, cancellingConnection, readingDetails, remoteCameraSupported, recoveryScanning;
 @property(nonatomic) NSUInteger recoveryScanGeneration;
+@property(nonatomic) NSUInteger sportGeneration;
 @property(nonatomic) NSTimeInterval recoveryRetryNotBefore;
 @property(nonatomic) NSUInteger connectionGeneration, connectDeadlineGeneration, measurementGeneration, syncGeneration, resolutions;
 @property(nonatomic, strong) NSNumber *battery, *charging;
@@ -175,6 +177,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (void)emit:(NSString *)type payload:(NSDictionary *)payload;
 - (void)resolveCapabilities;
 - (void)resetRemoteCamera;
+- (void)resetSportReception;
 - (void)finishCamera:(id)error;
 - (BOOL)isQRingName:(NSString *)name;
 - (BOOL)isResolved;

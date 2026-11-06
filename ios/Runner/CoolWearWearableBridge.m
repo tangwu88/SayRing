@@ -194,6 +194,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)disableVendorRecovery {
+    if (!self.product) return;
+    // 原版 SDK 的 getter 在属性为 nil 时，会按类名重新读取安装级 UUID。
+    // 仅清除这一项旧 SDK 恢复缓存，再清内存；否则蓝牙打开/断连回调可能
+    // 私自连接旧目标，与账号专属恢复争用。账号绑定、健康库和戒指设置不动。
+    // 不能用空字符串代替：SDK 会将其传入 NSUUID/NSArray，可能直接异常。
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:NSStringFromClass(CEProductK6.class)];
     self.product.lastConnectUUId = nil;
     self.product.UUIDStr = nil;
     // Do not call startAutoConnect/saveConnectedUUid: account-owned Flutter
@@ -298,7 +304,22 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)attemptRecovery:(NSUInteger)generation {
     if (generation != self.recoveryGeneration || !self.recoveryID || [self isResolved]) return;
-    if (self.cancelling || self.target || self.pendingConnect || self.pendingScan ||
+    if (self.cancelling) {
+        // 原有短轮询结束后，SDK 可能才真正关闭。续试只重新核对物理状态，
+        // 不按经过的时间释放取消屏障，也不重复发送断开/设置命令。
+        [self checkCancellation];
+        [self scheduleRecovery];
+        return;
+    }
+    // 回前台时可能已错过状态通知。只在外设确实关闭、没有未完成握手时
+    // 收尾旧连接，复用原取消屏障；不能仅凭等待超时强行开放另一次连接。
+    if (self.target && !self.pendingConnect &&
+        self.target.state == CBPeripheralStateDisconnected) {
+        [self connectionNote:@"peripheral_closed_before_recovery" appInitiated:NO];
+        [self failConnection:@"COOLWEAR_DISCONNECTED" message:@"戒指连接已断开"];
+        return;
+    }
+    if (self.target || self.pendingConnect || self.pendingScan ||
         self.product.state != CBManagerStatePoweredOn) { [self scheduleRecovery]; return; }
     self.recoveryScanning = YES;
     [self emit:@"recoveryState" payload:@{@"status": @"waiting", @"deviceId": self.recoveryID}];
@@ -1234,12 +1255,17 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)receiveStatus:(ProductStatus)status {
     [self disableVendorRecovery];
-    if (self.target && (status == ProductStatus_powerOff || status == ProductStatus_disconnected)) {
+    // 未保存 SDK 安装级 UUID 时，原厂对真实断连/连接错误发布 none，
+    // 不一定发布 disconnected。必须同时核对外设状态，避免旧 target
+    // 永久阻塞恢复；单独的 none 不得打断仍连接或正在连接的外设。
+    BOOL linkEnded = status == ProductStatus_powerOff || status == ProductStatus_disconnected ||
+        (status == ProductStatus_none && self.target && self.target.state == CBPeripheralStateDisconnected);
+    if (self.target && linkEnded) {
         [self connectionNote:self.cancelling ? @"sdk_disconnected_after_app_cleanup" : status == ProductStatus_powerOff ? @"bluetooth_power_off" : @"sdk_link_lost" appInitiated:self.cancelling];
     }
     if (self.cancelling) { [self checkCancellation]; return; }
     if (!self.target) return;
-    if (status == ProductStatus_powerOff || status == ProductStatus_disconnected) {
+    if (linkEnded) {
         [self failConnection:@"COOLWEAR_DISCONNECTED" message:@"戒指连接已断开"]; return;
     }
     if (status != ProductStatus_completed || ![self matchesTarget] || !self.pendingConnect || self.awaitingInfo) return;

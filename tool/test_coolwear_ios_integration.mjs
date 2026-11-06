@@ -159,7 +159,13 @@ test('installation-wide recovery and raw health logging are not imported', () =>
   assert.match(transport, /!\[observer isResolved\]/);
   assert.match(transport, /hrvDiagnostic:@"transport_rx"/);
   assert.doesNotMatch(transport, /NSLog\(|%@|description|base64|writeTo|subdata|payload/);
-  assert.doesNotMatch(bridge.replace(diagnostic, '').replace(transport, ''), /NSLog\(|NSUserDefaults|receiveOriginalDataHandler\s*=|sendOriginalDataHandler\s*=/);
+  // 只允许删除 SDK 安装级的旧恢复 UUID；不得读取/收养旧目标或碰账号数据。
+  // 真实 getter 的惰性重载和保留数据由 recovery_session 宿主执行用例覆盖。
+  const eraseLegacyRecovery = '[NSUserDefaults.standardUserDefaults removeObjectForKey:NSStringFromClass(CEProductK6.class)];';
+  assert.equal(bridge.split(eraseLegacyRecovery).length - 1, 1);
+  const disable = bridge.slice(bridge.indexOf('- (void)disableVendorRecovery'), bridge.indexOf('- (void)initializeSDK'));
+  assert.ok(disable.indexOf(eraseLegacyRecovery) < disable.indexOf('lastConnectUUId = nil'));
+  assert.doesNotMatch(bridge.replace(diagnostic, '').replace(transport, '').replace(eraseLegacyRecovery, ''), /NSLog\(|NSUserDefaults|receiveOriginalDataHandler\s*=|sendOriginalDataHandler\s*=/);
   assert.match(bridge, /lastConnectUUId = nil/);
   assert.match(bridge, /UUIDStr = nil/);
 });
