@@ -41,3 +41,11 @@ QRing/LuckRing 无原生鸿蒙 SDK，不能同步 Android/iOS 的厂商连接/�
 - 最新Android开发更新952819c（运动恢复1269～1273）：相对c4ab520共15文件，涉及Android CoolWear、Flutter控制器/运动页、测试及记录，没有原生Harmony文件。只读核对实施记录，新增15秒恢复租约、真实握手恢复和离线结束依赖现有Android原生SDK；鸿蒙缺该SDK，不移植厂商命令或虚构恢复能力。Android实物运动仍待验收。
 - Google Play分支已到534bffb，为1268分发提交回执；鸿蒙差异仍为旧热量UI，保持当前更新后的隐藏热量实现，不回退。origin/main仍为0e35006旧基线，不能以main覆盖鸿蒙已同步内容。
 - 本次无需修改鸿蒙源码；未重复上轮已通过的553项双时区测试和Debug/Release构建，本次也不将这些历史结果记为重新执行。仅提交本检查记录；签名、真机、QRing/LuckRing SDK及周期日记差距不变。
+
+## 真机安装尝试（2026-11-07）
+
+- 用户要求安装，重新连接后 HDC 成功识别 JAL-AL90 鸿蒙手机，ADB无Android设备。只读查询 cn.saydian.ring.hm 未安装。
+- 从当前已验收源码重新运行 Release assembleApp，58s227ms成功。使用仓库外 Say Ring 原生产P12/证书/Profile及DPAPI密码完成官方sign-app和verify-app，密码未输出或提交。包身份 cn.saydian.ring.hm / 1.0.7（1187）/ debug=false。独立HAP SHA256 D5C1FC962BA33FC1B6094535E46C3E048D4FA6F3D890D01E6EEE96147CAAA043，私下产物 E:\SayRing-harmony-install-20261107。
+- `hdc install <本轮签名HAP>`实际失败：9568322，signature verification failed due to not trusted app source。HDC进程退出0不代表安装成功；安装后bm dump再次确认应用不存在，未声称已安装/启动。
+- 检查本机 .ohos/config 两份开发profile，均仅适用旧产品 cc.saidian.app.hm，不能用于 cn.saydian.ring.hm。未改包名、未借用旧产品身份、未卸载应用、未绕过来源校验。
+- 安装仍待适用于 cn.saydian.ring.hm 且包含本机设备的有效开发profile/配套签名，或官方市场分发。需在DevEco登录所属华为开发者账号生成对应开发签名；本机现有正式包验签成功不等于系统允许HDC侧载。无应用数据/签名密钥/Profile或设备标识提交Git。
