@@ -16,6 +16,37 @@ const _profile = WearableUserProfile(
 );
 
 void main() {
+  for (final response in ['empty', 'details', 'error']) {
+    test(
+      'late $response details cannot retire the replacement connection',
+      () async {
+        final native = _DetailsNative('R7 Ultra');
+        final bridge = _router(native, WearableTransport.coolwear);
+        addTearDown(bridge.dispose);
+        await bridge.scanDevices();
+        await bridge.connect('coolwear:previous-ring', profile: _profile);
+        final old = Completer<DeviceInfo?>();
+        native.deferred = old;
+        final pending = bridge.getConnectedDeviceDetails();
+        native.deferred = null;
+        await bridge.connect('coolwear:current-ring', profile: _profile);
+        final result = expectLater(pending, completion(isNull));
+        if (response == 'error') {
+          old.completeError(StateError('retired metadata query'));
+        } else {
+          old.complete(
+            response == 'empty'
+                ? null
+                : const DeviceInfo(id: 'previous-ring', name: 'R7 Ultra'),
+          );
+        }
+        await result;
+        await bridge.startMeasurement(HealthMetric.heartRate);
+        expect(native.measurements, 1);
+        expect(native.disconnects, 0);
+      },
+    );
+  }
   for (final name in ['R7 Ultra', 'R8', 'YC Ring', 'V Ring', 'D Ring']) {
     final transport = WearableDeviceClassifier.transportFor(name)!;
     for (final type in ['reconnected', 'deviceDetails', 'healthRecord']) {
@@ -169,6 +200,7 @@ class _Native extends Fake implements WearableBridge {
   final eventsController = StreamController<WearableEvent>.broadcast();
   final sync = Completer<List<HealthRecord>>();
   int disconnects = 0;
+  int measurements = 0;
   @override
   Stream<WearableEvent> get events => eventsController.stream;
   @override
@@ -190,6 +222,17 @@ class _Native extends Fake implements WearableBridge {
 
   @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) => sync.future;
+  @override
+  Future<void> startMeasurement(HealthMetric metric) async {
+    measurements++;
+  }
+}
+
+class _DetailsNative extends _Native implements WearableDeviceDetailsBridge {
+  _DetailsNative(super.name);
+  Completer<DeviceInfo?>? deferred;
+  @override
+  Future<DeviceInfo?> getConnectedDeviceDetails() async => deferred?.future;
 }
 
 class _Preference implements WearableTransportPreferenceStore {

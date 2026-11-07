@@ -1259,8 +1259,23 @@ class RoutedWearableBridge
     if (transport == null) return null;
     final bridge = _sources[transport];
     if (bridge is! WearableDeviceDetailsBridge) return null;
-    final details = await (bridge as WearableDeviceDetailsBridge)
-        .getConnectedDeviceDetails();
+    final generation = _connectionGeneration;
+    final identifier = _activeNativeIdentifier;
+    bool current() =>
+        generation == _connectionGeneration &&
+        transport == _activeTransport &&
+        identifier == _activeNativeIdentifier;
+    final DeviceInfo? details;
+    try {
+      details = await (bridge as WearableDeviceDetailsBridge)
+          .getConnectedDeviceDetails();
+    } catch (_) {
+      // 旧查询的失败只属于旧会话，不能交给新戒指的页面当成当前断开。
+      if (!current()) return null;
+      rethrow;
+    }
+    // 返回空值也必须核对代次；否则旧页面的轮询会清掉后来已连接的目标。
+    if (!current()) return null;
     if (details == null) {
       if (bridge is! WearableExactTargetRecoveryBridge) {
         _activeTransport = null;
@@ -1268,6 +1283,7 @@ class RoutedWearableBridge
       }
       return null;
     }
+    if (identifier != null && details.id != identifier) return null;
     return RoutedDevice.fromDevice(transport, details).display;
   }
 
