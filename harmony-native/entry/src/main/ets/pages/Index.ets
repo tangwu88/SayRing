@@ -1,3 +1,4 @@
+import { UnavailableRing } from '../model/WearableDiscovery';
 import { ApiError, MemberProfile, Article, ArticleBlock, Session,
   canSubmitLogin, profileName, profileField, articleBlocks } from '../model/Contracts';
 import { saydianApi } from '../services/SaydianApi';
@@ -42,7 +43,7 @@ import { RING_THEME, RING_CUSTOMER_SERVICE, ringLoginIdentifier, ringLoginAvaila
   ringCareOptions, toggleRingCareGroup } from '../model/RingParity';
 import { homeCardPreferenceStore } from '../services/HomeCardPreferenceStore';
 import { ringMetricVisible, ringDeviceRecords, ringTodayActivity, ringActivityText, ringActivityProgress } from '../model/RingHomePresentation';
-import { ringLoginFailure, ringVerificationCode } from '../model/RingParity';
+import { ringLoginFailure, ringVerificationCode, ringMemberNumber, ringGridWidth } from '../model/RingParity';
 import { ReadingNotice, ReadingSettings, defaultReadingSettings } from '../model/ReadingReminders';
 import { personalReadingReminders } from '../services/PersonalReadingReminders';
 import { ReadingReminderPanel, PersonalReadingOverlay } from '../components/ReadingReminderPanel';
@@ -312,6 +313,7 @@ struct Index {
   @State private selectedOrder: ShopOrder = { id: 0, number: '', amountCents: 0, status: 0, summary: '' };
   @State private selectedProvider: PaymentProvider = 'wechat';
   @State private wearableDevices: WearableDevice[] = [];
+  @State private unavailableRings: UnavailableRing[] = [];
   @State private wearablePhase: WearableConnectionPhase = 'idle';
   @State private wearableMessage: string = '尚未连接戒指';
   @State private wearableSnapshot: WearableSnapshot = emptyWearableSnapshot();
@@ -1555,6 +1557,7 @@ struct Index {
     personalReadingReminders.configure(saydianApi.current()?.memberId ?? '', this.uiContext(), this.wearableSnapshot);
     const listener: WearableServiceListener = {
       onDevices: (devices: WearableDevice[]) => this.wearableDevices = devices,
+      onUnavailableRings: (devices: UnavailableRing[]) => this.unavailableRings = devices,
       onPhase: (phase: WearableConnectionPhase, message: string) => {
         this.wearablePhase = phase;
         this.wearableMessage = message;
@@ -3502,25 +3505,25 @@ struct Index {
           Column() { SymbolGlyph($r('sys.symbol.person_badge_heart')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor(RED).borderRadius(14)
           Text(this.tr('远程关爱')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.layoutWeight(1).padding({ top: 8, bottom: 8 }).onClick(() => this.openCare()).id('family_care')
+        }.width(ringGridWidth(this.pageWidth, this.systemFontScale, 2 + (this.libraryVisible ? 1 : 0) + (this.mallVisible ? 1 : 0))).padding({ left: 4, right: 4, top: 8, bottom: 8 }).onClick(() => this.openCare()).id('family_care')
         if (this.libraryVisible) {
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.book')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor(RING_THEME.violet).borderRadius(14)
           Text(this.tr('健康百科')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.layoutWeight(1).padding({ top: 8, bottom: 8 }).onClick(() => this.openArticles()).id('health_articles')
+        }.width(ringGridWidth(this.pageWidth, this.systemFontScale, 2 + (this.libraryVisible ? 1 : 0) + (this.mallVisible ? 1 : 0))).padding({ left: 4, right: 4, top: 8, bottom: 8 }).onClick(() => this.openArticles()).id('health_articles')
         }
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.dumbbell')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor(RING_THEME.cyan).borderRadius(14)
           Text('运动').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.layoutWeight(1).padding({ top: 8, bottom: 8 }).onClick(() => this.openSportRecords()).id('home_sport')
+        }.width(ringGridWidth(this.pageWidth, this.systemFontScale, 2 + (this.libraryVisible ? 1 : 0) + (this.mallVisible ? 1 : 0))).padding({ left: 4, right: 4, top: 8, bottom: 8 }).onClick(() => this.openSportRecords()).id('home_sport')
         if (this.mallVisible) {
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.bag_fill')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#727EA8').borderRadius(14)
           Text(this.tr('shop')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.layoutWeight(1).padding({ top: 8, bottom: 8 }).onClick(() => this.openShop()).id('health_shop')
+        }.width(ringGridWidth(this.pageWidth, this.systemFontScale, 2 + (this.libraryVisible ? 1 : 0) + (this.mallVisible ? 1 : 0))).padding({ left: 4, right: 4, top: 8, bottom: 8 }).onClick(() => this.openShop()).id('health_shop')
         }
       }.width('100%').padding({ left: 6, right: 6, top: 10, bottom: 10 }).backgroundColor(SURFACE).borderRadius(18)
         .shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
@@ -4368,7 +4371,7 @@ struct Index {
         Text(this.tr('秒')).fontSize(13).fontColor(MUTED)
       }.width('100%').justifyContent(FlexAlign.Center).padding({ bottom: 4 })
     }
-    if (this.wearableDevices.length === 0) {
+    if (this.wearableDevices.length === 0 && this.unavailableRings.length === 0) {
       Column({ space: 14 }) {
         Column() {
           SymbolGlyph($r('sys.symbol.dot_radiowaves_left_and_right')).fontSize(48).fontColor([TECH_BLUE])
@@ -4378,6 +4381,20 @@ struct Index {
         Text(this.tr(this.wearablePhase === 'scanning' ? 'watchNearbyHint' : 'ringSearchHint'))
           .fontSize(13).fontColor(MUTED).lineHeight(20).textAlign(TextAlign.Center).width('100%')
       }.width('100%').padding({ top: 42, bottom: 42 })
+    }
+    if (this.unavailableRings.length > 0) {
+      Text('发现附近戒指').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Text('以下型号尚未适配当前鸿蒙版，暂时无法连接。').fontSize(14).fontColor(MUTED).width('100%')
+      ForEach(this.unavailableRings, (device: UnavailableRing) => {
+        Row({ space: 12 }) {
+          SymbolGlyph($r('sys.symbol.circle')).fontSize(28).fontColor([MUTED])
+          Column({ space: 6 }) {
+            Text(device.name).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text('暂不支持连接').fontSize(14).fontColor(MUTED).width('100%')
+          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
+          .accessibilityText(`${device.name}，暂不支持连接`)
+      }, (device: UnavailableRing) => device.key)
     }
     ForEach(this.wearableDevices, (device: WearableDevice) => {
       Row({ space: 12 }) {
@@ -4426,7 +4443,8 @@ struct Index {
           Text(this.guest ? this.tr('暂未登录') : this.displayName).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
             .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
           if (!this.guest) {
-            Text(formatAppText('memberId', { id: profileField(this.profile.id) }, this.appLocale)).fontSize(14).fontColor(MUTED).width('100%')
+            Text(`会员编号：${ringMemberNumber(this.profile)}`).fontSize(14).fontColor(MUTED).width('100%')
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           }
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Column() {
@@ -4564,37 +4582,37 @@ struct Index {
       Column({ space: 6 }) {
         Text(this.tr('我的服务')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
           .padding({ left: 8, bottom: 6 })
-        Row({ space: 2 }) {
+        Flex({ wrap: FlexWrap.Wrap }) {
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.person_badge_gearshape')).fontSize(23).fontColor([RED]) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
             Text(this.tr('账号设置')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
-          }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
+          }.width(ringGridWidth(this.pageWidth, this.systemFontScale, 5)).padding(4).constraintSize({ minHeight: 96 }).justifyContent(FlexAlign.Center)
             .onClick(() => this.screen = 'account').id('mine_account').accessibilityText(this.tr('账号设置'))
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.lock_shield')).fontSize(23).fontColor([BLUE]) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(14)
             Text(this.tr('权限管理')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
-          }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
+          }.width(ringGridWidth(this.pageWidth, this.systemFontScale, 5)).padding(4).constraintSize({ minHeight: 96 }).justifyContent(FlexAlign.Center)
             .onClick(() => { this.screen = 'permissions'; this.refreshPermissions(); this.connectPush(false); })
             .id('mine_permissions').accessibilityText(this.tr('权限管理'))
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.questionmark_circle')).fontSize(23).fontColor(['#C98716']) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(GOLD_SOFT).borderRadius(14)
             Text(this.tr('帮助反馈')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
-          }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
+          }.width(ringGridWidth(this.pageWidth, this.systemFontScale, 5)).padding(4).constraintSize({ minHeight: 96 }).justifyContent(FlexAlign.Center)
             .onClick(() => this.screen = 'help').id('mine_help').accessibilityText(this.tr('帮助反馈'))
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.headphones')).fontSize(23).fontColor([GREEN]) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(GREEN_SOFT).borderRadius(14)
             Text(this.tr('联系客服')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
-          }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
+          }.width(ringGridWidth(this.pageWidth, this.systemFontScale, 5)).padding(4).constraintSize({ minHeight: 96 }).justifyContent(FlexAlign.Center)
             .onClick(() => this.openContact()).id('mine_contact').accessibilityText(this.tr('联系客服'))
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.info_circle')).fontSize(23).fontColor([RED]) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
             Text(this.tr('关于我们')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
-          }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
+          }.width(ringGridWidth(this.pageWidth, this.systemFontScale, 5)).padding(4).constraintSize({ minHeight: 96 }).justifyContent(FlexAlign.Center)
             .onClick(() => this.screen = 'about').id('mine_about').accessibilityText(this.tr('关于我们'))
         }.width('100%')
       }.width('100%').padding({ left: 8, right: 8, top: 14, bottom: 8 }).backgroundColor(SURFACE)

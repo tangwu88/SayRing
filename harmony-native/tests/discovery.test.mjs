@@ -62,9 +62,9 @@ test('a verified MAC enriches the same transport row without duplicates or later
   const later=mergeWearableDevices(enriched,[{...fallback,rssi:-45}]);
   assert.equal(later.length,1);assert.equal(later[0].mac,parsed.mac);assert.equal(later[0].rssi,-45);
 });
-test('native discovery follows official UUID filters and merges system-connected HID watches', () => {
+test('native discovery scans all advertisements and merges system-connected HID watches', () => {
   const source=readFileSync(new URL('../entry/src/main/ets/services/VepWearableService.ets',import.meta.url),'utf8');
-  assert.match(source,/getScanFilterUUIDs\(\)/);
+  assert.match(source,/startBLEScan\(null, options\)/);
   assert.match(source,/processScanResults\(results\)/);
   assert.match(source,/hid\.createHidHostProfile\(\)/);
   assert.match(source,/hidProfile\.getConnectedDevices\(\)/);

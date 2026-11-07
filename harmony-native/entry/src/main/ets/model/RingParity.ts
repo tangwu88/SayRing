@@ -1,5 +1,5 @@
 import { ApiError, validateStoredSession } from './Contracts';
-import type { Session } from './Contracts';
+import type { Session, MemberProfile } from './Contracts';
 import { normalizeIdentifier } from './GlobalAuth';
 import type { AuthChannel, GlobalAuthCapabilities, VerificationChallenge } from './GlobalAuth';
 import { careGroupOptions } from './CareContracts';
@@ -14,6 +14,19 @@ export const RING_CUSTOMER_SERVICE: string = 'https://work.weixin.qq.com/kfid/kf
 
 export function ringVerificationCode(value: string): string {
   return value.replace(/[^0-9]/g, '').slice(0, 6);
+}
+
+export function ringMemberNumber(profile: MemberProfile): string {
+  for (const value of [profile.memberNo, profile.promo_code]) {
+    const text = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+    if (/^[1-9][0-9]{0,9}$/.test(text) && Number(text) <= 2147483647) return text;
+  }
+  return '--';
+}
+
+export function ringGridWidth(width: number, fontScale: number, count: number): string {
+  const columns = width < 360 || fontScale > 1.3 ? Math.min(2, count) : Math.min(count > 4 ? 3 : 4, count);
+  return `${100 / Math.max(1, columns)}%`;
 }
 
 export function ringLoginIdentifier(channel: AuthChannel, value: string): string {

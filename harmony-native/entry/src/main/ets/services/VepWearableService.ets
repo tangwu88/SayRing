@@ -28,7 +28,7 @@ import {
   wearableProviderForName
 } from '../model/WearableContracts';
 import { StoredWearableBinding, wearableHealthStore } from './WearableHealthStore';
-import { DiscoveryPacketCache, knownWearableName } from '../model/WearableDiscovery';
+import { DiscoveryPacketCache, knownWearableName, UnavailableRing, isUnavailableRing, mergeUnavailableRings } from '../model/WearableDiscovery';
 import { HealthOwnerSession, HealthSyncResult, recordWithinOwnership, sameHealthSession, validHealthOwner } from '../model/HealthUpload';
 import { HealthUploadService } from './HealthUploadService';
 import { saydianApi } from './SaydianApi';
@@ -65,6 +65,7 @@ interface MeasurementListeners {
 
 export interface WearableServiceListener {
   onDevices?: (devices: WearableDevice[]) => void;
+  onUnavailableRings?: (devices: UnavailableRing[]) => void;
   onPhase?: (phase: WearableConnectionPhase, message: string) => void;
   onSnapshot?: (snapshot: WearableSnapshot) => void;
   onMeasurement?: (measurement: MeasurementState) => void;
@@ -76,6 +77,7 @@ export class VepWearableService {
   private context: common.UIAbilityContext | null = null;
   private listener: WearableServiceListener | null = null;
   private devices: WearableDevice[] = [];
+  private unavailableRings: UnavailableRing[] = [];
   private vepDevices: Map<string, BleDevice> = new Map();
   private yucDevices: Map<string, ble.ScanResult> = new Map();
   private scanPackets: DiscoveryPacketCache = new DiscoveryPacketCache();
@@ -318,6 +320,7 @@ export class VepWearableService {
     this.stopScan();
     const scanGeneration = ++this.scanGeneration;
     this.devices = [];
+    this.unavailableRings = [];
     this.vepDevices.clear();
     this.yucDevices.clear();
     this.scanPackets.clear();
@@ -330,18 +333,8 @@ export class VepWearableService {
         dutyMode: ble.ScanDuty.SCAN_MODE_LOW_LATENCY,
         matchMode: ble.MatchMode.MATCH_MODE_AGGRESSIVE
       };
-      try {
-        // The official SDK demo uses its service UUIDs. The final generic
-        // filter keeps W8/Yuc visible without classifying unrelated devices.
-        const filters: ble.ScanFilter[] = this.sdk.getScanFilterUUIDs()
-          .map((uuid: string): ble.ScanFilter => ({ serviceUuid: uuid }));
-        filters.push({});
-        ble.startBLEScan(filters, options);
-      } catch {
-        // Some Harmony builds reject a generic filter. Vep discovery must still remain available.
-        ble.startBLEScan([{ manufactureId: 0xF8F8 }, { name: 'ET488' },
-          { name: 'SD-Watch-W9' }, { name: 'SD-Watch-W9S' }, { name: 'SD-WATCH-W9S' }], options);
-      }
+      // Official unfiltered foreground discovery; no legacy watch-only fallback.
+      ble.startBLEScan(null, options);
       this.scanning = true;
       this.busyOperation = 'scan';
       this.startSystemConnectedCheck();
@@ -351,10 +344,12 @@ export class VepWearableService {
         // Do not clear the timer that is currently executing. The generation
         // guard prevents a late timeout from stopping a newer scan.
         this.scanTimer = -1;
-        this.stopScan(this.devices.length ? '扫描已完成' : '未收到戒指配对信号，请将戒指充电并靠近手机后重试');
+        this.stopScan(this.devices.length || this.unavailableRings.length ? '扫描已完成' : '未收到戒指配对信号，请将戒指充电并靠近手机后重试');
       }, WEARABLE_SCAN_TIMEOUT_MS);
       return true;
     } catch (error) {
+      try { ble.off('BLEDeviceFind', this.onScanResults); } catch {}
+      try { ble.stopBLEScan(); } catch {}
       this.scanning = false;
       this.busyOperation = '';
       this.emitPhase('error', this.bluetoothError(error as Error, '启动扫描失败'));
@@ -1238,6 +1233,12 @@ export class VepWearableService {
       return { deviceId: result.deviceId, deviceName: packet.name, rssi: packet.rssi,
         connectable: packet.connectable, data: new Uint8Array(packet.data).buffer };
     });
+    const unavailable: UnavailableRing[] = normalized.filter((result: ble.ScanResult) => isUnavailableRing(result.deviceName))
+      .map((result: ble.ScanResult): UnavailableRing => ({ key: result.deviceId, name: result.deviceName, rssi: result.rssi }));
+    if (unavailable.length > 0) {
+      this.unavailableRings = mergeUnavailableRings(this.unavailableRings, unavailable);
+      this.listener?.onUnavailableRings?.(this.unavailableRings.slice());
+    }
     let vepResults: BleDevice[] = [];
     try {
       // Keep the official SDK's input contract intact. ScanResult may contain
@@ -1312,6 +1313,11 @@ export class VepWearableService {
         seen.add(deviceId);
         try {
           const name = connection.getRemoteDeviceName(deviceId);
+          if (isUnavailableRing(name)) {
+            this.unavailableRings = mergeUnavailableRings(this.unavailableRings, [{ key: deviceId, name, rssi: 0 }]);
+            this.listener?.onUnavailableRings?.(this.unavailableRings.slice());
+            return;
+          }
           const provider = knownWearableName(name);
           if (!provider || provider === 'Moyoung') return;
           const descriptor = createWearableDevice(provider, name, deviceId, '', 0, true);
@@ -2435,6 +2441,7 @@ export class VepWearableService {
 
   private emitDevices(): void {
     this.listener?.onDevices?.(this.devices.slice());
+    this.listener?.onUnavailableRings?.(this.unavailableRings.slice());
   }
 
   private emitPhase(phase: WearableConnectionPhase, message: string): void {

@@ -9,6 +9,8 @@ export interface Envelope {
 
 export interface MemberProfile {
   id?: number | string;
+  memberNo?: number | string;
+  promo_code?: number | string;
   nickname?: string;
   username?: string;
   mobile?: string;

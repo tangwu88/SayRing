@@ -9,6 +9,29 @@ export interface DiscoveryPacket {
   data: number[];
 }
 
+// Discovery does not grant a transport or any device capabilities.
+export interface UnavailableRing {
+  key: string;
+  name: string;
+  rssi: number;
+}
+export function isUnavailableRing(name: string): boolean {
+  const value = name.replace(/[\u0000-\u001f\u007f]/g, '').trim().toUpperCase();
+  const compact = value.replace(/[\s_-]/g, '');
+  return /(^|[\s_-])R[0-9]/.test(value) || /^(Q_|O_)/.test(value) || ['R8', 'R21', 'R22', 'R7', 'K80', 'HR01', 'HR05']
+    .some(marker => compact.includes(marker));
+}
+export function mergeUnavailableRings(current: UnavailableRing[], incoming: UnavailableRing[]): UnavailableRing[] {
+  const merged = current.slice();
+  incoming.forEach(ring => {
+    if (!ring.key || !isUnavailableRing(ring.name) || !Number.isFinite(ring.rssi)) return;
+    const index = merged.findIndex(item => item.key === ring.key);
+    if (index >= 0) merged[index] = ring;
+    else if (merged.length < 64) merged.push(ring);
+  });
+  return merged;
+}
+
 interface AdvertisementField { type: number; bytes: number[]; }
 interface CachedPacket { packet: DiscoveryPacket; updatedAt: number; }
 

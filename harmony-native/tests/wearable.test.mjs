@@ -155,7 +155,7 @@ test('scan timeout is bounded and stale timeout callbacks cannot stop a newer sc
   assert.match(service, /private scanGeneration: number = 0/);
   assert.match(service, /scanGeneration !== this\.scanGeneration \|\| !this\.scanning/);
   assert.match(service,
-    /this\.scanTimer = -1;\s*this\.stopScan\(this\.devices\.length \? '扫描已完成' : '未收到戒指配对信号，请将戒指充电并靠近手机后重试'\)/);
+    /this\.scanTimer = -1;\s*this\.stopScan\(this\.devices\.length \|\| this\.unavailableRings\.length \? '扫描已完成' : '未收到戒指配对信号，请将戒指充电并靠近手机后重试'\)/);
   assert.match(page, /TextTimer\(\{ isCountDown: true, count: WEARABLE_SCAN_TIMEOUT_MS/);
   assert.match(page, /if \(this\.wearablePhase === 'scanning'\)/);
   assert.match(page, /elapsedTime \* 1000 < WEARABLE_SCAN_TIMEOUT_MS/);
