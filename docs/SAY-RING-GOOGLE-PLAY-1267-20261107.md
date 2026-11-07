@@ -64,8 +64,22 @@
 
 ## 交付状态（持续补充）
 
-- 2026-11-07：IARC、商品详情和上述发行检查完成。1267已被Google接收，因精确闹钟预检阻挡移出草稿；原签名1268已开始上传。尚未确认正式审核提交，不宣称已上架。
+- 2026-11-07 13:48（Asia/Shanghai）：Google 提交活动记录编号 `1` 已显示“审核中”。包含正式版 `1.0.12（1268）`、四个首发地区、简体中文商品详情和应用内容/类别资料共11项更改。1267只留在制品库，没有提交为正式版。
+- 1268在Google版本页实际通过预检并显示“可以发布了”；已保存并完成“提交11项更改以供审核→将更改内容送审”。发布概览当时仍在进行快速自动检查，成功后进入后续审核，因此不将活动记录“审核中”解读为人工审核通过或公开可下载。
+- 当前Google自管式发布关闭，审核通过后按四个所选地区发布；这是本轮新条目的首发，不涉及已发布用户的地区移除。Apple条目和手机进程均未操作。
+- 最终数据安全已跟随关闭公开评价调整：“其他由用户生成的内容”保留可选第一方反馈收集，不再申报公开评价分享；其他数据流程的实际分享声明保持。
 - 审核访问英文指引已明确默认简体中文、实物戒指要求、没有公开评价或数字报告购买；可选合作伙伴体验测试共享继续关闭。
 - 真机连接、HRV 及型号能力仍以各专项既有证据为限；本轮 Google 渠道功能的宿主验证不能变成新手机/戒指验收。
 
 - 发布期间远端出现另一个独立运动开发分支（c4ab520）。本候选保持本轮开始时已核对的 iOS1263/Android1266 集成基线与固定源码摘要，不在上传后悄悄混入未验收分支；下一轮按正式合并与版本递增流程处理。
+
+## Git与复现
+
+- 运行源码已通过GitHub连接器推送为 `698dee0328f98b5e04eaedbce39a45e16dc69272`，分支为 `codex/google-play-release-1267-20261107`。以两个原远端父提交保留合并历史，没有移动main或其他开发分支。
+- 远端与本地完整树均为 `c54a322e2a10dc58b7e163301290d1594e5a8634`。本地原检查点有独立备份分支；仅在工作树干净、树完全一致时soft对齐远端，不执行hard reset或clean。
+- 最终构建运行内容SHA-256为 `abb02ae06e76ee683318735721303f148924ee760a47c0127cfd44d4dfde5448`，送审后对Git运行源码重算仍一致；后续文档更新不改变制品。
+- 远端新CI：[mobile-ci 42344099966](https://github.com/tangwu88/SayRing/actions/runs/42344099966)，本轮记录时仍在执行；不套用1263或其他分支的旧成功状态。
+- 13:56复查：quality（格式、静态、双时区完整回归和发布脚本检查）已成功，Harmony双时区两项已成功；Android/iOS构建两项仍执行中，尚未写作五项全部通过。当前本机iOS编译阻挡仍如实保留，不能用另一环境尚未完成的CI抵销。
+- 本轮源代码完整静态/回归命令：`dart format --output=none --set-exit-if-changed lib test`、`flutter analyze --no-pub`、`TZ=Asia/Shanghai flutter test --no-pub`、`TZ=UTC flutter test --no-pub`；双时区各2117项。
+- 在原正式签名及已核对生产配置的本机环境中，使用`flutter build appbundle --release --no-pub --target=lib/main.dart --build-name=1.0.12 --build-number=1268 --target-platform=android-arm,android-arm64`，并由私有生产参数文件固定`SAY_RING_DISTRIBUTION_CHANNEL=google-play`。APK/Debug同版本构建，随后执行`./gradlew --offline :app:testDebugUnitTest --no-daemon --max-workers=1`。
+- CI不是Google审批；本机iOS编译阻挡、实体设备待验以及Google批准/公开下载的边界继续保留。
