@@ -33,6 +33,9 @@ final class CoolWearLiveActivity {
                     .equals(Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate())) continue;
             if (latest == null || value.getStarTime() > latest.getStarTime()) latest = value;
         }
-        return latest == null ? null : counters.accept(latest.getStarTime(), latest.getWalkSteps(), latest.getDistance());
+        // Type4 is a current-day cumulative snapshot. Its timestamp advances
+        // with every read; it is not the start of a new activity bucket.
+        long day = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay();
+        return latest == null ? null : counters.accept(day, latest.getWalkSteps(), latest.getDistance());
     }
 }

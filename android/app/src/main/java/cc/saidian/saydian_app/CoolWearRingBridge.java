@@ -253,6 +253,7 @@ public final class CoolWearRingBridge
                             + (bytes == null ? -1 : bytes.length) + ";items=" + itemCount);
                 }
                 if (command == -99) return; // Diagnostic command ACK is never a data/history terminal.
+                if (activeSportMode != null) profileTrace("sport:packet;type=" + type + ";command=" + command + ";items=" + itemCount);
                 if (type == 4 && activeSportMode != null && !sportActivityPaused) {
                     Map<String, Object> live = CoolWearLiveActivity.accept(bytes, sportCounters, System.currentTimeMillis());
                     if (live != null) { live.put("deviceId", connectedId); emit("sportData", live); }
@@ -1663,6 +1664,7 @@ public final class CoolWearRingBridge
     }
 
     private void onHeartValues(List<K6_HeartStruct> values) {
+        if (activeSportMode != null) profileTrace("sport:heart_callback;items=" + values.size());
         if (activeSportMode != null && linkConnected) {
             for (K6_HeartStruct value : values) {
                 int bpm = value.getHeartNums();
@@ -1887,6 +1889,7 @@ public final class CoolWearRingBridge
     private void updateSportHeartStream(boolean enabled) {
         boolean canStart = enabled && functionControl != null
                 && functionControl.isHr_measure_button();
+        profileTrace("sport:heart_stream;requested=" + enabled + ";supported=" + canStart + ";manualBusy=" + (activeMeasurement != null));
         if (canStart == sportHeartStreamStarted) return;
         if (linkConnected && activeMeasurement == null) {
             helper.getSendBlueData().sendHeartRateSwitch(

@@ -51,6 +51,17 @@ class SportSessionCountersTest {
         assertNull(CoolWearLiveActivity.accept(frame(now, 2015).dropLast(1).toByteArray(), state, now))
         assertNull(CoolWearLiveActivity.accept(byteArrayOf(0,0,0), state, now))
     }
+    @Test fun `advancing snapshot timestamps never re-add the daily cumulative total`() {
+        val state = SportSessionCounters()
+        val now = java.time.LocalDate.of(2026, 11, 7).atTime(12, 0)
+            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        assertEquals(0L, CoolWearLiveActivity.accept(frame(now, 1214), state, now)!!["steps"])
+        assertEquals(8L, CoolWearLiveActivity.accept(frame(now + 10000, 1222), state, now + 10000)!!["steps"])
+        assertEquals(8L, CoolWearLiveActivity.accept(frame(now + 20000, 1222), state, now + 20000)!!["steps"])
+        assertEquals(25L, CoolWearLiveActivity.accept(frame(now + 30000, 1239), state, now + 30000)!!["steps"])
+        assertNull(CoolWearLiveActivity.accept(frame(now + 5000, 1218), state, now + 40000))
+        assertEquals(25L, CoolWearLiveActivity.accept(frame(now + 40000, 1239), state, now + 40000)!!["steps"])
+    }
     @Test fun `QRing realtime HR uses SDK named start-stop selectors and unsigned samples`() {
         val start = StartHeartRateReq.getRealtimeHeartRate(StartHeartRateReq.ACTION_START).data
         val stop = StartHeartRateReq.getRealtimeHeartRate(StartHeartRateReq.ACTION_STOP).data
