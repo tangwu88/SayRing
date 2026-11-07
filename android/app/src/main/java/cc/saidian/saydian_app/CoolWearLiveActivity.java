@@ -10,6 +10,12 @@ import ce.com.cenewbluesdk.entity.k6.K6_Sport;
 
 /** Actual SDK rows from a current connection's CRC-verified activity DATA. */
 final class CoolWearLiveActivity {
+    static boolean needsRead(long now, long lastPacket) {
+        return lastPacket <= 0 || now - lastPacket >= 15_000L;
+    }
+    static boolean usesExerciseHeart(String model) {
+        return "R7Ultra".equals(model) || "R7Pro".equals(model);
+    }
     static boolean persistAsHistory(int type, boolean workoutActive) {
         return type == 5 || (type == 4 && !workoutActive);
     }

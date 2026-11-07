@@ -22,6 +22,9 @@ public final class CoolWearVerifiedSyncTest {
     final Main main = new Main();
     final Helper helper = new Helper();
     int progress, passive;
+    // Connection-side SDK operation is independently exercised by the recovery
+    // harness; this clock fixture observes only history request ordering.
+    String activeSportMode;
     String supportedModel(String name) { return name; }
     void emit(String type, Map<String, Object> payload) {
         if (type.equals("healthRecord")) passive++;

@@ -1,5 +1,8 @@
 package cc.saidian.saydian_app;
 
+import java.util.Map;
+import java.util.HashMap;
+
 /** 运行桥接真实清理方法。SDK 双缓存行为另由原 AAR 字节码门禁验证。 */
 public final class CoolWearRecoveryTargetHarness {
     private static final String TAG = "host-test";
@@ -15,7 +18,17 @@ public final class CoolWearRecoveryTargetHarness {
     private boolean resultEmitted;
     private final String businessBinding = "owner-target", systemBond = "system-bond";
     private final int healthRecords = 134;
+    private int disconnectedEvents;
+    private void emit(String type, Map<String, Object> data) {
+        assert "disconnected".equals(type);
+        assert !recoveryTarget.isActive() : "controller notified while SDK recovery still owns transport";
+        assert BleFactory.getInstance().proxy.stored.isEmpty();
+        assert helper.disconnects == 1;
+        assert "authorized-target".equals(data.get("deviceId"));
+        disconnectedEvents++;
+    }
     private void cancelHealthPulse(boolean ignored) { }
+    private void cancelSdkRecoveryLease() { }
     private void resetGesture(String code, String message) { }
     private void hrvDiagnostic(String event, String reason) { }
     static final class Main { void removeCallbacks(Runnable task) { } }
@@ -58,6 +71,19 @@ public final class CoolWearRecoveryTargetHarness {
         return new CoolWearRecoveryTargetHarness();
     }
     public static void main(String[] args) {
+        CoolWearRecoveryTargetHarness lost = fresh();
+        lost.recoveryTarget.activate("authorized-target", lost.recoverySdk);
+        long retired = lost.recoveryTarget.generation();
+        lost.releaseLostConnection("authorized-target");
+        assert lost.disconnectedEvents == 1 && !lost.recoveringConnection;
+        assert !lost.recoveryTarget.acceptCallback(retired, true, lost.recoverySdk);
+        assert lost.helper.disconnects == 1 : "retired callback must not stop a future controller attempt";
+        lost.recoveryTarget.activate("authorized-target", lost.recoverySdk);
+        assert !lost.recoveryTarget.acceptCallback(retired, false, lost.recoverySdk);
+        assert lost.recoveryTarget.acceptCallback(lost.recoveryTarget.generation(), true, lost.recoverySdk);
+        assert lost.helper.disconnects == 1 && lost.recoveryTarget.isActive();
+        assert lost.businessBinding.equals("owner-target") && lost.systemBond.equals("system-bond");
+        assert lost.healthRecords == 134;
         CoolWearRecoveryTargetHarness bridge = fresh();
         bridge.recoveryTarget.activate("authorized-target", bridge.recoverySdk);
         final CoolWearRecoveryTargetHarness first = bridge;

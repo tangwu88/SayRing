@@ -192,6 +192,12 @@ public final class CoolWearRingBridge
     private String activeSportMode;
     private boolean sportHeartStreamStarted;
     private final SportSessionCounters sportCounters = new SportSessionCounters();
+    private long lastSportActivityAt;
+    private final CoolWearRecoveryLease sdkRecoveryLease = new CoolWearRecoveryLease();
+    private Runnable sdkRecoveryDeadline;
+    private String activeSportTargetId;
+    private String pendingSportStopTarget;
+    private Integer pendingSportStopType;
     private Runnable sportActivityPoll;
     private boolean sportActivityPaused;
     private Integer activeSportType;
@@ -256,7 +262,10 @@ public final class CoolWearRingBridge
                 if (activeSportMode != null) profileTrace("sport:packet;type=" + type + ";command=" + command + ";items=" + itemCount);
                 if (type == 4 && activeSportMode != null && !sportActivityPaused) {
                     Map<String, Object> live = CoolWearLiveActivity.accept(bytes, sportCounters, System.currentTimeMillis());
-                    if (live != null) { live.put("deviceId", connectedId); emit("sportData", live); }
+                    if (live != null) {
+                        lastSportActivityAt = SystemClock.elapsedRealtime();
+                        live.put("deviceId", connectedId); emit("sportData", live);
+                    }
                 }
                 // Both SDK types use the same public sport listener, which
                 // loses the distinction between live cumulative snapshots(4)
@@ -352,6 +361,15 @@ public final class CoolWearRingBridge
                     if (values != null) {
                         ArrayList<K6_HeartStruct> snapshot = new ArrayList<>(values);
                         postCurrentPacket(() -> onHeartValues(snapshot));
+                    }
+                    return false;
+                });
+        helper.getRcvDataManager().addBleDataResultListener(
+                K6_Action.RCVD.RCVD_SPORT_HEART,
+                (K6BleDataResult<ArrayList<K6_HeartStruct>>) values -> {
+                    if (values != null) {
+                        ArrayList<K6_HeartStruct> snapshot = new ArrayList<>(values);
+                        postCurrentPacket(() -> emitSportHeartValues(snapshot));
                     }
                     return false;
                 });
@@ -465,7 +483,7 @@ public final class CoolWearRingBridge
         helper.getRcvDataManager().addBleDataResultListener(
                 K6_Action.RCVD.RCVD_APP_SPORT,
                 (K6BleDataResult<K6_SEND_APP_SPORT_STRUCT>) value -> {
-                    if (value != null) main.post(() -> onSportUpdate(value));
+                    if (value != null) postCurrentPacket(() -> onSportUpdate(value));
                     return false;
                 });
         // RCVD_DATA_TYPE_DEV_SYNC is the mixed *settings* envelope in this
@@ -533,6 +551,7 @@ public final class CoolWearRingBridge
     private void lookupSystemTarget(MethodCall call, MethodChannel.Result result, boolean includeConnected) {
         String id = call.argument("id");
         Map<String, Object> candidate = findExactSystemTarget(id, includeConnected);
+        profileTrace("recovery:system_target;includeConnected=" + includeConnected + ";found=" + (candidate != null));
         if (candidate != null) {
             if (includeConnected) candidate.put("ownedSystemTarget", true);
             scanned.put(id, candidate);
@@ -576,6 +595,8 @@ public final class CoolWearRingBridge
     }
 
     private void finishScan() {
+        profileTrace("scan:finished;items=" + scanned.size() + ";exactFound="
+                + (scanExactTargetId != null && scanned.containsKey(scanExactTargetId)));
         ++scanGeneration;
         if (scanDeadline != null) main.removeCallbacks(scanDeadline);
         scanDeadline = null;
@@ -825,6 +846,10 @@ public final class CoolWearRingBridge
             result.error("NOT_CONNECTED", "请先连接戒指", null);
             return;
         }
+        if (activeSportMode != null) {
+            result.error("OPERATION_BUSY", "运动中暂不同步历史数据", null);
+            return;
+        }
         if (!historyObserverReady) {
             result.error("COOLWEAR_HISTORY_UNAVAILABLE", "当前版本无法核验戒指历史数据", null);
             return;
@@ -951,6 +976,7 @@ public final class CoolWearRingBridge
     }
 
     private void failConnect(String code, String message) {
+        cancelSdkRecoveryLease();
         cancelHealthPulse(true);
         resetGesture(code, message);
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
@@ -970,6 +996,7 @@ public final class CoolWearRingBridge
     }
 
     private void pauseSdkRecovery() {
+        cancelSdkRecoveryLease();
         if (helper == null) return;
         try {
             recoveryTarget.pause(recoverySdk);
@@ -1035,6 +1062,9 @@ public final class CoolWearRingBridge
             }
             completeConnectIfReady();
         } else if (status == K6_Action.RCVD.BLUE_DISCONNECT) {
+            boolean retainSport = activeSportMode != null && activeSportType != null
+                    && connectedId != null && connectedId.equalsIgnoreCase(activeSportTargetId)
+                    && CoolWearLiveActivity.usesExerciseHeart(supportedModel(connectedName));
             cancelHealthPulse(false);
             resetGesture("CONNECTION_DROPPED", "戒指连接中断");
             String retiredId = connectedId;
@@ -1048,11 +1078,10 @@ public final class CoolWearRingBridge
             sittingReminder = null;
             drinkingReminder = null;
             clearMeasurementSession("disconnected");
-            activeSportMode = null;
-            activeSportType = null;
+            if (!retainSport) clearSportContext();
             sportHeartStreamStarted = false;
             stopSportActivityPolling();
-            sportCounters.reset();
+            if (!retainSport) sportCounters.reset();
             failPendingSync("CONNECTION_DROPPED", "戒指连接中断，请靠近手机后重试");
             connectionHealthRecords.clear();
             connectionRecordReceipts.clear();
@@ -1060,10 +1089,9 @@ public final class CoolWearRingBridge
             if (pendingConnect != null) {
                 failConnect("COOLWEAR_DISCONNECTED", "戒指连接中断，请靠近手机后重试");
             } else if (retiredId != null) {
-                recoveringConnection = true;
-                Map<String, Object> event = new HashMap<>();
-                event.put("deviceId", retiredId);
-                emit("disconnected", event);
+                if (retainSport || retiredId.equalsIgnoreCase(pendingSportStopTarget)) {
+                    beginSdkSportRecovery(retiredId);
+                } else releaseLostConnection(retiredId);
             }
             Log.i(TAG, "vendor link disconnected");
         }
@@ -1082,10 +1110,75 @@ public final class CoolWearRingBridge
         completeConnectIfReady();
         if (recoveringConnection && pendingConnect == null && linkConnected) {
             recoveringConnection = false;
+            cancelSdkRecoveryLease();
             Log.i(TAG, "vendor link recovered");
             emit("reconnected", deviceDetails());
         }
+        dispatchPendingSportStop();
+        if (linkConnected && activeSportMode != null
+                && connectedId.equalsIgnoreCase(activeSportTargetId)
+                && !sportActivityPaused && sportActivityPoll == null) startSportActivityPolling();
         if (pendingConnect == null && linkConnected) emit("deviceDetails", deviceDetails());
+    }
+
+    private void releaseLostConnection(String retiredId) {
+        // The controller owns exact-account/target restoration. Retire the
+        // SDK's independent reconnect timer before notifying that controller,
+        // otherwise its scan/connect and the SDK can close each other's GATT.
+        recoveringConnection = false;
+        pauseSdkRecovery();
+        Map<String, Object> event = new HashMap<>();
+        event.put("deviceId", retiredId);
+        event.put("recoveryOwner", "controller");
+        emit("disconnected", event);
+    }
+
+    private void clearSportContext() {
+        activeSportMode = null;
+        activeSportType = null;
+        activeSportTargetId = null;
+        sportHeartStreamStarted = false;
+        stopSportActivityPolling();
+    }
+
+    private void cancelSdkRecoveryLease() {
+        if (sdkRecoveryDeadline != null) main.removeCallbacks(sdkRecoveryDeadline);
+        sdkRecoveryDeadline = null;
+        sdkRecoveryLease.clear();
+    }
+
+    private void beginSdkSportRecovery(String target) {
+        final long owner = recoveryTarget.generation();
+        if (!sdkRecoveryLease.begin(target, owner, SystemClock.elapsedRealtime())) return;
+        recoveringConnection = true;
+        Map<String, Object> event = new HashMap<>();
+        event.put("deviceId", target);
+        event.put("recoveryOwner", "native_sdk");
+        emit("disconnected", event);
+        sdkRecoveryDeadline = new Runnable() {
+            @Override public void run() {
+                if (sdkRecoveryDeadline != this || activeBridge != CoolWearRingBridge.this
+                        || !sdkRecoveryLease.matches(target, owner)
+                        || !recoveryTarget.isCurrent(owner) || !recoveryTarget.isActive()) return;
+                // Retire the SDK before asking the controller to scan/connect.
+                linkConnected = false;
+                deviceInfoReceived = false;
+                releaseLostConnection(target);
+            }
+        };
+        main.postDelayed(sdkRecoveryDeadline, CoolWearRecoveryLease.DURATION_MS);
+    }
+
+    private void dispatchPendingSportStop() {
+        if (!linkConnected || !deviceInfoReceived || connectedId == null
+                || pendingSportStopType == null
+                || !connectedId.equalsIgnoreCase(pendingSportStopTarget)) return;
+        int type = pendingSportStopType;
+        pendingSportStopType = null;
+        pendingSportStopTarget = null; // An ambiguous write must not be replayed.
+        try { helper.getSendBlueData().sendAppSport(type,
+                K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_STOP, 0, 0); }
+        catch (RuntimeException error) { Log.w(TAG, "deferred workout stop unconfirmed"); }
     }
 
     private CEBluetoothProxyBase currentReadProxy() {
@@ -1663,7 +1756,7 @@ public final class CoolWearRingBridge
         }
     }
 
-    private void onHeartValues(List<K6_HeartStruct> values) {
+    private void emitSportHeartValues(List<K6_HeartStruct> values) {
         if (activeSportMode != null) profileTrace("sport:heart_callback;items=" + values.size());
         if (activeSportMode != null && linkConnected) {
             for (K6_HeartStruct value : values) {
@@ -1674,11 +1767,16 @@ public final class CoolWearRingBridge
                 if (bpm > 0 && bpm <= 250) {
                     Map<String, Object> payload = new HashMap<>();
                     payload.put("heartRate", bpm);
+                    payload.put("deviceId", connectedId);
                     emit("sportData", payload);
                     break;
                 }
             }
         }
+    }
+
+    private void onHeartValues(List<K6_HeartStruct> values) {
+        emitSportHeartValues(values);
         if (!"heart_rate".equals(activeMeasurement) || resultEmitted || !linkConnected) return;
         Log.i(TAG, "manual heart callback received; sample count=" + values.size());
         for (K6_HeartStruct value : values) {
@@ -1863,9 +1961,13 @@ public final class CoolWearRingBridge
             return;
         }
         helper.getSendBlueData().sendAppSport(type, status, 0, 0);
+        profileTrace("sport:control;status=" + status);
         if (!requiresActive) {
             activeSportType = type;
             activeSportMode = mode;
+            activeSportTargetId = connectedId;
+            pendingSportStopTarget = null;
+            pendingSportStopType = null;
             sportCounters.reset();
         }
         // App-sport control carries only state/time/distance in this SDK.
@@ -1880,15 +1982,17 @@ public final class CoolWearRingBridge
         } else stopSportActivityPolling();
         if (status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_STOP
                 || status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_STOP_FORCE) {
-            activeSportType = null;
-            activeSportMode = null;
+            clearSportContext();
         }
         result.success(null);
     }
 
     private void updateSportHeartStream(boolean enabled) {
         boolean canStart = enabled && functionControl != null
-                && functionControl.isHr_measure_button();
+                && functionControl.isHr_measure_button()
+                // R7 app-sport already produces the SDK's exercise channel(17).
+                // Do not concurrently start its separate manual sensor mode(7).
+                && !CoolWearLiveActivity.usesExerciseHeart(supportedModel(connectedName));
         profileTrace("sport:heart_stream;requested=" + enabled + ";supported=" + canStart + ";manualBusy=" + (activeMeasurement != null));
         if (canStart == sportHeartStreamStarted) return;
         if (linkConnected && activeMeasurement == null) {
@@ -1905,21 +2009,28 @@ public final class CoolWearRingBridge
 
     private void startSportActivityPolling() {
         stopSportActivityPolling();
+        lastSportActivityAt = 0;
         final long epoch = connectionEpoch;
         final String target = connectedId;
         sportActivityPoll = new Runnable() {
             @Override public void run() {
                 if (sportActivityPoll != this || !linkConnected || epoch != connectionEpoch
                         || target == null || !target.equals(connectedId) || activeSportMode == null || sportActivityPaused) return;
-                try { currentReadProxy().sendData(new CEDevData(3, 4)); }
+                try {
+                    if (CoolWearLiveActivity.needsRead(SystemClock.elapsedRealtime(), lastSportActivityAt))
+                        currentReadProxy().sendData(new CEDevData(3, 4));
+                }
                 catch (RuntimeException ignored) { /* Keep the workout; an absent read is not a zero. */ }
                 main.postDelayed(this, 10_000L);
             }
         };
-        main.post(sportActivityPoll);
+        main.postDelayed(sportActivityPoll, 10_000L);
     }
 
     private void onSportUpdate(K6_SEND_APP_SPORT_STRUCT value) {
+        // A delayed running ACK cannot resurrect a locally ended workout.
+        if (activeSportType == null || connectedId == null
+                || !connectedId.equalsIgnoreCase(activeSportTargetId)) return;
         int type = value.getType();
         int status = value.getStatus();
         String mode = CoolWearRecordMapper.sportMode(type);
@@ -1927,18 +2038,21 @@ public final class CoolWearRingBridge
         Map<String, Object> data = new HashMap<>();
         if (value.getTime() > 0) data.put("durationSeconds", value.getTime());
         if (value.getDistance() > 0) data.put("distanceMeters", value.getDistance());
-        if (!data.isEmpty()) emit("sportData", data);
+        if (!data.isEmpty()) {
+            data.put("deviceId", connectedId);
+            emit("sportData", data);
+        }
 
         String state;
         if (status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_STOP
                 || status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_STOP_FORCE) {
             state = "stopped";
             updateSportHeartStream(false);
-            activeSportType = null;
-            activeSportMode = null;
+            clearSportContext();
             stopSportActivityPolling();
         } else {
             activeSportType = type;
+            activeSportTargetId = connectedId;
             if (mode != null) activeSportMode = mode;
             state = status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_PAUSE
                     ? "paused" : "running";
@@ -1949,6 +2063,7 @@ public final class CoolWearRingBridge
         event.put("value", state);
         event.put("state", status);
         event.put("sportType", type);
+        event.put("deviceId", connectedId);
         if (mode != null) event.put("mode", mode);
         emit("sportState", event);
     }
@@ -1983,7 +2098,7 @@ public final class CoolWearRingBridge
         final long eventEpoch = connectionEpoch;
         final String eventTarget = connectedId;
         main.post(() -> {
-            if (("healthRecord".equals(type) || "sportData".equals(type))
+            if (("healthRecord".equals(type) || "sportData".equals(type) || "sportState".equals(type))
                     && (eventEpoch != connectionEpoch || eventTarget == null
                         || !eventTarget.equals(connectedId) || !linkConnected)) return;
             emitOnMain(type, payload);
@@ -2012,6 +2127,17 @@ public final class CoolWearRingBridge
             return;
         }
         try {
+            if ("stopSport".equals(call.method) && !linkConnected
+                    && activeSportType != null && activeSportTargetId != null) {
+                // The user can always finish their phone record while offline.
+                // Preserve one STOP intent for this exact authorized target;
+                // explicit disconnect/account change cancels it below.
+                pendingSportStopTarget = activeSportTargetId;
+                pendingSportStopType = activeSportType;
+                clearSportContext();
+                result.success(null);
+                return;
+            }
             if (!hasBlePermissions()) {
                 result.error("BLE_PERMISSION_REQUIRED", "请允许附近设备权限后重试", null);
                 return;
@@ -2101,6 +2227,9 @@ public final class CoolWearRingBridge
                         result.error("UNKNOWN_SCANNED_DEVICE", "请重新扫描并选择 CoolWear 戒指", null);
                         return;
                     }
+                    boolean retainSportContext = activeSportMode != null
+                            && id.equalsIgnoreCase(activeSportTargetId);
+                    if (recoveringConnection) pauseSdkRecovery();
                     finishScan();
                     resetGesture("CONNECT_CANCELLED", "连接目标已更换");
                     failPendingSync("CONNECT_CANCELLED", "连接目标已更换");
@@ -2122,8 +2251,11 @@ public final class CoolWearRingBridge
                     batteryPercent = null;
                     charging = null;
                     clearMeasurementSession("target_or_connection_changed");
-                    activeSportMode = null;
-                    activeSportType = null;
+                    if (!retainSportContext) clearSportContext();
+                    if (!id.equalsIgnoreCase(pendingSportStopTarget)) {
+                        pendingSportStopTarget = null;
+                        pendingSportStopType = null;
+                    }
                     sportHeartStreamStarted = false;
                     recoveringConnection = false;
                     pendingConnect = result;
@@ -2140,6 +2272,7 @@ public final class CoolWearRingBridge
                     main.postDelayed(connectDeadline, CONNECT_MS);
                     break;
                 case "disconnect":
+                    cancelSdkRecoveryLease();
                     cancelHealthPulse(true);
                     resetGesture("CONNECT_CANCELLED", "连接已断开");
                     finishScan();
@@ -2161,8 +2294,10 @@ public final class CoolWearRingBridge
                     sittingReminder = null;
                     drinkingReminder = null;
                     clearMeasurementSession("target_or_connection_changed");
-                    activeSportMode = null;
-                    activeSportType = null;
+                    clearSportContext();
+                    pendingSportStopTarget = null;
+                    pendingSportStopType = null;
+                    sportCounters.reset();
                     result.success(null);
                     sportHeartStreamStarted = false;
                     break;
@@ -2526,6 +2661,10 @@ public final class CoolWearRingBridge
     }
 
     public void dispose() {
+        cancelSdkRecoveryLease();
+        clearSportContext();
+        pendingSportStopTarget = null;
+        pendingSportStopType = null;
         stopSportActivityPolling();
         clearMeasurementSession("disposed");
         cancelHealthPulse(true);

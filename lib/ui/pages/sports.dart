@@ -561,6 +561,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
   String _locationStatus = '开始后可记录前台户外轨迹';
   bool _allowPop = false;
   bool _finalizingSport = false;
+  bool _hadConnectionGap = false;
   int _trackingGeneration = 0;
 
   @override
@@ -580,6 +581,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
   };
 
   void _handleControllerChange() {
+    if (_startedAt != null && widget.controller.sportConnectionInterrupted) {
+      _hadConnectionGap = true;
+    }
     if (!widget.controller.isWellnessOnly &&
         _startedAt != null &&
         widget.controller.activeSport == widget.mode &&
@@ -629,6 +633,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
     _routePoints.clear();
     _heartRateSamples.clear();
     _routeDistanceKm = 0;
+    _hadConnectionGap = false;
     _locationStatus = _usesPhoneRoute ? '正在准备前台户外轨迹' : '本运动由戒指记录，不启用手机轨迹';
     final trackingGeneration = ++_trackingGeneration;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -677,7 +682,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
       final watchData = Map<String, num>.from(widget.controller.liveSportData);
       final watchDuration = (watchData['durationSeconds'] ?? 0).toInt();
       final watchDistanceMeters = (watchData['distanceMeters'] ?? 0).toDouble();
-      final durationSeconds = watchDuration > 0
+      final durationSeconds = watchDuration > 0 && !_hadConnectionGap
           ? watchDuration
           : _elapsedSeconds;
       if (startedAt != null && durationSeconds > 0) {
@@ -687,7 +692,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
             mode: widget.mode,
             startedAt: startedAt,
             durationSeconds: durationSeconds,
-            distanceKm: watchDistanceMeters > 0
+            distanceKm:
+                watchDistanceMeters > 0 &&
+                    !(_hadConnectionGap && _routePoints.length >= 2)
                 ? watchDistanceMeters / 1000
                 : _routeDistanceKm,
             calories: (watchData['calories'] ?? 0).toDouble(),
@@ -863,7 +870,8 @@ class _SportSessionPageState extends State<SportSessionPage> {
     final paused = active && widget.controller.sportPaused;
     final liveData = widget.controller.liveSportData;
     final watchDistanceKm = (liveData['distanceMeters'] ?? 0).toDouble() / 1000;
-    final liveDistanceKm = watchDistanceKm > 0
+    final liveDistanceKm =
+        watchDistanceKm > 0 && !(_hadConnectionGap && _routePoints.length >= 2)
         ? watchDistanceKm
         : _routeDistanceKm;
     final pace = _sportPaceLabel(_elapsedSeconds, liveDistanceKm);
@@ -964,7 +972,13 @@ class _SportSessionPageState extends State<SportSessionPage> {
             ],
             const SizedBox(height: 18),
             InlineNotice(
-              message: widget.controller.connectedDevice == null
+              message: active && widget.controller.sportConnectionInterrupted
+                  ? (widget.controller.connectedDevice == null
+                        ? (_usesPhoneRoute
+                              ? '正在恢复戒指连接，运动计时和轨迹继续记录'
+                              : '正在恢复戒指连接，运动计时继续记录')
+                        : '戒指已连接，正在恢复运动数据')
+                  : widget.controller.connectedDevice == null
                   ? context.l10n.connectForWorkout
                   : '已连接 ${widget.controller.connectedDevice!.displayName}。$_locationStatus',
               icon: Icons.watch_rounded,

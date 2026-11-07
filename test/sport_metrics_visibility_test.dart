@@ -44,6 +44,8 @@ class _Ui extends Fake implements AppController {
   @override
   bool get sportPaused => false;
   @override
+  bool get sportConnectionInterrupted => false;
+  @override
   bool get isWellnessOnly => false;
   @override
   bool get isSportStarting => false;

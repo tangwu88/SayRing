@@ -9,6 +9,35 @@ import com.oudmon.ble.base.communication.req.StartHeartRateReq
 import com.oudmon.ble.base.communication.rsp.RealTimeHeartRateRsp
 
 class SportSessionCountersTest {
+    @Test fun `SDK recovery lease is bounded and duplicate drops cannot extend it`() {
+        val lease = CoolWearRecoveryLease()
+        assertTrue(lease.begin("AA:BB", 1, 1000))
+        assertFalse(lease.begin("aa:bb", 1, 5000))
+        assertEquals(11000L, lease.remaining(5000))
+        assertEquals(0L, lease.remaining(16000))
+        assertFalse(lease.matches("CC:DD", 1))
+        assertFalse(lease.matches("AA:BB", 2))
+        assertTrue(lease.begin("AA:BB", 2, 17000))
+        assertFalse(lease.matches("AA:BB", 1))
+        lease.clear()
+        assertFalse(lease.matches("AA:BB", 2))
+    }
+    @Test fun `R7 workout consumes the actual SDK exercise channel without a parallel manual measurement`() {
+        assertTrue(CoolWearLiveActivity.usesExerciseHeart("R7Ultra"))
+        assertTrue(CoolWearLiveActivity.usesExerciseHeart("R7Pro"))
+        assertFalse(CoolWearLiveActivity.usesExerciseHeart("HR05"))
+        assertFalse(CoolWearLiveActivity.usesExerciseHeart(null))
+        val exercise = ce.com.cenewbluesdk.proxy.k6AnalysisDevData.AnalysisReceiveDataHelper.BlueProcessBean.ProcessDATA_TYPE_HEART_EXERCISE(null)
+        assertTrue(exercise.isMyStr(ce.com.cenewbluesdk.entity.k6.K6_Action.RCVD.RCVD_SPORT_HEART))
+        assertTrue(exercise.isMy(ce.com.cenewbluesdk.CEBC.K6.DATA_TYPE_EXERCISE_HEART))
+        assertFalse(exercise.isMy(ce.com.cenewbluesdk.CEBC.K6.DATA_TYPE_REAL_HEART))
+    }
+    @Test fun `live device pushes suppress redundant reads but silence permits recovery reads`() {
+        assertTrue(CoolWearLiveActivity.needsRead(10000, 0))
+        assertFalse(CoolWearLiveActivity.needsRead(20000, 19000))
+        assertFalse(CoolWearLiveActivity.needsRead(24999, 10000))
+        assertTrue(CoolWearLiveActivity.needsRead(25000, 10000))
+    }
     @Test fun `late pre-midnight reply cannot be counted as new-day activity`() {
         val state = SportSessionCounters()
         state.acceptReadDay(1, 1, 12000, 6000)
