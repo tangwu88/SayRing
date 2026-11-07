@@ -49,3 +49,13 @@ QRing/LuckRing 无原生鸿蒙 SDK，不能同步 Android/iOS 的厂商连接/�
 - `hdc install <本轮签名HAP>`实际失败：9568322，signature verification failed due to not trusted app source。HDC进程退出0不代表安装成功；安装后bm dump再次确认应用不存在，未声称已安装/启动。
 - 检查本机 .ohos/config 两份开发profile，均仅适用旧产品 cc.saidian.app.hm，不能用于 cn.saydian.ring.hm。未改包名、未借用旧产品身份、未卸载应用、未绕过来源校验。
 - 安装仍待适用于 cn.saydian.ring.hm 且包含本机设备的有效开发profile/配套签名，或官方市场分发。需在DevEco登录所属华为开发者账号生成对应开发签名；本机现有正式包验签成功不等于系统允许HDC侧载。无应用数据/签名密钥/Profile或设备标识提交Git。
+
+## 开发签名安装成功（2026-11-07，续接）
+
+- 用户明确授权直接操作后，发现本机已有 @deveco/deveco-cli 1.3.0-stable，无需安装完整IDE。auth status初始未登录；auth login成功，复用官方登录流程，没有输出会话Token/密码或接受新协议。
+- 登录CLI需要Enter交互；首轮普通管道stdin关闭、第二轮PTY交互未完成、Node管道初轮换行转义错误，改为延迟发送真实LF后成功。失败仅涉及登录交互，不绕过认证。
+- 在原生鸿蒙目录执行 `devecocli signature generate`成功，为当前包和连接设备申请开发签名；先备份build-profile，临时生成的含本机签名配置仅留仓库外，构建finally恢复原文件，Git源码/配置干净。证书/Profile/密钥/设备标识不提交。
+- `hvigorw --mode module -p product=default -p buildMode=debug assembleHap --no-daemon`真实成功（16s684ms），SignHap成功；官方hap-sign-tool verify-app通过。HAP私下保存于 E:\SayRing-harmony-install-20261107\SayRing-1187-9d59a24-device-signed.hap，SHA256 06B4893CB9A4FD78B943EC7737D278A5BD13206E9A80270154D73FD62D1527FB。
+- `hdc install <本轮开发签名HAP>`返回 install bundle successfully；无卸载、无包名替换。`bm dump -n cn.saydian.ring.hm`确认1.0.7（1187）。首次PowerShell解析遇metadata/metaData大小写键冲突，改-AsHashtable后正确读取，不把占位versionCode=0误当实际版本。
+- `hdc shell aa start -a EntryAbility -b cn.saydian.ring.hm`返回start ability successfully，后续pidof确认进程存在；截图实核Say Ring手机号/邮箱密码登录首屏正常。snapshot_display要求.jpeg，首次.png被拒后更正成功，截图仅私下留本机。未自动勾选同意/年龄、登录账号、发送验证码或操作设备设置。
+- 本轮交付为开发签名安装版，源码仍为本轮已验收鸿蒙更新；并非应用市场发布或正式包侧载成功。戒指SDK、登录与健康数据业务验收边界不变。本轮无运行源码改动，不重复上轮已通过的双时区553项测试。
