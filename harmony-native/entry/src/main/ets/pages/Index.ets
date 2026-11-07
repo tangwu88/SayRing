@@ -22,7 +22,7 @@ import { careInboxUnread, mergeCareInbox } from '../model/ForegroundCareNotifica
 import {
   HealthRecord, HealthValue, MeasurementState, SportSessionState, WearableConnectionPhase, WearableDevice, WearableDial,
   WearableMetricKey, WearableSnapshot, WearableSportMode, batteryText, emptyMeasurement, emptySportSession,
-  emptyWearableSnapshot, healthRecordText, latestMetricRecord, sportModeLabel, sportRoutePolyline,
+  emptyWearableSnapshot, healthRecordText, sportModeLabel, sportRoutePolyline,
   wearableIdentifierText, wearableModelText, WEARABLE_SCAN_TIMEOUT_MS
 } from '../model/WearableContracts';
 import { vepWearable, WearableServiceListener } from '../services/VepWearableService';
@@ -41,8 +41,8 @@ import { appLocaleStore } from '../services/AppLocaleStore';
 import { RING_THEME, RING_CUSTOMER_SERVICE, ringLoginIdentifier, ringLoginAvailable, HomeCardLayout, orderedHomeCards,
   ringCareOptions, toggleRingCareGroup } from '../model/RingParity';
 import { homeCardPreferenceStore } from '../services/HomeCardPreferenceStore';
-import { ringMetricVisible, ringTodayActivity, ringActivityText, ringActivityProgress } from '../model/RingHomePresentation';
-import { ringLoginFailure } from '../model/RingParity';
+import { ringMetricVisible, ringDeviceRecords, ringTodayActivity, ringActivityText, ringActivityProgress } from '../model/RingHomePresentation';
+import { ringLoginFailure, ringVerificationCode } from '../model/RingParity';
 import { ReadingNotice, ReadingSettings, defaultReadingSettings } from '../model/ReadingReminders';
 import { personalReadingReminders } from '../services/PersonalReadingReminders';
 import { ReadingReminderPanel, PersonalReadingOverlay } from '../components/ReadingReminderPanel';
@@ -1618,7 +1618,9 @@ struct Index {
     if (!this.wearableSnapshot.connected || !this.wearableCapability('sport') || this.wearableBusy() ||
       this.wearableMeasurement.running || this.sportActive()) return;
     const session = saydianApi.healthSession(), page = this.pageGeneration;
-    const current = (): boolean => page === this.pageGeneration && sameHealthSession(session, saydianApi.healthSession());
+    const target = this.wearableSnapshot.deviceKey;
+    const current = (): boolean => this.screen === 'sport-records' && page === this.pageGeneration &&
+      target === this.wearableSnapshot.deviceKey && sameHealthSession(session, saydianApi.healthSession());
     const synced = await vepWearable.syncHistory();
     if (!current()) return;
     await this.loadSportRecords();
@@ -1727,14 +1729,13 @@ struct Index {
   }
 
   private wearableMetricRecords(metric: WearableMetricKey): HealthRecord[] {
-    return this.wearableSnapshot.records.filter((record: HealthRecord) => record.metric === metric)
-      .sort((a: HealthRecord, b: HealthRecord) => b.timestamp - a.timestamp);
+    return ringDeviceRecords(this.wearableSnapshot.records, this.wearableSnapshot.deviceKey, metric, Date.now());
   }
 
   private wearableLatest(metric: WearableMetricKey): string {
     if (!this.wearableSnapshot.connected) return '暂无记录';
     if (!this.wearableCapability(metric)) return '设备不支持';
-    return this.displayRecord(latestMetricRecord(this.wearableSnapshot.records, metric));
+    return this.displayRecord(this.wearableMetricRecords(metric)[0]);
   }
 
   private wearableMetricTitle(metric: WearableMetricKey): string {
@@ -3245,7 +3246,7 @@ struct Index {
           Row({ space: 10 }) {
             TextInput({ placeholder: '请输入6位验证码', text: this.loginCode }).type(InputType.Number).maxLength(6)
               .layoutWeight(1).height(this.controlHeight(54)).backgroundColor(Color.Transparent)
-              .enabled(!this.busy).onChange((value: string) => this.loginCode = value).id('login_code')
+              .enabled(!this.busy).onChange((value: string) => this.loginCode = ringVerificationCode(value)).id('login_code')
             Button(this.smsCountdown > 0 ? `${this.smsCountdown}秒后重试` : '获取验证码')
               .height(this.controlHeight(48)).fontSize(14).fontColor(RED).backgroundColor(RED_SOFT)
               .enabled(!this.busy && !this.smsBusy && this.smsCountdown === 0 &&
@@ -3337,7 +3338,7 @@ struct Index {
           TextInput({ placeholder: this.tr('验证码'), text: this.registerCode }).type(InputType.Number)
             .width(this.singleColumn() ? '100%' : '58%').height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
             .border({ width: 1, color: OUTLINE }).maxLength(6).enabled(!this.busy)
-            .onChange((value: string) => this.registerCode = value).id('register_code')
+            .onChange((value: string) => this.registerCode = ringVerificationCode(value)).id('register_code')
             .accessibilityText(this.tr('短信验证码'))
           Button(this.tr(this.smsBusy ? '发送中…' : this.smsCountdown > 0 ? `${this.smsCountdown}s` : '获取验证码'))
             .width(this.singleColumn() ? '100%' : '38%').height(this.controlHeight(56)).fontSize(14).fontColor(INK).backgroundColor(SURFACE)
@@ -3472,13 +3473,14 @@ struct Index {
             Text('睡眠概览').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([MUTED])
           }.width('100%')
+          Text('最近一次睡眠').fontSize(13).fontColor(MUTED).width('100%')
+          if (this.wearableMetricRecords('sleep').length > 0) {
+            Text(localDateKey(this.wearableMetricRecords('sleep')[0].timestamp)).fontSize(13).fontColor(MUTED).width('100%')
+          }
           Text(this.wearableLatest('sleep')).fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
         }.width('100%').alignItems(HorizontalAlign.Start).padding(18).backgroundColor('#ECECF3').borderRadius(24)
           .onClick(() => this.openWearableMetric('sleep')).id('home_sleep_overview')
       }
-
-      Button('健康提醒').width('100%').height(50).fontColor(RED).backgroundColor(RED_SOFT).borderRadius(16)
-        .onClick(() => this.openReadingSettings()).id('home_reading_reminders')
 
       if (!this.hideAiContent) {
       Row() {
@@ -4522,6 +4524,15 @@ struct Index {
             .onClick(() => this.openDeviceSearch()).id('mine_add_device').accessibilityText(this.tr('添加设备'))
           Divider().color(LINE).margin({ left: 58 })
         }
+        Row({ space: 12 }) {
+          Column() {
+            SymbolGlyph($r('sys.symbol.heart_fill')).fontSize(23).fontColor([RED])
+          }.width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
+          Text('健康提醒').fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
+        }.width('100%').constraintSize({ minHeight: 70 }).padding({ left: 12, right: 12, top: 10, bottom: 10 })
+          .onClick(() => this.openReadingSettings()).id('mine_reading_reminders').accessibilityText('健康提醒')
+        Divider().color(LINE).margin({ left: 58 })
         if (!this.hideAiContent) {
         Row({ space: 12 }) {
           Column() {
@@ -5538,8 +5549,8 @@ struct Index {
       .onChange((value: string) => { this.resetMobile = value; this.resetChallengeId = ''; this.resetCode = ''; }).id('reset_mobile')
     Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
       TextInput({ text: this.resetCode, placeholder: this.tr('短信验证码') }).type(InputType.Number).height(this.controlHeight(56)).fontSize(16)
-        .width(this.singleColumn() ? '100%' : '58%').maxLength(8).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
-        .enabled(!this.formBusy).onChange((value: string) => this.resetCode = value).id('reset_code')
+        .width(this.singleColumn() ? '100%' : '58%').maxLength(6).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+        .enabled(!this.formBusy).onChange((value: string) => this.resetCode = ringVerificationCode(value)).id('reset_code')
       Button(this.tr(this.smsBusy ? '发送中…' : this.smsCountdown > 0 ? `${this.smsCountdown}s` : '获取验证码'))
         .width(this.singleColumn() ? '100%' : '38%').height(this.controlHeight(56)).fontSize(14).fontColor(INK).backgroundColor(SURFACE)
         .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE }).margin({ top: this.singleColumn() ? 8 : 0 })

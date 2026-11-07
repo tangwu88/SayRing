@@ -45,6 +45,7 @@ test('production sport entry loads saved history offline and record detail retur
 });
 test('production sport sync requires connected supported idle device, but local refresh does not',async()=>{
   const {page,service}=fixture();
+  page.screen='sport-records';page.wearableSnapshot.deviceKey='watchA';
   await page.syncSportRecords();assert.equal(service.syncs,0);
   page.wearableSnapshot.connected=true;page.wearableCapability=()=>false;
   await page.syncSportRecords();assert.equal(service.syncs,0);

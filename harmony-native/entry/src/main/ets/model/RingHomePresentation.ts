@@ -21,13 +21,25 @@ export function ringMetricVisible(snapshot: WearableSnapshot, phase: WearableCon
 }
 
 export interface RingActivitySummary { steps?: number; distance?: number; calories?: number; }
+export function ringDeviceRecords(records: HealthRecord[], deviceKey: string, metric: WearableMetricKey, now: number): HealthRecord[] {
+  if (!deviceKey || !Number.isFinite(now)) return [];
+  return records.filter(record => record.deviceKey === deviceKey && record.metric === metric &&
+    Number.isFinite(record.timestamp) && record.timestamp > 0 && record.timestamp <= now + 1000)
+    .sort((a, b) => b.timestamp - a.timestamp);
+}
 export function ringTodayActivity(records: HealthRecord[], deviceKey: string, now: number): RingActivitySummary {
   if (!deviceKey || !Number.isFinite(now)) return {};
   const day = new Date(now).toDateString();
-  const current = records.filter(record => record.deviceKey === deviceKey && record.metric === 'activity' &&
-    Number.isFinite(record.timestamp) && record.timestamp <= now + 1000 && new Date(record.timestamp).toDateString() === day)
-    .sort((a, b) => b.timestamp - a.timestamp);
-  return ringActivitySummary(current[0]);
+  const current = ringDeviceRecords(records, deviceKey, 'activity', now)
+    .filter(record => new Date(record.timestamp).toDateString() === day);
+  const summary: RingActivitySummary = {};
+  for (const record of current) {
+    const value = ringActivitySummary(record);
+    if (summary.steps === undefined && value.steps !== undefined) summary.steps = value.steps;
+    if (summary.distance === undefined && value.distance !== undefined) summary.distance = value.distance;
+    if (summary.calories === undefined && value.calories !== undefined) summary.calories = value.calories;
+  }
+  return summary;
 }
 export function ringActivitySummary(record: HealthRecord | undefined): RingActivitySummary {
   const summary: RingActivitySummary = {};

@@ -1,0 +1,36 @@
+# 鸿蒙同步 Android/iOS 最新改动（2026-11-07）
+
+## 基线与范围
+
+用户要求按 Android/iOS 最新改动调整鸿蒙。原工作目录 E:\saydian h5 为服务端仓库，分支 codex/local-customer-image-fix-20261028 且存在他人改动；Start-Change.ps1 因不是 main 按规则停止。E:\SayRing 同样有未提交文档，保留两处现场。在 E:\saydian h5\SayRing-harmony 建立独立工作树 codex/harmony-sync-20261107，先读取 origin/main 0e350063d727678b2dab8d9e61abf8edec51fd11，再干净快进到 fetch 后的最新 Android 开发分支 c4ab520（2026-11-07）。main 不是最新开发基线，不推进 main、不改服务端。
+
+已读 AGENTS、INTERNATIONAL-HANDOFF、CHANGE-TEST-LOG、复盘/回归清单及 1187 鸿蒙、1254 睡眠、1259 首页/运动/验证码记录。
+
+对齐范围：今日活动分字段保留最新有效值（部分快照不抹掉其它指标）；所有首页指标按当前目标隔离；最近睡眠明确日期；移除首页提醒入口并保留我的/设备入口；验证码六位数字归一化；运动手动同步迟到结果限本页/本目标。现有运动页已只读本地、设备搜索已每次进入扫描，无需重复改写。保留数值、原始记录、单位、健康权限与 SDK 门禁。
+
+QRing/LuckRing 无原生鸿蒙 SDK，不能同步 Android/iOS 的厂商连接/手势/采集命令，也不能按名字伪造能力。生理周期完整页面不在本轮补建，列为功能差距。无生产密钥、设备数据或产物进入 Git。
+
+## 验证过程
+
+- 修改前 `node --test --test-reporter=dot harmony-native/tests/*.test.mjs`：547 项通过。
+- `ohpm install --all`：执行中，后续补结果。
+- 本轮源码、定向/全量测试、真实 ArkTS 构建和未验收项在完成后追加。
+
+## 最终结果
+
+- 服务端仓库独立 fetch 成功：本地 44054d5302c966646f3b4801f84f042af370c187，origin/main a6257b1fe641546be470b11da727a2f73f05afb3；非 main 且有未提交改动，没有 merge 或改服务端源码。
+- `ohpm install --all` 成功，未改变已跟踪依赖锁文件。
+- 源码编辑最初误用系统 Python 商店入口，未应用修改；取消该轮前置构建，改用 Node 编辑，再完整重建。取消的构建不作为通过证据。
+- 新增 6 项逻辑/生产方法回归：部分活动快照、日期/设备/未来隔离、睡眠隔离、验证码、首页入口及运动迟到结果。定向首轮5/6，发现鸿蒙旧实现没有我的提醒入口，补齐实际入口后通过。
+- 全量首轮 552/553；旧运动测试直接在首页调用同步，与新增页归属约束冲突。夹具改为真实运动记录页和确定目标，保留原断连/不支持/测量中门禁断言。最终 `TZ=UTC node --test --test-reporter=spec harmony-native/tests/*.test.mjs` 和 `TZ=Asia/Shanghai ...` 各553/553，通过，无跳过。
+- `hvigorw --mode project -p product=default -p buildMode=release assembleApp --no-daemon`：真实成功（34s398ms）。最终 `hvigorw --mode module -p product=default -p buildMode=debug assembleHap --no-daemon`：真实成功（17s218ms）。未配置签名，只有 unsigned APP/HAP，不作为可安装发行包或新版本发布。既有第三方资源冲突、弃用API、厂商HAR未混淆、sourceMapsPath警告保留。
+- `git diff --check` 通过；`hdc list targets` 返回 Empty，未安装/卸载、未访问真实健康数据、未发送验证码或改变设备设置。
+- 本轮仅更改鸿蒙 ArkTS/契约与记录，没有修改 Dart/Android/iOS/服务端，因此未重跑 Flutter、Android/iOS 构建或服务端 pnpm/接口/部署脚本检查；不将它们记为通过。
+
+## 尚未验收与差距
+
+鸿蒙真机332dp/两倍字体、声音、登录验证码送达和真实数据刷新均待设备验证；QRing/LuckRing SDK、这些戒指的采集/运动/手势原生联调仍阻断，不能用其他厂商SDK冒充。周期日记及其CSV导出尚无鸿蒙完整模块，本轮不宣称平台功能全量一致。SDK/周期功能差距与本轮已同步的页面/数据保护分别交付。签名安装、下载页和市场发布未执行；版本号保持现有1187避免伪造发行状态。
+
+源码与本日志提交至独立鸿蒙分支；不推进 main，不触发服务端发布。交付提交和远端回执见聊天最终结果，可由分支日志复核。
+
+- 提交前再次 fetch：Android 对照分支仍为 c4ab520；另发现 Google Play 分发分支新提交698dee0并只读核对，其 iOS1263 恢复与 Play 分发/支付更新不适用于原生鸿蒙SDK；该分支的鸿蒙仍含旧热量展示，本轮保留更新的1267/1268隐藏热量行为，不以提交时间覆盖已验收功能。未整分支合并，避免把平台专用发行改动混入鸿蒙交付。

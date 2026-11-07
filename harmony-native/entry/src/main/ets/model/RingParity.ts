@@ -12,6 +12,10 @@ export const RING_THEME = {
 };
 export const RING_CUSTOMER_SERVICE: string = 'https://work.weixin.qq.com/kfid/kfcae32196355fde04c';
 
+export function ringVerificationCode(value: string): string {
+  return value.replace(/[^0-9]/g, '').slice(0, 6);
+}
+
 export function ringLoginIdentifier(channel: AuthChannel, value: string): string {
   if (channel === 'email') return normalizeIdentifier(channel, value);
   const phone = value.trim().replace(/^\+86/, '');
