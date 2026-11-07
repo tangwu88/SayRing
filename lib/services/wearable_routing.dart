@@ -227,6 +227,9 @@ class RoutedWearableBridge
       StreamController<WearableEvent>.broadcast();
   final List<StreamSubscription<WearableEvent>> _subscriptions = [];
   WearableTransport? _activeTransport;
+  // 同一通道也可能换戒指。保留本轮明确目标，旧设备迟到的断开/数据
+  // 不能改变新会话代次；此字段不持久化、不替代账号绑定或实际握手。
+  String? _activeNativeIdentifier;
   int _connectionGeneration = 0;
   int? _activeConnectionGeneration;
   final Map<WearableTransport, int> _sourceConnectionGenerations = {};
@@ -812,6 +815,7 @@ class RoutedWearableBridge
       // 换通道前先撤销旧事件归属；退出期间迟到的断开/恢复回包不能改新连接代次。
       // 这里只停用 SDK 会话，不调用路由解绑，也不清账号保存的恢复目标。
       _activeTransport = null;
+      _activeNativeIdentifier = null;
       _activeConnectionGeneration = null;
     }
     if (previous is WearableExactTargetRecoveryBridge) {
@@ -848,6 +852,7 @@ class RoutedWearableBridge
         contextGeneration == _recoveryContextGeneration &&
         connectionOwnerKey == _recoveryOwnerKey;
     _activeTransport = device.transport;
+    _activeNativeIdentifier = device.nativeIdentifier;
     _activeConnectionGeneration = generation;
     _sourceConnectionGenerations[device.transport] = generation;
     try {
@@ -910,6 +915,7 @@ class RoutedWearableBridge
     } catch (_) {
       if (_activeConnectionGeneration == generation) {
         _activeTransport = null;
+        _activeNativeIdentifier = null;
         _activeConnectionGeneration = null;
       }
       rethrow;
@@ -932,6 +938,7 @@ class RoutedWearableBridge
     }
     if (_activeConnectionGeneration != connectionOwner) return;
     _activeTransport = null;
+    _activeNativeIdentifier = null;
     _activeConnectionGeneration = null;
     if (!requireOwnerScopedBinding &&
         disconnectGeneration == _connectionGeneration) {
@@ -978,6 +985,7 @@ class RoutedWearableBridge
           continue;
         }
         _activeTransport = entry.key;
+        _activeNativeIdentifier = details.id;
         _activeConnectionGeneration = generation;
         return RoutedDevice.fromDevice(entry.key, details).display;
       } on PlatformException catch (error) {
@@ -1054,6 +1062,7 @@ class RoutedWearableBridge
         return null;
       }
       _activeTransport = saved.transport;
+      _activeNativeIdentifier = saved.nativeIdentifier;
       _activeConnectionGeneration = generation;
       _sourceConnectionGenerations[saved.transport] = generation;
       await _armExactRecovery(source, saved, profile);
@@ -1164,6 +1173,7 @@ class RoutedWearableBridge
     if (!WearableDeviceClassifier.routesTo(target.name, transport)) return null;
     final routed = RoutedDevice.fromDevice(transport, target);
     _activeTransport = transport;
+    _activeNativeIdentifier = target.id;
     _activeConnectionGeneration = generation;
     _sourceConnectionGenerations[transport] = generation;
     var timedOut = false;
@@ -1192,7 +1202,10 @@ class RoutedWearableBridge
       await trackedWork.timeout(recoveryOperationTimeout);
     } on TimeoutException {
       timedOut = true;
-      if (_activeConnectionGeneration == generation) _activeTransport = null;
+      if (_activeConnectionGeneration == generation) {
+        _activeTransport = null;
+        _activeNativeIdentifier = null;
+      }
       rethrow;
     } catch (_) {
       _clearRecoveryOwner(transport, generation);
@@ -1226,6 +1239,7 @@ class RoutedWearableBridge
     }
     if (_activeConnectionGeneration == generation) {
       _activeTransport = null;
+      _activeNativeIdentifier = null;
       _activeConnectionGeneration = null;
     }
   }
@@ -1248,7 +1262,10 @@ class RoutedWearableBridge
     final details = await (bridge as WearableDeviceDetailsBridge)
         .getConnectedDeviceDetails();
     if (details == null) {
-      if (bridge is! WearableExactTargetRecoveryBridge) _activeTransport = null;
+      if (bridge is! WearableExactTargetRecoveryBridge) {
+        _activeTransport = null;
+        _activeNativeIdentifier = null;
+      }
       return null;
     }
     return RoutedDevice.fromDevice(transport, details).display;
@@ -1610,9 +1627,6 @@ class RoutedWearableBridge
       return;
     }
     if (transport == _activeTransport) {
-      if (event.type == 'disconnected' || event.type == 'reconnected') {
-        ++_connectionGeneration;
-      }
       if (event.type == 'deviceDetails' ||
           event.type == 'reconnected' ||
           event.type == 'disconnected' ||
@@ -1638,6 +1652,11 @@ class RoutedWearableBridge
           final scopedIdentifier = nativeIdentifier.startsWith(prefix)
               ? nativeIdentifier
               : RoutedDevice.scopedID(transport, nativeIdentifier);
+          final expected = _activeNativeIdentifier;
+          if (expected != null &&
+              scopedIdentifier != RoutedDevice.scopedID(transport, expected)) {
+            return;
+          }
           if (usesPrimaryId && payload.containsKey('id')) {
             payload['id'] = scopedIdentifier;
           }
@@ -1656,6 +1675,12 @@ class RoutedWearableBridge
           } on PlatformException {
             return;
           }
+        }
+        // 必须先校验通道、精确目标和载荷，再改变连接代次。否则被丢弃的
+        // 旧断开通知仍会使正在执行的同步误报“连接已变化”。无标识的原厂
+        // 断开事件沿用原生会话校验，真实断开仍立即使旧读取失效。
+        if (event.type == 'disconnected' || event.type == 'reconnected') {
+          ++_connectionGeneration;
         }
         _eventController.add(WearableEvent(type: event.type, payload: payload));
         return;

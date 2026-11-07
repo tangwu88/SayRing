@@ -223,6 +223,23 @@ int main(int argc, const char *argv[]) {
         } else if ([scenario isEqual:@"healthy"]) {
             b.target.state = CBPeripheralStateConnected; b.resolved = YES; [b attemptRecovery:7];
             Require(b.cancellations == 0 && b.searches == 0, @"Healthy link was disturbed");
+        } else if ([scenario isEqual:@"stale-ended-status"]) {
+            for (NSNumber *status in @[@(ProductStatus_disconnected), @(ProductStatus_powerOff)]) {
+                b = Session(CBPeripheralStateConnected); b.product.status = ProductStatus_completed; b.resolved = YES;
+                [b receiveStatus:status.integerValue];
+                Require(b.cancellations == 0 && b.target != nil && b.disconnectedEvents == 0 && b.recoverySchedules == 0,
+                    @"Delayed ended notification cancelled the already verified live connection");
+            }
+        } else if ([scenario isEqual:@"sdk-ended-live-peripheral"]) {
+            b = Session(CBPeripheralStateConnected); b.product.status = ProductStatus_disconnected; b.resolved = NO;
+            b.holdSDKPeripheral = YES; [b receiveStatus:ProductStatus_disconnected];
+            Require(b.cancelling && b.cancellations == 1 && b.target != nil && b.searches == 0,
+                @"A current SDK disconnect was ignored or physical-close barrier was bypassed");
+        } else if ([scenario isEqual:@"radio-off-live-peripheral"]) {
+            b = Session(CBPeripheralStateConnected); b.product.status = ProductStatus_completed; b.resolved = YES;
+            b.product.state = CBManagerStatePoweredOff; b.holdSDKPeripheral = YES;
+            [b receiveStatus:ProductStatus_powerOff];
+            Require(b.cancelling && b.cancellations == 1, @"Actual Bluetooth power off was ignored");
         } else if ([scenario isEqual:@"ordinary-disconnect"]) {
             for (NSNumber *status in @[@(ProductStatus_disconnected), @(ProductStatus_powerOff)]) {
                 b = Session(CBPeripheralStateDisconnected); [b receiveStatus:status.integerValue];

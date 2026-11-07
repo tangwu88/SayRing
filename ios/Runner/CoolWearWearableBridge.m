@@ -1255,6 +1255,14 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)receiveStatus:(ProductStatus)status {
     [self disableVendorRecovery];
+    // SDK 通知可能先入队、后由主线程处理；期间同一目标已经恢复并完成握手。
+    // 只有蓝牙仍开启、SDK 当前完成且精确外设仍连接时，才丢弃旧结束通知；
+    // 真实 SDK 断开、关蓝牙和取消屏障不能靠旧的“已完成”快照绕过。
+    if ((status == ProductStatus_disconnected || status == ProductStatus_powerOff) &&
+        self.product.state == CBManagerStatePoweredOn && [self isResolved]) {
+        [self connectionNote:@"stale_disconnect_ignored" appInitiated:NO];
+        return;
+    }
     // 未保存 SDK 安装级 UUID 时，原厂对真实断连/连接错误发布 none，
     // 不一定发布 disconnected。必须同时核对外设状态，避免旧 target
     // 永久阻塞恢复；单独的 none 不得打断仍连接或正在连接的外设。

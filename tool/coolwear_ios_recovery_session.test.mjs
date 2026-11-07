@@ -49,6 +49,9 @@ for (const [scenario, title] of [
   ['generation', 'a stale recovery timer cannot retire the current target'],
   ['unconfigured', 'a revoked recovery target cannot start another search'],
   ['healthy', 'a healthy connection neither cancels nor searches'],
+  ['stale-ended-status', 'a delayed disconnected or power-off notice cannot cancel the verified live link'],
+  ['sdk-ended-live-peripheral', 'a current SDK disconnect still cancels even before the peripheral closes'],
+  ['radio-off-live-peripheral', 'real Bluetooth power off is not hidden by a stale completed SDK snapshot'],
   ['ordinary-disconnect', 'ordinary SDK disconnect and Bluetooth power off still recover'],
 ]) {
   test(title, {skip: process.platform !== 'darwin'}, () => {
