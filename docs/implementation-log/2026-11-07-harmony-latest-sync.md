@@ -34,3 +34,10 @@ QRing/LuckRing 无原生鸿蒙 SDK，不能同步 Android/iOS 的厂商连接/�
 源码与本日志提交至独立鸿蒙分支；不推进 main，不触发服务端发布。交付提交和远端回执见聊天最终结果，可由分支日志复核。
 
 - 提交前再次 fetch：Android 对照分支仍为 c4ab520；另发现 Google Play 分发分支新提交698dee0并只读核对，其 iOS1263 恢复与 Play 分发/支付更新不适用于原生鸿蒙SDK；该分支的鸿蒙仍含旧热量展示，本轮保留更新的1267/1268隐藏热量行为，不以提交时间覆盖已验收功能。未整分支合并，避免把平台专用发行改动混入鸿蒙交付。
+
+## 后续检查更新（2026-11-07）
+
+- `git status --short --branch`：鸿蒙工作树干净，本地与 origin/codex/harmony-sync-20261107 均为9d59a2483a5c86a7efb3b01f69fe93f2cc452432；`git remote -v`和`git fetch origin --prune`成功。
+- 最新Android开发更新952819c（运动恢复1269～1273）：相对c4ab520共15文件，涉及Android CoolWear、Flutter控制器/运动页、测试及记录，没有原生Harmony文件。只读核对实施记录，新增15秒恢复租约、真实握手恢复和离线结束依赖现有Android原生SDK；鸿蒙缺该SDK，不移植厂商命令或虚构恢复能力。Android实物运动仍待验收。
+- Google Play分支已到534bffb，为1268分发提交回执；鸿蒙差异仍为旧热量UI，保持当前更新后的隐藏热量实现，不回退。origin/main仍为0e35006旧基线，不能以main覆盖鸿蒙已同步内容。
+- 本次无需修改鸿蒙源码；未重复上轮已通过的553项双时区测试和Debug/Release构建，本次也不将这些历史结果记为重新执行。仅提交本检查记录；签名、真机、QRing/LuckRing SDK及周期日记差距不变。
