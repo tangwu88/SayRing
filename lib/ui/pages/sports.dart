@@ -766,6 +766,48 @@ class _SportSessionPageState extends State<SportSessionPage> {
   bool _isCurrentTrackingGeneration(int generation) =>
       mounted && generation == _trackingGeneration && _startedAt != null;
 
+  void _recordPosition(Position position, int generation) {
+    if (!_isCurrentTrackingGeneration(generation) ||
+        widget.controller.sportPaused) {
+      return;
+    }
+    if (!position.latitude.isFinite ||
+        !position.longitude.isFinite ||
+        position.latitude.abs() > 90 ||
+        position.longitude.abs() > 180 ||
+        (position.latitude == 0 && position.longitude == 0) ||
+        !position.accuracy.isFinite ||
+        position.accuracy < 0 ||
+        position.accuracy > 80) {
+      if (_routePoints.isEmpty) {
+        setState(() => _locationStatus = '定位信号较弱，请在开阔处继续运动');
+      }
+      return;
+    }
+    final point = SportRoutePoint(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      recordedAt: position.timestamp,
+      accuracy: position.accuracy,
+    );
+    if (_routePoints.isNotEmpty) {
+      final previous = _routePoints.last;
+      if (!point.recordedAt.isAfter(previous.recordedAt)) return;
+      final meters = Geolocator.distanceBetween(
+        previous.latitude,
+        previous.longitude,
+        point.latitude,
+        point.longitude,
+      );
+      if (meters < 5 || meters >= 500) return;
+      _routeDistanceKm += meters / 1000;
+    }
+    setState(() {
+      _routePoints.add(point);
+      _locationStatus = '正在记录前台户外轨迹';
+    });
+  }
+
   Future<void> _startLocationTracking(int generation) async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       if (_isCurrentTrackingGeneration(generation)) {
@@ -792,37 +834,26 @@ class _SportSessionPageState extends State<SportSessionPage> {
             distanceFilter: 5,
           ),
         ).listen(
-          (position) {
-            if (position.accuracy > 80 ||
-                !_isCurrentTrackingGeneration(generation) ||
-                widget.controller.sportPaused) {
-              return;
-            }
-            final point = SportRoutePoint(
-              latitude: position.latitude,
-              longitude: position.longitude,
-              recordedAt: position.timestamp,
-              accuracy: position.accuracy,
-            );
-            if (_routePoints.isNotEmpty) {
-              final previous = _routePoints.last;
-              final meters = Geolocator.distanceBetween(
-                previous.latitude,
-                previous.longitude,
-                point.latitude,
-                point.longitude,
-              );
-              if (meters >= 500) return;
-              _routeDistanceKm += meters / 1000;
-            }
-            setState(() => _routePoints.add(point));
-          },
+          (position) => _recordPosition(position, generation),
           onError: (_) {
             if (_isCurrentTrackingGeneration(generation)) {
               setState(() => _locationStatus = '轨迹读取中断，戒指运动仍在继续');
             }
           },
         );
+    try {
+      final first = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 20),
+        ),
+      );
+      _recordPosition(first, generation);
+    } catch (_) {
+      if (_isCurrentTrackingGeneration(generation) && _routePoints.isEmpty) {
+        setState(() => _locationStatus = '正在获取位置，请在开阔处继续运动');
+      }
+    }
   }
 
   @override
@@ -928,22 +959,8 @@ class _SportSessionPageState extends State<SportSessionPage> {
                           : '--',
                     ),
                   _SportLiveMetric(label: '平均配速', value: pace),
-                  _SportLiveMetric(
-                    label: context.l10n.watchCalories,
-                    value: liveData['calories'] == null
-                        ? '--'
-                        : '${liveData['calories']!.toDouble().toStringAsFixed(1)} kcal',
-                  ),
                 ],
               ),
-              if (liveData['calories'] == null &&
-                  widget.controller.connectedDevice?.model == 'HR05') ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'HR05 运动实时协议未回传热量；结束后同步戒指记录查看，不显示估算值。',
-                  style: TextStyle(color: SaydianColors.muted, fontSize: 12),
-                ),
-              ],
             ],
             const SizedBox(height: 18),
             InlineNotice(
@@ -953,7 +970,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
               icon: Icons.watch_rounded,
               color: SaydianColors.blue,
             ),
-            if (_routePoints.isNotEmpty) ...[
+            if (_routePoints.isNotEmpty || (_usesPhoneRoute && active)) ...[
               const SizedBox(height: 14),
               SportRoutePreview(
                 points: _routePoints,
@@ -1261,8 +1278,7 @@ class _SportRecordTile extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w800),
         ),
         subtitle: Text(
-          '${record.missingMetrics.contains('distanceKm') ? '--' : distance.toStringAsFixed(2)} $distanceUnit · '
-          '${record.missingMetrics.contains('calories') ? '--' : record.calories.toStringAsFixed(1)} 千卡 · $durationText',
+          '${record.missingMetrics.contains('distanceKm') ? '--' : distance.toStringAsFixed(2)} $distanceUnit · $durationText',
         ),
         trailing: Text(
           record.startedAt == null
@@ -1332,14 +1348,6 @@ class SportRecordDetailPage extends StatelessWidget {
                         : '${distance.toStringAsFixed(2)} $unit',
                   ),
                 ),
-                if (!record.missingMetrics.contains('calories') &&
-                    record.calories > 0) ...[
-                  const Divider(indent: 16),
-                  ListTile(
-                    title: Text(context.l10n.calories),
-                    trailing: Text('${record.calories.toStringAsFixed(1)} 千卡'),
-                  ),
-                ],
                 if (record.steps > 0) ...[
                   const Divider(indent: 16),
                   ListTile(
@@ -1477,7 +1485,11 @@ class _SportRoutePreviewState extends State<SportRoutePreview> {
             snapshot.connectionState != ConnectionState.done
                 ? '正在加载地图'
                 : snapshot.hasError || snapshot.data == null
-                ? (widget.points.length >= 2 ? '地图暂不可用，已显示轨迹' : '等待更多定位点')
+                ? (widget.points.isEmpty
+                      ? '正在获取运动位置'
+                      : widget.points.length >= 2
+                      ? '地图暂不可用，已显示轨迹'
+                      : '地图暂不可用，请稍后重试')
                 : '地图来源：高德地图',
           ),
         );
@@ -1509,7 +1521,7 @@ class _SportRoutePreviewState extends State<SportRoutePreview> {
             ),
           ),
         ),
-        if (widget.controller != null && widget.points.length >= 2)
+        if (widget.controller != null && widget.points.isNotEmpty)
           TextButton.icon(
             key: const Key('sport-route-map-retry'),
             onPressed: () => setState(_loadMap),

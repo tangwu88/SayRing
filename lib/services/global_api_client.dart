@@ -642,12 +642,19 @@ class GlobalSaydianApiClient extends SaydianApiClient
   Future<Uint8List> loadGlobalSportRouteMap(
     List<SportRoutePoint> points,
   ) async {
-    if (points.length < 2) throw const ApiException('运动轨迹点不足');
-    final sampled = points.length <= 80
-        ? points
+    if (points.isEmpty) throw const ApiException('正在获取运动位置');
+    // The existing renderer requires a pair. Repeating a single centre only
+    // requests its base map; never add this rendering pair to the saved route
+    // or use it to calculate distance, pace or a second location observation.
+    final renderPoints = points.length == 1
+        ? [points.single, points.single]
+        : points;
+    final sampled = renderPoints.length <= 80
+        ? renderPoints
         : List<SportRoutePoint>.generate(
             80,
-            (index) => points[(index * (points.length - 1) / 79).round()],
+            (index) =>
+                renderPoints[(index * (renderPoints.length - 1) / 79).round()],
           );
     final response = await _authorizedPostJsonWithTimeout(
       '/api/saydian-app/v2/support/sport-route-map',

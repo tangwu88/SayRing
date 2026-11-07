@@ -33,6 +33,9 @@ import com.oudmon.ble.base.communication.Constants;
 import com.oudmon.ble.base.communication.bigData.BloodOxygenEntity;
 import com.oudmon.ble.base.communication.bigData.bean.IntervalTemperatureEntity;
 import com.oudmon.ble.base.communication.entity.BleStepDetails;
+import com.oudmon.ble.base.communication.entity.BleStepTotal;
+import com.oudmon.ble.base.communication.req.StartHeartRateReq;
+import com.oudmon.ble.base.communication.rsp.RealTimeHeartRateRsp;
 import com.oudmon.ble.base.communication.req.BloodOxygenSettingReq;
 import com.oudmon.ble.base.communication.req.BaseReqCmd;
 import com.oudmon.ble.base.communication.req.CameraReq;
@@ -127,6 +130,10 @@ public final class QRingBridge
     private int measurementOperation;
     private String activeSportMode;
     private Integer activeSportType;
+    private final SportSessionCounters sportCounters = new SportSessionCounters();
+    private Runnable sportPoll;
+    private int sportLiveGeneration;
+    private boolean sportHeartEnabled;
     private boolean manualResultEmitted;
     private Boolean autoHeart;
     private Boolean autoOxygen;
@@ -721,6 +728,7 @@ public final class QRingBridge
     }
 
     private void finishDisconnectedSession() {
+        stopSportLive(false);
         resetRemoteCamera();
         finishCamera(null, "QRING_DISCONNECTED", "戒指已断开");
         String retired = connectedId;
@@ -1683,6 +1691,7 @@ public final class QRingBridge
                     }
                     activeSportMode = mode;
                     activeSportType = type;
+                    startSportLive();
                     Map<String, Object> event = new HashMap<>();
                     event.put("value", "running");
                     event.put("mode", mode);
@@ -1712,12 +1721,94 @@ public final class QRingBridge
                     }
                     activeSportMode = null;
                     activeSportType = null;
+                    stopSportLive(true);
                     Map<String, Object> event = new HashMap<>();
                     event.put("value", "stopped");
                     event.put("mode", mode == null ? "" : mode);
                     emit("sportState", event);
                     result.success(null);
                 }));
+    }
+
+    private void stopSportLive(boolean sendStop) {
+        sportLiveGeneration++;
+        if (sportPoll != null) main.removeCallbacks(sportPoll);
+        sportPoll = null;
+        manager.removeNotifyListener(Constants.CMD_REAL_TIME_HEART_RATE);
+        if (sportHeartEnabled && sendStop && resolved()) {
+            try {
+                CommandHandle.getInstance().executeReqCmdNoCallback(
+                        StartHeartRateReq.getRealtimeHeartRate(StartHeartRateReq.ACTION_STOP));
+            } catch (RuntimeException ignored) { /* No physical command replay. */ }
+        }
+        sportHeartEnabled = false;
+        sportCounters.reset();
+    }
+
+    private void startSportLive() {
+        stopSportLive(false);
+        final int operation = sportLiveGeneration, connection = connectionGeneration;
+        final String id = connectedId, context = recoveryContext;
+        if (setTimeFlags != null && (setTimeFlags.supportsHeartRate()
+                || supportFlags.supportHeart || supportFlags.supportIntervalHeartRate)) {
+            sportHeartEnabled = manager.addNotifyListener(Constants.CMD_REAL_TIME_HEART_RATE,
+                    (ICommandResponse<RealTimeHeartRateRsp>) response -> main.post(() -> {
+                        if (sportLiveCurrent(operation, connection, id, context) && response != null
+                                && response.getStatus() == BaseRspCmd.RESULT_OK) emitSportHeart(response.getHeart() & 255);
+                    }));
+            if (sportHeartEnabled) {
+                // Named public SDK API: type6 realtime HR with START/STOP, not
+                // an inferred RealTimeHeartRate(int) selector or manual result.
+                try {
+                    CommandHandle.getInstance().executeReqCmd(
+                            StartHeartRateReq.getRealtimeHeartRate(StartHeartRateReq.ACTION_START),
+                            (ICommandResponse<StartHeartRateRsp>) response -> main.post(() -> {
+                                if (sportLiveCurrent(operation, connection, id, context)
+                                        && !measurementFailed(response)) emitSportHeart(response.getHeartRate());
+                            }));
+                } catch (RuntimeException ignored) { /* Workout remains valid without a reading. */ }
+            }
+        }
+        sportPoll = new Runnable() {
+            @Override public void run() {
+                if (sportPoll != this || !sportLiveCurrent(operation, connection, id, context)) return;
+                final Runnable self = this;
+                final long requestedDay = java.time.LocalDate.now().toEpochDay() + 1;
+                manager.getTodayStepTotal(new BleOperateManager.HealthDataCallback<BleStepTotal>() {
+                    @Override public void onSuccess(BleStepTotal value) {
+                        main.post(() -> {
+                            if (sportPoll != self || !sportLiveCurrent(operation, connection, id, context)) return;
+                            if (value != null) {
+                                Map<String, Object> data = sportCounters.acceptReadDay(
+                                        requestedDay, java.time.LocalDate.now().toEpochDay() + 1,
+                                        value.getTotalSteps(), value.getWalkDistance());
+                                if (data != null) { data.put("deviceId", id); emit("sportData", data); }
+                            }
+                            main.postDelayed(self, 10_000L);
+                        });
+                    }
+                    @Override public void onError(int code, String message) {
+                        main.post(() -> {
+                            if (sportPoll == self && sportLiveCurrent(operation, connection, id, context))
+                                main.postDelayed(self, 10_000L);
+                        });
+                    }
+                });
+            }
+        };
+        main.post(sportPoll);
+    }
+
+    private boolean sportLiveCurrent(int operation, int connection, String id, String context) {
+        return operation == sportLiveGeneration && activeSportType != null
+                && isCurrentConnection(connection, id) && java.util.Objects.equals(context, recoveryContext);
+    }
+
+    private void emitSportHeart(int bpm) {
+        if (bpm < 20 || bpm > 250) return;
+        Map<String, Object> value = new HashMap<>();
+        value.put("deviceId", connectedId); value.put("heartRate", bpm);
+        emit("sportData", value);
     }
 
     private void readSportRecords(MethodChannel.Result result) {
@@ -2389,6 +2480,7 @@ public final class QRingBridge
     }
 
     public void dispose() {
+        stopSportLive(true);
         resetRemoteCamera();
         finishCamera(null, "BRIDGE_DISPOSED", "戒指通信已关闭");
         recoveryTargetId = null;

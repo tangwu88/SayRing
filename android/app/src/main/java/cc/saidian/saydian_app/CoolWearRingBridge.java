@@ -51,7 +51,6 @@ import ce.com.cenewbluesdk.entity.k6.K6_HrvStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_Mix_sport_Struct;
 import ce.com.cenewbluesdk.entity.k6.K6_MessageNoticeStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_SEND_APP_SPORT_STRUCT;
-import ce.com.cenewbluesdk.entity.k6.K6_Sport;
 import ce.com.cenewbluesdk.entity.k6.K6_SittingRemind;
 import ce.com.cenewbluesdk.entity.k6.K6_StressStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_TempStruct;
@@ -192,6 +191,9 @@ public final class CoolWearRingBridge
     private boolean historyObserverReady;
     private String activeSportMode;
     private boolean sportHeartStreamStarted;
+    private final SportSessionCounters sportCounters = new SportSessionCounters();
+    private Runnable sportActivityPoll;
+    private boolean sportActivityPaused;
     private Integer activeSportType;
 
     public CoolWearRingBridge(Activity activity, BinaryMessenger messenger) {
@@ -251,6 +253,18 @@ public final class CoolWearRingBridge
                             + (bytes == null ? -1 : bytes.length) + ";items=" + itemCount);
                 }
                 if (command == -99) return; // Diagnostic command ACK is never a data/history terminal.
+                if (type == 4 && activeSportMode != null && !sportActivityPaused) {
+                    Map<String, Object> live = CoolWearLiveActivity.accept(bytes, sportCounters, System.currentTimeMillis());
+                    if (live != null) { live.put("deviceId", connectedId); emit("sportData", live); }
+                }
+                // Both SDK types use the same public sport listener, which
+                // loses the distinction between live cumulative snapshots(4)
+                // and interval history(5). Preserve type-5 history at all times;
+                // workout polling snapshots must never inflate daily history.
+                if (CoolWearLiveActivity.persistAsHistory(type, activeSportMode != null)) {
+                    collectHealth(CoolWearRecordMapper.activityRecords(
+                            connectedId, firmwareVersion, CoolWearLiveActivity.rows(bytes)));
+                }
                 if (BuildConfig.DEBUG) {
                     String evidence = CoolWearProtocolEvidence.describe(type, itemLength, itemCount, bytes);
                     if (evidence != null) Log.i(TAG, evidence);
@@ -366,32 +380,6 @@ public final class CoolWearRingBridge
                         ArrayList<K6_DATA_TYPE_REAL_O2> snapshot = new ArrayList<>(values);
                         postHealthPacket(() -> CoolWearRecordMapper.oxygenRecords(
                                 connectedId, firmwareVersion, snapshot));
-                    }
-                    return false;
-                });
-        helper.getRcvDataManager().addBleDataResultListener(
-                K6_Action.RCVD.RCVD_SPORT_DATA,
-                (K6BleDataResult<ArrayList<K6_Sport>>) values -> {
-                    if (values != null) {
-                        ArrayList<K6_Sport> snapshot = new ArrayList<>(values);
-                        postHistoryPacket(() -> {
-                            List<Map<String, Object>> records = CoolWearRecordMapper.activityRecords(
-                                    connectedId, firmwareVersion, snapshot);
-                            Log.i(TAG, "activity packet received; entries=" + snapshot.size()
-                                    + ", valid records=" + records.size());
-                            if (records.isEmpty() && !snapshot.isEmpty()) {
-                                boolean dated = false, positive = false;
-                                for (K6_Sport item : snapshot) {
-                                    if (item == null) continue;
-                                    dated |= CoolWearRecordMapper.historyTimestamp(item.getStarTime()) > 0;
-                                    positive |= item.getWalkSteps() > 0 || item.getDistance() > 0
-                                            || item.getCalories() > 0;
-                                }
-                                profileTrace("activity rejected; validDate=" + dated
-                                        + "; positiveCounters=" + positive);
-                            }
-                            collectHealth(records);
-                        });
                     }
                     return false;
                 });
@@ -1062,6 +1050,8 @@ public final class CoolWearRingBridge
             activeSportMode = null;
             activeSportType = null;
             sportHeartStreamStarted = false;
+            stopSportActivityPolling();
+            sportCounters.reset();
             failPendingSync("CONNECTION_DROPPED", "戒指连接中断，请靠近手机后重试");
             connectionHealthRecords.clear();
             connectionRecordReceipts.clear();
@@ -1433,8 +1423,11 @@ public final class CoolWearRingBridge
                 manual.add("blood_oxygen");
             }
             if (flags.isHasHrvSupported()) {
-                metrics.add("hrv");
-                if (hrvRealtimeListenerReady) manual.add("hrv");
+                String model = supportedModel(connectedName);
+                if (!"R7Ultra".equals(model) && !"R7Pro".equals(model)) {
+                    metrics.add("hrv");
+                    if (hrvRealtimeListenerReady) manual.add("hrv");
+                }
                 // The vendor SDK exposes pressure as an HRV-derived algorithm
                 // and does not publish a separate pressure capability bit.
                 metrics.add("stress");
@@ -1871,11 +1864,18 @@ public final class CoolWearRingBridge
         if (!requiresActive) {
             activeSportType = type;
             activeSportMode = mode;
+            sportCounters.reset();
         }
         // App-sport control carries only state/time/distance in this SDK.
         // Open the documented HR channel explicitly, not a fake sport field.
         updateSportHeartStream(status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_START
                 || status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_CONTINUE);
+        sportActivityPaused = status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_PAUSE;
+        if (status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_START
+                || status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_CONTINUE) {
+            if (requiresActive) sportCounters.rebase();
+            startSportActivityPolling();
+        } else stopSportActivityPolling();
         if (status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_STOP
                 || status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_STOP_FORCE) {
             activeSportType = null;
@@ -1895,6 +1895,27 @@ public final class CoolWearRingBridge
         sportHeartStreamStarted = canStart;
     }
 
+    private void stopSportActivityPolling() {
+        if (sportActivityPoll != null) main.removeCallbacks(sportActivityPoll);
+        sportActivityPoll = null;
+    }
+
+    private void startSportActivityPolling() {
+        stopSportActivityPolling();
+        final long epoch = connectionEpoch;
+        final String target = connectedId;
+        sportActivityPoll = new Runnable() {
+            @Override public void run() {
+                if (sportActivityPoll != this || !linkConnected || epoch != connectionEpoch
+                        || target == null || !target.equals(connectedId) || activeSportMode == null || sportActivityPaused) return;
+                try { currentReadProxy().sendData(new CEDevData(3, 4)); }
+                catch (RuntimeException ignored) { /* Keep the workout; an absent read is not a zero. */ }
+                main.postDelayed(this, 10_000L);
+            }
+        };
+        main.post(sportActivityPoll);
+    }
+
     private void onSportUpdate(K6_SEND_APP_SPORT_STRUCT value) {
         int type = value.getType();
         int status = value.getStatus();
@@ -1912,11 +1933,14 @@ public final class CoolWearRingBridge
             updateSportHeartStream(false);
             activeSportType = null;
             activeSportMode = null;
+            stopSportActivityPolling();
         } else {
             activeSportType = type;
             if (mode != null) activeSportMode = mode;
             state = status == K6_SEND_APP_SPORT_STRUCT.SPORT_STATUS_PAUSE
                     ? "paused" : "running";
+            sportActivityPaused = "paused".equals(state);
+            if (sportActivityPaused) { stopSportActivityPolling(); sportCounters.rebase(); }
         }
         Map<String, Object> event = new HashMap<>();
         event.put("value", state);
@@ -2499,6 +2523,7 @@ public final class CoolWearRingBridge
     }
 
     public void dispose() {
+        stopSportActivityPolling();
         clearMeasurementSession("disposed");
         cancelHealthPulse(true);
         resetGesture("BRIDGE_DISPOSED", "戒指连接已关闭");

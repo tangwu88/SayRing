@@ -101,6 +101,8 @@ public final class QRingDisconnectHarness {
     MethodChannel.Result pendingConnect, pendingDisconnect;
     Runnable recoveryRetry = () -> {}, connectDeadline = () -> {};
     void resetRemoteCamera() { cameraResets++; }
+    int sportLiveStops;
+    void stopSportLive(boolean sendStop) { check(!sendStop); sportLiveStops++; }
     void finishCamera(Object value, String code, String message) { }
     void failPendingSync(String code, String message) { syncCancellations++; }
     void startAutomaticRecovery() { throw new AssertionError("Disconnect assertion failed: recovery was disarmed"); }
@@ -189,7 +191,7 @@ public final class QRingDisconnectHarness {
         Intent disconnected = new Intent(BleAction.BLE_GATT_DISCONNECTED, b.connectedId);
         disconnected.extras.put(BleAction.EXTRA_DEVICE, new BluetoothDevice(b.connectedId));
         b.onSdkBroadcast(disconnected);
-        check(b.connectedId == null && b.events.equals(List.of("disconnected")) && b.cameraResets == 1);
+        check(b.connectedId == null && b.events.equals(List.of("disconnected")) && b.cameraResets == 1 && b.sportLiveStops == 1);
         System.out.println("Production Android disconnect assertions: " + checks);
     }
 }

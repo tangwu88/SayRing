@@ -330,21 +330,52 @@ class AppController extends ChangeNotifier {
       (feature == DeviceFeature.healthReminders &&
           connectedDevice?.id.startsWith('coolwear:') == true);
 
+  bool _currentRingAllowsMetric(HealthMetric metric) {
+    final device = connectedDevice;
+    if (metric != HealthMetric.hrv ||
+        device == null ||
+        device.sdkSource != WearableSdkSource.coolwear) {
+      return true;
+    }
+    final model = WearableDeviceClassifier.coolwearModelForName(
+      device.model ?? device.name,
+    );
+    // Negative product restriction only. R8 still needs its real QRing
+    // capability/manual flags; a model name never grants a sensor function.
+    return model != 'R7Ultra' && model != 'R7Pro';
+  }
+
   DeviceCapabilities _releaseCapabilities(DeviceCapabilities value) {
-    if (!isWellnessOnly) return value;
+    if (!isWellnessOnly && _currentRingAllowsMetric(HealthMetric.hrv)) {
+      return value;
+    }
     return DeviceCapabilities.fromMap({
       ...value.toJson(),
       'metrics': value.metrics
-          .where(isMetricAvailableInRelease)
+          .where(
+            (metric) =>
+                isMetricAvailableInRelease(metric) &&
+                _currentRingAllowsMetric(metric),
+          )
           .map((m) => m.wireName)
           .toList(),
-      'manualMetrics': (value.manualMetrics ?? const <HealthMetric>{})
-          .where(healthReleasePolicy.allowsManualMeasurement)
-          .map((metric) => metric.wireName)
-          .toList(),
+      'manualMetrics':
+          (value.manualMetrics ??
+                  (isWellnessOnly ? const <HealthMetric>{} : value.metrics))
+              .where(
+                (metric) =>
+                    healthReleasePolicy.allowsManualMeasurement(metric) &&
+                    _currentRingAllowsMetric(metric),
+              )
+              .map((metric) => metric.wireName)
+              .toList(),
       if (value.historyMetrics != null)
         'historyMetrics': value.historyMetrics!
-            .where(isMetricAvailableInRelease)
+            .where(
+              (metric) =>
+                  isMetricAvailableInRelease(metric) &&
+                  _currentRingAllowsMetric(metric),
+            )
             .map((m) => m.wireName)
             .toList(),
       'features': value.features
@@ -459,7 +490,7 @@ class AppController extends ChangeNotifier {
 
   Future<Uint8List?> loadSportRouteMap(List<SportRoutePoint> points) async {
     final api = _api;
-    if (!isGlobalEdition || api is! GlobalSupportApi || points.length < 2) {
+    if (!isGlobalEdition || api is! GlobalSupportApi || points.isEmpty) {
       return null;
     }
     final supportApi = api as GlobalSupportApi;
@@ -1616,6 +1647,7 @@ class AppController extends ChangeNotifier {
 
   bool shouldShowHealthMetric(HealthMetric metric) =>
       isMetricAvailableInRelease(metric) &&
+      _currentRingAllowsMetric(metric) &&
       connectedDevice != null &&
       _hasResolvedDeviceCapabilities &&
       capabilities?.supports(metric) == true;
@@ -1719,6 +1751,7 @@ class AppController extends ChangeNotifier {
 
   bool canMeasureHealthMetric(HealthMetric metric) =>
       healthReleasePolicy.allowsManualMeasurement(metric) &&
+      _currentRingAllowsMetric(metric) &&
       connectedDevice != null &&
       _hasResolvedDeviceCapabilities &&
       capabilities?.supportsManualMeasurement(metric) == true;
@@ -4620,7 +4653,8 @@ class AppController extends ChangeNotifier {
     if (connectedDevice == null) {
       return reject('请先连接戒指');
     }
-    if (!(capabilities?.supportsManualMeasurement(metric) ?? false)) {
+    if (!_currentRingAllowsMetric(metric) ||
+        !(capabilities?.supportsManualMeasurement(metric) ?? false)) {
       return reject('当前设备不支持${metric.label}测量');
     }
     if (isDeviceHistorySyncing) {
@@ -8969,6 +9003,12 @@ class AppController extends ChangeNotifier {
         }
       }
     } else if (event.type == 'sportData') {
+      final source = event.payload['deviceId'];
+      if (source is String &&
+          source.isNotEmpty &&
+          source.toLowerCase() != connectedDevice?.id.toLowerCase()) {
+        return;
+      }
       if (activeSport != null || _startingSport != null) {
         liveSportData = healthReleasePolicy.projectSportValues({
           ...liveSportData,

@@ -1261,7 +1261,8 @@ void main() {
       expect(find.text('1.28 km'), findsOneWidget);
       expect(find.text('2048 步'), findsOneWidget);
       expect(find.text('96 bpm'), findsOneWidget);
-      expect(find.text('75.0 kcal'), findsOneWidget);
+      expect(find.text('75.0 kcal'), findsNothing);
+      expect(controller.liveSportData['calories'], 75);
       expect(find.byKey(const Key('sport-session-pause')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('sport-session-pause')));
@@ -1269,6 +1270,44 @@ void main() {
       expect(wearable.pauseCount, 1);
       expect(controller.sportPaused, isTrue);
       expect(find.text('继续运动'), findsOneWidget);
+    },
+  );
+
+  test(
+    'sport samples retain MAC case equivalence and reject another target',
+    () async {
+      final wearable = _QaSportWearable();
+      final controller = _controller(wearable: wearable);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      controller
+        ..connectedDevice = const DeviceInfo(
+          id: 'coolwear:aa:bb:cc:dd:ee:ff',
+          name: 'R7 Ultra',
+        )
+        ..activeSport = SportMode.walking;
+      wearable.emitEvent(
+        const WearableEvent(
+          type: 'sportData',
+          payload: {'deviceId': 'coolwear:AA:BB:CC:DD:EE:FF', 'steps': 12},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.liveSportData['steps'], 12);
+      wearable.emitEvent(
+        const WearableEvent(
+          type: 'sportData',
+          payload: {'deviceId': 'qring:AA:BB:CC:DD:EE:FF', 'steps': 999},
+        ),
+      );
+      wearable.emitEvent(
+        const WearableEvent(
+          type: 'sportData',
+          payload: {'deviceId': 'coolwear:AA:BB:CC:DD:EE:01', 'steps': 998},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.liveSportData['steps'], 12);
     },
   );
 

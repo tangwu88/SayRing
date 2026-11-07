@@ -150,7 +150,6 @@ export struct ReadingReminderPanel {
       Column() {
         this.NumberField('步数（步）', 'stepGoal')
         this.NumberField('距离（公里）', 'distanceGoal')
-        this.NumberField('热量（千卡）', 'calorieGoal')
       }.width('100%').padding(12).backgroundColor(Color.White).borderRadius(18)
       if (this.message) Text(this.message).fontSize(14).fontColor(RING_THEME.primary).width('100%')
       Button(this.busy ? '请稍候…' : '保存设置').width('100%').height(52).backgroundColor(RING_THEME.primary).enabled(!this.busy)

@@ -1246,4 +1246,37 @@ void main() {
       );
     },
   );
+
+  test(
+    'single GPS fix requests a base map without inventing saved route points',
+    () async {
+      final vault = MemorySessionVault()..session = session();
+      final points = [
+        SportRoutePoint(
+          latitude: 31,
+          longitude: 121,
+          recordedAt: DateTime.utc(2026, 11, 7),
+        ),
+      ];
+      final api = GlobalSaydianApiClient(
+        vault,
+        client: MockClient((request) async {
+          expect(request.url.path.endsWith('/support/sport-route-map'), isTrue);
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          final render = body['points'] as List;
+          expect(render, [
+            {'latitude': 31.0, 'longitude': 121.0},
+            {'latitude': 31.0, 'longitude': 121.0},
+          ]);
+          return http.Response.bytes(
+            [137, 80, 78, 71],
+            200,
+            headers: {'content-type': 'image/png'},
+          );
+        }),
+      );
+      expect(await api.loadGlobalSportRouteMap(points), [137, 80, 78, 71]);
+      expect(points, hasLength(1));
+    },
+  );
 }

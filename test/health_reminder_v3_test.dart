@@ -91,7 +91,7 @@ class _LiveWearable extends _Wearable
 
   static const device = DeviceInfo(
     id: 'coolwear:synthetic-ring',
-    name: 'R7 Pro',
+    name: 'HR05',
     firmwareVersion: 'test-only',
   );
   final records = StreamController<WearableEvent>.broadcast();

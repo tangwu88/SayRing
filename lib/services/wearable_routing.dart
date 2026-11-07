@@ -1623,6 +1623,7 @@ class RoutedWearableBridge
           event.type == 'sleepReadStatus' ||
           event.type == 'ringInitialization' ||
           event.type == 'healthRecord' ||
+          event.type == 'sportData' ||
           event.type == 'cameraShutter' ||
           event.type == 'cameraRemoteStopped') {
         final payload = Map<String, Object?>.from(event.payload);
