@@ -1,0 +1,91 @@
+import { ble, constant } from '@kit.ConnectivityKit';
+import { COOLWEAR_SERVICE, CoolWearPacket, CoolWearReadDecoder, CoolWearReadResult,
+  coolWearQuery, coolWearAck, coolWearFirmware, coolWearBattery } from '../model/CoolWearReadProtocol';
+
+// A temporary, explicitly selected target. Never creates a persistent binding
+// or reports SDK capabilities. Leaving the page/owner cancels every callback.
+export class CoolWearReadOnlySession {
+  private generation: number = 0;
+  private client: ble.GattClientDevice | undefined = undefined;
+  private rejectPending: ((reason: Error) => void) | undefined = undefined;
+  cancel(): void {
+    ++this.generation;
+    this.rejectPending?.(new Error('连接验证已取消'));
+    this.rejectPending = undefined;
+    const client = this.client; this.client = undefined;
+    if (client) { try { client.disconnect(); } catch {} try { client.close(); } catch {} }
+  }
+  async read(target: string, current: () => boolean): Promise<CoolWearReadResult> {
+    this.cancel();
+    if (!target || !current()) throw new Error('请重新选择设备');
+    const generation = this.generation, client = ble.createGattClientDevice(target);
+    this.client = client;
+    const active = (): boolean => generation === this.generation && current() && this.client === client;
+    const assertCurrent = (): void => { if (!active()) throw new Error('账号或设备已变化'); };
+    let timer: number = -1, ownerTimer: number = -1;
+    const result = new Promise<CoolWearReadResult>((resolve, reject) => {
+      this.rejectPending = reject;
+      timer = setTimeout(() => reject(new Error('设备读取超时，请确认戒指未被其他应用占用')), 18000);
+      ownerTimer = setInterval(() => { if (!active()) reject(new Error('连接验证已取消')); }, 200);
+      const decoder = new CoolWearReadDecoder();
+      let writer: ble.BLECharacteristic | undefined = undefined;
+      let notifier: ble.BLECharacteristic | undefined = undefined;
+      let connecting: boolean = false, batteryRequested: boolean = false, firmware: string = '';
+      let battery: number | undefined = undefined, charging: boolean | undefined = undefined;
+      let writeQueue: Promise<void> = Promise.resolve();
+      const write = (bytes: number[]): Promise<void> => {
+        writeQueue = writeQueue.then(async (): Promise<void> => {
+          assertCurrent(); if (!writer) throw new Error('设备没有可用的数据通道');
+          const value: ble.BLECharacteristic = { serviceUuid: writer.serviceUuid, characteristicUuid: writer.characteristicUuid,
+            characteristicValue: new Uint8Array(bytes).buffer, descriptors: writer.descriptors };
+          await client.writeCharacteristicValue(value, writer.properties?.writeNoResponse ? ble.GattWriteType.WRITE_NO_RESPONSE : ble.GattWriteType.WRITE);
+          assertCurrent();
+        });
+        return writeQueue;
+      };
+      client.on('BLECharacteristicChange', (value: ble.BLECharacteristic) => {
+        if (!active() || !notifier || value.serviceUuid.toLowerCase() !== COOLWEAR_SERVICE ||
+          value.characteristicUuid.toLowerCase() !== notifier.characteristicUuid.toLowerCase()) return;
+        const packet = decoder.accept(Array.from(new Uint8Array(value.characteristicValue)), Date.now());
+        if (!packet) return;
+        if (packet.command === 1) write(coolWearAck(packet)).catch(() => reject(new Error('设备确认未完成')));
+        if (packet.type === 2) {
+          firmware = coolWearFirmware(packet.body) ?? '';
+          if (firmware && !batteryRequested) {
+            batteryRequested = true;
+            write(coolWearQuery(3, 2)).catch(reject);
+          }
+        }
+        if (packet.type === 3) { battery = coolWearBattery(packet.body); charging = packet.body.length > 1 && packet.body[1] <= 1 ? packet.body[1] === 1 : undefined; }
+        if (firmware && battery !== undefined) {
+          writeQueue.then(() => { if (active()) resolve({ firmware, battery, charging }); }).catch(reject);
+        }
+      });
+      client.on('BLEConnectionStateChange', (event: ble.BLEConnectionChangeState) => {
+        if (!active() || event.deviceId !== target) return;
+        if (event.state === constant.ProfileConnectionState.STATE_DISCONNECTED) { reject(new Error('设备已断开，请稍后重试')); return; }
+        if (event.state !== constant.ProfileConnectionState.STATE_CONNECTED || connecting) return;
+        connecting = true;
+        const initialize = async (): Promise<void> => {
+          const services = await client.getServices(); assertCurrent();
+          const service = services.find(item => item.serviceUuid.toLowerCase() === COOLWEAR_SERVICE);
+          if (!service) throw new Error('该设备没有匹配的数据服务');
+          const notify = service.characteristics.filter(item => item.properties?.notify);
+          const writes = service.characteristics.filter(item => item.properties?.write || item.properties?.writeNoResponse);
+          if (notify.length !== 1 || writes.length !== 1) throw new Error('设备数据通道尚未确认');
+          notifier = notify[0]; writer = writes[0];
+          await client.setCharacteristicChangeNotification(notifier, true); assertCurrent();
+          await write(coolWearQuery(2, 1));
+        };
+        initialize().catch(reject);
+      });
+      try { client.connect(); } catch { reject(new Error('无法建立设备连接')); }
+    });
+    try { const value = await result; assertCurrent(); return value; }
+    finally {
+      clearTimeout(timer); clearInterval(ownerTimer);
+      if (this.client === client) { this.rejectPending = undefined; this.cancel(); }
+      else { try { client.close(); } catch {} }
+    }
+  }
+}

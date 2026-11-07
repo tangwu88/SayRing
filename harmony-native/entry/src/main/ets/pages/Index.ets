@@ -1,3 +1,4 @@
+import { CoolWearReadOnlySession } from '../services/CoolWearReadOnlySession';
 import { UnavailableRing } from '../model/WearableDiscovery';
 import { ApiError, MemberProfile, Article, ArticleBlock, Session,
   canSubmitLogin, profileName, profileField, articleBlocks } from '../model/Contracts';
@@ -314,6 +315,10 @@ struct Index {
   @State private selectedProvider: PaymentProvider = 'wechat';
   @State private wearableDevices: WearableDevice[] = [];
   @State private unavailableRings: UnavailableRing[] = [];
+  @State private ringProbeBusy: boolean = false;
+  @State private ringProbeTarget: string = '';
+  @State private ringProbeStatus: string = '';
+  private ringReadSession: CoolWearReadOnlySession = new CoolWearReadOnlySession();
   @State private wearablePhase: WearableConnectionPhase = 'idle';
   @State private wearableMessage: string = '尚未连接戒指';
   @State private wearableSnapshot: WearableSnapshot = emptyWearableSnapshot();
@@ -1787,6 +1792,22 @@ struct Index {
   private todayText(): string {
     const today = new Date();
     return `${today.getMonth() + 1}月${today.getDate()}日`;
+  }
+
+  private async verifyRingConnection(device: UnavailableRing): Promise<void> {
+    if (this.ringProbeBusy || this.screen !== 'device-search' || !this.unavailableRings.some((item: UnavailableRing) => item.key === device.key)) return;
+    if (!device.name.toUpperCase().replace(/[\s_-]/g, '').includes('R7ULTRA')) return;
+    const session = saydianApi.healthSession();
+    this.ringProbeBusy = true; this.ringProbeTarget = device.key; this.ringProbeStatus = '正在连接并读取设备…';
+    const current = (): boolean => this.screen === 'device-search' && this.ringProbeTarget === device.key &&
+      sameHealthSession(session, saydianApi.healthSession()) && careNotifications.isForeground();
+    vepWearable.stopScan();
+    try {
+      const result = await this.ringReadSession.read(device.key, current);
+      if (current()) this.ringProbeStatus = `已读取设备，电量${result.battery}% · 固件${result.firmware}。本次验证已结束连接。`;
+    } catch (error) {
+      if (current()) this.ringProbeStatus = (error as Error).message || '设备读取未完成';
+    } finally { this.ringProbeBusy = false; }
   }
 
   private openDeviceSearch(): void {
@@ -4390,7 +4411,16 @@ struct Index {
           SymbolGlyph($r('sys.symbol.circle')).fontSize(28).fontColor([MUTED])
           Column({ space: 6 }) {
             Text(device.name).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(`标识尾号 ${device.key.slice(-5)} · ${this.signalText(device.rssi)}`).fontSize(13).fontColor(MUTED).width('100%')
             Text('暂不支持连接').fontSize(14).fontColor(MUTED).width('100%')
+            if (device.name.toUpperCase().replace(/[\s_-]/g, '').includes('R7ULTRA')) {
+              Button(this.ringProbeBusy && this.ringProbeTarget === device.key ? '正在读取…' : '验证连接')
+                .fontSize(14).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(RED_SOFT)
+                .enabled(!this.ringProbeBusy).onClick(() => this.verifyRingConnection(device)).id(`verify_r7ultra_${device.key}`)
+            }
+            if (this.ringProbeTarget === device.key && this.ringProbeStatus) {
+              Text(this.ringProbeStatus).fontSize(14).fontColor(MUTED).width('100%')
+            }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
           .accessibilityText(`${device.name}，暂不支持连接`)
