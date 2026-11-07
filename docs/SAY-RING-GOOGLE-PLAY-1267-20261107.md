@@ -66,7 +66,7 @@
 
 - 2026-11-07 13:48（Asia/Shanghai）：Google 提交活动记录编号 `1` 已显示“审核中”。包含正式版 `1.0.12（1268）`、四个首发地区、简体中文商品详情和应用内容/类别资料共11项更改。1267只留在制品库，没有提交为正式版。
 - 1268在Google版本页实际通过预检并显示“可以发布了”；已保存并完成“提交11项更改以供审核→将更改内容送审”。发布概览当时仍在进行快速自动检查，成功后进入后续审核，因此不将活动记录“审核中”解读为人工审核通过或公开可下载。
-- 当前Google自管式发布关闭，审核通过后按四个所选地区发布；这是本轮新条目的首发，不涉及已发布用户的地区移除。Apple条目和手机进程均未操作。
+- 13:48提交时Google自管式发布关闭，原范围为四个所选地区；14:14已按用户后续选择扩展为全部可供应地区并重新送审，见下方补充记录。Apple条目和手机进程均未操作。
 - 最终数据安全已跟随关闭公开评价调整：“其他由用户生成的内容”保留可选第一方反馈收集，不再申报公开评价分享；其他数据流程的实际分享声明保持。
 - 审核访问英文指引已明确默认简体中文、实物戒指要求、没有公开评价或数字报告购买；可选合作伙伴体验测试共享继续关闭。
 - 真机连接、HRV 及型号能力仍以各专项既有证据为限；本轮 Google 渠道功能的宿主验证不能变成新手机/戒指验收。
@@ -83,3 +83,13 @@
 - 本轮源代码完整静态/回归命令：`dart format --output=none --set-exit-if-changed lib test`、`flutter analyze --no-pub`、`TZ=Asia/Shanghai flutter test --no-pub`、`TZ=UTC flutter test --no-pub`；双时区各2117项。
 - 在原正式签名及已核对生产配置的本机环境中，使用`flutter build appbundle --release --no-pub --target=lib/main.dart --build-name=1.0.12 --build-number=1268 --target-platform=android-arm,android-arm64`，并由私有生产参数文件固定`SAY_RING_DISTRIBUTION_CHANNEL=google-play`。APK/Debug同版本构建，随后执行`./gradlew --offline :app:testDebugUnitTest --no-daemon --max-workers=1`。
 - CI不是Google审批；本机iOS编译阻挡、实体设备待验以及Google批准/公开下载的边界继续保留。
+
+## 2026-11-07 全球供应范围追加送审
+
+- 用户明确选择“开放 Google Play 全部可供应地区”。本轮开始前确认工作树干净，`git fetch origin codex/google-play-release-1267-20261107` 后 HEAD 仍为 `ca3aa98dea17f7fa1087d03dac88f225bd9d2372`；未合入其他开发分支。
+- 在 Say Ring（Google App ID `4973385239818422181`、包名 `cn.saydian.ring`）正式轨道国家/地区页面，勾选“选择所有行”，全部可选行均已选中，包括“其他国家/地区”。点击保存后，页面明确显示“您的更改已保存”，轨道摘要显示178个国家/地区。
+- 发布概览先列出两项待提交变更：添加173个国家/地区以及添加“其他国家/地区”。原四地区、1268及其资料仍在原审核中。Google确认弹窗明确告知，追加变更将取消当前审核并重新开始；在用户已授权全球供应及提交上架的范围内，执行“重新发送审核申请”，未更换二进制。
+- 最终发布概览不再列出待提交更改，“正在审核中的更改”包含同一 `1.0.12（1268）`、添加177个具名国家/地区及“添加其他国家/地区”；自管式发布仍关闭。Google当前正在进行快速自动检查，页面说明检查成功后继续后续审核，不能写作人工审核通过。
+- 实际[提交活动记录2](https://play.google.com/console/u/0/developers/6152149340569927946/app/4973385239818422181/publishing/submission-activity/2/details)显示 `2026-11-07 14:14`（Asia/Shanghai）、状态“审核中”；原提交记录1（13:48）显示“已取消”。这是按全球范围重新送审的实际结果，不是仅保存配置、批准或公开可下载。
+- 私有凭证截图：`build/google-play-1267-20261107-52yx3z5s/play-1268-global-regions-publishing.png`（位于原审计工作树的忽略目录）。未上传私人记录或改动Apple审核、手机数据、戒指设置。本轮仅修改控制台地区配置与本记录，未重编制品，未重复运行与地区设置无关的运行源码测试。
+- 14:15复查原运行源码CI `42344099966`：quality、Android、Harmony双时区四项成功；iOS在 `flutter pub get` 拉取 `gitee.com/yucheng_3/yc_product_plugin.git` 时300秒连接超时，退出69，尚未进入编译。该失败与本机Xcode最低系统版本限制分别保留，不能写五项全部通过。本轮未改依赖、iOS源码或CI配置。
