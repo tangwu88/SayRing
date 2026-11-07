@@ -302,8 +302,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('home-sleep-overview-entry')), findsNothing);
+      final entry = find.byKey(const Key('home-sleep-overview-entry'));
+      expect(entry, findsOneWidget);
       expect(find.textContaining('佩戴戒指睡眠后同步'), findsNothing);
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(find.text('最近一次睡眠'), findsOneWidget);
+      expect(find.text('0小时0分'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -1680,84 +1686,103 @@ void main() {
     expect(find.text('/10000步'), findsOneWidget);
   });
 
-  for (final model in ['R7Pro', 'HR05', 'R7Ultra']) {
-    testWidgets('$model sleep overview opens before the first sleep packet', (
-      tester,
-    ) async {
-      final store = MemoryHealthStore();
-      await store.initialize();
-      final controller =
-          AppController(
-              MemorySessionVault(),
-              _NoopApi(),
-              store,
-              _NoopWearable(),
-            )
-            ..connectedDevice = DeviceInfo(
-              id: 'coolwear:test',
-              name: 'Test ring',
-              model: model,
-            )
-            ..deviceCapabilityState = DeviceCapabilityState.ready
-            ..capabilities = const DeviceCapabilities(
-              metrics: {HealthMetric.heartRate},
-              historyMetrics: {HealthMetric.heartRate},
-            );
-      addTearDown(controller.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildSaydianTheme(),
-          home: Scaffold(body: DashboardPage(controller: controller)),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final entry = find.byKey(const Key('home-sleep-overview-entry'));
-      expect(entry, findsOneWidget);
-      expect(
-        find.descendant(of: entry, matching: find.textContaining('暂无睡眠记录')),
-        findsOneWidget,
-      );
-      expect(controller.shouldShowHealthMetric(HealthMetric.sleep), isFalse);
-      expect(
-        controller.capabilities!.supportsHistoryMetric(HealthMetric.sleep),
-        isFalse,
-      );
-      await tester.ensureVisible(entry);
-      await tester.tap(entry);
-      await tester.pumpAndSettle();
-      expect(find.text('最近一次睡眠'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('sleep-previous-day')));
-      await tester.pumpAndSettle();
-      expect(find.text('按日期查看'), findsOneWidget);
-      expect(find.text('这一天暂无睡眠记录，你可以选择其他日期查看'), findsOneWidget);
-      expect(find.text('0小时0分'), findsNothing);
+  for (final (transport, model) in const [
+    ('coolwear', 'R7Pro'),
+    ('coolwear', 'HR05'),
+    ('coolwear', 'R7Ultra'),
+    ('coolwear', 'R7Y'),
+    ('coolwear', 'K80'),
+    ('qring', 'R8'),
+    ('qring', 'R21'),
+    ('qring', 'R7C'),
+    ('yucheng', 'Other'),
+    ('veepoo', 'Other'),
+    ('moyoung', 'Other'),
+    ('coolwear', null),
+  ]) {
+    testWidgets(
+      '$transport/$model sleep overview opens before the first sleep packet',
+      (tester) async {
+        final store = MemoryHealthStore();
+        await store.initialize();
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                _NoopApi(),
+                store,
+                _NoopWearable(),
+              )
+              ..connectedDevice = DeviceInfo(
+                id: '$transport:test',
+                name: model == 'R7Y' ? 'R7y' : 'Test ring',
+                model: model,
+              )
+              ..deviceCapabilityState = DeviceCapabilityState.ready
+              ..capabilities = const DeviceCapabilities(
+                metrics: {HealthMetric.heartRate},
+                historyMetrics: {HealthMetric.heartRate},
+              );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildSaydianTheme(),
+            home: Scaffold(body: DashboardPage(controller: controller)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final entry = find.byKey(const Key('home-sleep-overview-entry'));
+        expect(entry, findsOneWidget);
+        expect(
+          find.descendant(of: entry, matching: find.textContaining('暂无睡眠记录')),
+          findsOneWidget,
+        );
+        expect(controller.shouldShowHealthMetric(HealthMetric.sleep), isFalse);
+        expect(controller.canMeasureHealthMetric(HealthMetric.sleep), isFalse);
+        expect(
+          controller.capabilities!.supportsHistoryMetric(HealthMetric.sleep),
+          isFalse,
+        );
+        await tester.ensureVisible(entry);
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        expect(find.text('最近一次睡眠'), findsOneWidget);
+        await tester.tap(find.byKey(const Key('sleep-previous-day')));
+        await tester.pumpAndSettle();
+        expect(find.text('按日期查看'), findsOneWidget);
+        expect(find.text('这一天暂无睡眠记录，你可以选择其他日期查看'), findsOneWidget);
+        expect(find.text('0小时0分'), findsNothing);
 
-      final saved = HealthRecord(
-        id: 'saved-sleep',
-        metric: HealthMetric.sleep,
-        values: const {'value': 6.5},
-        unit: 'h',
-        measuredAt: DateTime.now().subtract(const Duration(days: 2)),
-        timezone: '+08:00',
-        deviceId: 'coolwear:test',
-        firmwareVersion: 'test',
-        quality: 'device_reported',
-        source: MeasurementSource.wearable,
-        rawVersion: 1,
-      );
-      await store.upsert([saved]);
-      await tester.tap(find.byKey(const Key('sleep-latest-day')));
-      await tester.pumpAndSettle();
-      expect(find.text('6小时30分'), findsWidgets);
-      expect(
-        controller.capabilities!.supportsHistoryMetric(HealthMetric.sleep),
-        isFalse,
-      );
-    });
+        final saved = HealthRecord(
+          id: 'saved-sleep',
+          metric: HealthMetric.sleep,
+          values: const {'value': 6.5},
+          unit: 'h',
+          measuredAt: DateTime.now().subtract(const Duration(days: 2)),
+          timezone: '+08:00',
+          deviceId: '$transport:test',
+          firmwareVersion: 'test',
+          quality: 'device_reported',
+          source: MeasurementSource.wearable,
+          rawVersion: 1,
+        );
+        await store.upsert([saved]);
+        await tester.tap(find.byKey(const Key('sleep-latest-day')));
+        await tester.pumpAndSettle();
+        expect(find.text('6小时30分'), findsWidgets);
+        expect(
+          controller.capabilities!.supportsHistoryMetric(HealthMetric.sleep),
+          isFalse,
+        );
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.iOS,
+        TargetPlatform.android,
+      }),
+    );
   }
 
   test(
-    'sleep overview fallback requires a confirmed device and history transport',
+    'sleep browsing remains available without a model or history capability',
     () {
       const ring = DeviceInfo(
         id: 'coolwear:test',
@@ -1776,7 +1801,7 @@ void main() {
               metrics: {HealthMetric.heartRate},
             );
       addTearDown(controller.dispose);
-      expect(controller.canOpenSleepOverview, isFalse);
+      expect(controller.canOpenSleepOverview, isTrue);
       controller.connectedDevice = ring;
       for (final state in [
         DeviceCapabilityState.disconnected,
@@ -1784,23 +1809,28 @@ void main() {
         DeviceCapabilityState.unavailable,
       ]) {
         controller.deviceCapabilityState = state;
-        expect(controller.canOpenSleepOverview, isFalse);
+        expect(controller.canOpenSleepOverview, isTrue);
       }
       controller.deviceCapabilityState = DeviceCapabilityState.ready;
       for (final device in const [
         DeviceInfo(id: 'coolwear:test', name: 'SD-RING-R7 Pro'),
+        DeviceInfo(id: 'coolwear:test', name: 'R7y'),
         DeviceInfo(id: 'qring:test', name: 'R7 Pro', model: 'R7Pro'),
+        DeviceInfo(id: 'qring:test', name: 'R7y', model: 'R7Y'),
         DeviceInfo(id: 'coolwear:test', name: 'Other', model: 'K80'),
       ]) {
         controller.connectedDevice = device;
-        expect(controller.canOpenSleepOverview, isFalse);
+        expect(controller.canOpenSleepOverview, isTrue);
       }
       controller.connectedDevice = ring;
       controller.capabilities = const DeviceCapabilities(
         metrics: {},
         supportsHistorySync: false,
       );
-      expect(controller.canOpenSleepOverview, isFalse);
+      expect(controller.canOpenSleepOverview, isTrue);
+      expect(controller.shouldShowHealthMetric(HealthMetric.sleep), isFalse);
+      expect(controller.canMeasureHealthMetric(HealthMetric.sleep), isFalse);
+      expect(controller.capabilities!.supportsHistorySync, isFalse);
     },
   );
 

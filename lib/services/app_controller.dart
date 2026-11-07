@@ -1599,10 +1599,10 @@ class AppController extends ChangeNotifier {
         const {'R7Pro', 'HR05', 'R7Ultra'}.contains(device.model);
   }
 
+  // 睡眠概览是账号历史的查看入口，所有型号都显示，断连或未收到睡眠包也不隐藏。
+  // 入口可见不等于设备支持采集；同步、测量、数据归属仍按原有真实能力与账号校验。
   bool get canOpenSleepOverview =>
-      shouldShowHealthMetric(HealthMetric.sleep) ||
-      (isMetricAvailableInRelease(HealthMetric.sleep) &&
-          _canBrowseIntermittentRingHistory);
+      isMetricAvailableInRelease(HealthMetric.sleep);
 
   bool get canBrowseSavedActivity =>
       isMetricAvailableInRelease(HealthMetric.steps) &&

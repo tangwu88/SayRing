@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../domain/feature_models.dart';
 import '../domain/models.dart';
 import '../domain/sleep_timeline.dart';
 import '../services/app_controller.dart';
@@ -16,8 +17,11 @@ bool sleepSyncUnavailable(AppController controller) {
   final capabilities = controller.capabilities;
   // 总历史通道可用不代表这枚戒指已确认睡眠回包。旧协议若未列举指标，
   // 仍采用原有提示；明确缺少睡眠时，只引导用户按日期查看。
-  return capabilities?.supportsHistorySync == false ||
-      capabilities?.historyMetrics?.contains(HealthMetric.sleep) == false;
+  return controller.connectedDevice == null ||
+      controller.deviceCapabilityState != DeviceCapabilityState.ready ||
+      capabilities == null ||
+      capabilities.supportsHistorySync == false ||
+      capabilities.historyMetrics?.contains(HealthMetric.sleep) == false;
 }
 
 String sleepMinutesLabel(double minutes) {
