@@ -22,6 +22,8 @@ const _allowedMedia = {
 
 class _ShopMediaController extends Fake implements AppController {
   @override
+  bool get publicShopReviewsAvailable => true;
+  @override
   void addListener(VoidCallback listener) {}
   @override
   void removeListener(VoidCallback listener) {}

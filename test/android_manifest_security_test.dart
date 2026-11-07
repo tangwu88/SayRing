@@ -3,6 +3,27 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('ring HID input changes retain the Flutter activity and BLE owner', () {
+    final manifest = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+    final activity = RegExp(
+      r'<activity\s+android:name="\.MainActivity"[\s\S]*?>',
+    ).firstMatch(manifest);
+    expect(activity, isNotNull);
+    final changes = RegExp(
+      r'android:configChanges="([^"]+)"',
+    ).firstMatch(activity!.group(0)!);
+    expect(changes, isNotNull);
+    // HID pairing changes input navigation as well as keyboard visibility.
+    // Handling only keyboardHidden recreates the engine, losing the scene page
+    // and restarting its connection/sync owner (observed CONFIG mask 0x60).
+    expect(
+      changes!.group(1)!.split('|'),
+      containsAll(<String>['keyboard', 'keyboardHidden', 'navigation']),
+    );
+  });
+
   test('Android host overrides unsafe transitive manifest defaults', () {
     final manifest = File(
       'android/app/src/main/AndroidManifest.xml',

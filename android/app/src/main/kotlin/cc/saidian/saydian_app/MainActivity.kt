@@ -785,6 +785,11 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleUpdateMethod(call: MethodCall, result: MethodChannel.Result) {
+        if (BuildConfig.SAY_RING_GOOGLE_PLAY &&
+            call.method in setOf("installApk", "openUnknownSourcesSettings")) {
+            result.error("PLAY_STORE_MANAGED", "请通过 Google Play 更新", null)
+            return
+        }
         when (call.method) {
             "installApk" -> {
                 val filePath = call.argument<String>("filePath")?.trim().orEmpty()

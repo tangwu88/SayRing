@@ -364,6 +364,10 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     if (_updateCheckRunning || !mounted || !_requiredUpdateGateResolved) return;
     _updateCheckRunning = true;
     try {
+      if (_updateService.usesStoreManagedUpdates) {
+        await _updateService.openStoreManagedUpdates();
+        return;
+      }
       final info = await _updateCoordinator.checkNow();
       if (!mounted) return;
       if (info.forceUpdate) {

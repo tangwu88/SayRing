@@ -6,6 +6,8 @@ class GlobalAppUpdateService extends AppUpdateService {
     super.client,
     super.targetPlatform,
     super.packageInfoLoader,
+    super.distributionChannel,
+    super.storeLauncher,
   }) : super(
          endpointUri: Uri.parse(
            '${GlobalEnvironment.origin}${GlobalEnvironment.apiPrefix}/support/app-update',
@@ -17,6 +19,9 @@ class GlobalAppUpdateService extends AppUpdateService {
 
   @override
   Future<AppUpdateInfo> check() async {
+    if (usesStoreManagedUpdates) {
+      throw const AppUpdateException('请通过 Google Play 更新');
+    }
     final package = await loadCurrentPackage();
     final platform = switch (_targetPlatform) {
       TargetPlatform.android => 'android',
@@ -152,6 +157,7 @@ class GlobalAppUpdateService extends AppUpdateService {
 
   @override
   Future<void> openDestination(AppUpdateInfo info) async {
+    if (usesStoreManagedUpdates) return openStoreManagedUpdates();
     if (!await launchUrl(
       GlobalEnvironment.downloadPageUri,
       mode: LaunchMode.externalApplication,
@@ -162,6 +168,7 @@ class GlobalAppUpdateService extends AppUpdateService {
 
   @override
   bool validatePersisted(AppUpdateInfo info) {
+    if (usesStoreManagedUpdates) return false;
     final uri = info.destinationUri;
     if (uri.scheme != 'https' ||
         uri.port != 443 ||

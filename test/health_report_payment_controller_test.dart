@@ -14,6 +14,87 @@ void main() {
   tearDown(() => debugDefaultTargetPlatformOverride = null);
 
   test(
+    'Play blocks both external digital payment providers before an order',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final api = _HealthPaymentApi(
+        verifyStatus: HealthPaymentStatus.succeeded,
+      );
+      final controller = _controller(
+        api: api,
+        distributionChannel: 'google-play',
+      );
+      addTearDown(controller.dispose);
+      for (final provider in [
+        AppPaymentProvider.wechat,
+        AppPaymentProvider.alipay,
+      ]) {
+        await expectLater(
+          controller.startHealthPurchase(
+            offer: _singleOffer,
+            report: _awaitingReport,
+            androidProvider: provider,
+          ),
+          throwsA(isA<FeatureNotConfiguredException>()),
+        );
+      }
+      expect(api.lastChannel, isNull);
+    },
+  );
+
+  test(
+    'Play consumes existing report credits and keeps physical commerce',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final api = _HealthPaymentApi(
+        verifyStatus: HealthPaymentStatus.succeeded,
+        availableCredits: 2,
+      );
+      final controller = _controller(
+        api: api,
+        distributionChannel: 'google-play',
+        commerceEnabled: true,
+      );
+      addTearDown(controller.dispose);
+      final report = await controller.createHealthReport();
+      expect(report.status, HealthReportStatus.queued);
+      expect(api.createdReports, 1);
+      expect(api.lastChannel, isNull);
+      expect(controller.mallVisible, isTrue);
+      expect(controller.publicShopReviewsAvailable, isFalse);
+      expect(
+        () => controller.submitGlobalShopReview(
+          orderItemId: 'unsubmitted-item',
+          rating: 5,
+          content: 'Must not be sent',
+        ),
+        throwsA(isA<FeatureNotConfiguredException>()),
+      );
+    },
+  );
+
+  test(
+    'Play without credits does not create a purchase-pending report',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final api = _HealthPaymentApi(
+        verifyStatus: HealthPaymentStatus.succeeded,
+      );
+      final controller = _controller(
+        api: api,
+        distributionChannel: 'google-play',
+      );
+      addTearDown(controller.dispose);
+      await expectLater(
+        controller.createHealthReport(),
+        throwsA(isA<ApiException>()),
+      );
+      expect(api.createdReports, 0);
+      expect(api.lastChannel, isNull);
+    },
+  );
+
+  test(
     'Apple transaction finishes only after server confirms success',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -112,6 +193,8 @@ AppController _controller({
   required _HealthPaymentApi api,
   StoreKitPurchaseBridge? storeKit,
   AppPaymentBridge? paymentBridge,
+  String distributionChannel = 'direct',
+  bool commerceEnabled = false,
 }) =>
     AppController(
         MemorySessionVault(),
@@ -120,6 +203,8 @@ AppController _controller({
         _Wearable(),
         storeKitPurchaseBridge: storeKit,
         paymentBridge: paymentBridge,
+        distributionChannel: distributionChannel,
+        commerceEnabled: commerceEnabled,
       )
       ..session = Session(
         accessToken: 'token',
@@ -131,12 +216,31 @@ AppController _controller({
 
 class _HealthPaymentApi extends Fake
     implements SaydianApi, SaydianHealthReportApi {
-  _HealthPaymentApi({required this.verifyStatus});
+  _HealthPaymentApi({required this.verifyStatus, this.availableCredits = 0});
 
   final HealthPaymentStatus verifyStatus;
+  final int availableCredits;
+  int createdReports = 0;
   String? lastChannel;
   String? lastSignedTransaction;
   int verifyCalls = 0;
+
+  @override
+  Future<HealthReportEligibility> getHealthReportEligibility() async =>
+      HealthReportEligibility.fromMap({
+        'eligible': true,
+        'availableCredits': availableCredits,
+      });
+
+  @override
+  Future<HealthReportSummary> createHealthReport() async {
+    createdReports++;
+    return HealthReportSummary.fromMap({
+      'id': 'existing-credit-report',
+      'status': 'queued',
+      'needsPayment': false,
+    });
+  }
 
   @override
   Future<HealthPaymentIntent> createHealthPayment({

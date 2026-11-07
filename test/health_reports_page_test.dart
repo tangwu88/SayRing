@@ -13,6 +13,61 @@ import 'package:saydian_app/ui/health_reports_page.dart';
 
 void main() {
   testWidgets(
+    'Play retains report viewing without offers or payment actions',
+    (tester) async {
+      final api = _HealthReportApi(
+        eligibility: _eligibility(eligible: true, distinctDays: 4),
+        reports: const [_readyReport, _awaitingReport],
+      );
+      final controller = _controller(api, distributionChannel: 'google-play');
+      addTearDown(controller.dispose);
+      await _pumpPage(tester, controller);
+      expect(api.offerLoads, 0);
+      expect(find.byKey(const Key('health-report-generate')), findsNothing);
+      expect(find.textContaining('可单次购买'), findsNothing);
+      await tester.scrollUntilVisible(find.text('查看报告'), 260);
+      expect(find.text('选择方案'), findsNothing);
+      final open = find.widgetWithText(TextButton, '查看报告');
+      await tester.ensureVisible(open);
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('health-report-detail')), findsOneWidget);
+      expect(api.paymentCreateCalls, 0);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'Play member with existing credits can generate without buying',
+    (tester) async {
+      final api = _HealthReportApi(
+        eligibility: _eligibility(
+          eligible: true,
+          distinctDays: 4,
+          availableCredits: 1,
+        ),
+        reports: const [_readyReport],
+      );
+      final controller = _controller(api, distributionChannel: 'google-play');
+      addTearDown(controller.dispose);
+      await _pumpPage(tester, controller);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('health-report-generate')),
+        260,
+      );
+      await tester.tap(find.byKey(const Key('health-report-generate')));
+      await tester.pumpAndSettle();
+      expect(find.text('选择报告方案'), findsNothing);
+      expect(api.createdReports, 1);
+      expect(api.offerLoads, 0);
+      expect(api.paymentCreateCalls, 0);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
     'insufficient health data explains missing days without payment action',
     (tester) async {
       final api = _HealthReportApi(
@@ -148,6 +203,7 @@ Future<void> _pumpPage(WidgetTester tester, AppController controller) async {
 AppController _controller(
   _HealthReportApi api, {
   AppPaymentBridge? paymentBridge,
+  String distributionChannel = 'direct',
 }) =>
     AppController(
         MemorySessionVault(),
@@ -155,6 +211,7 @@ AppController _controller(
         MemoryHealthStore(),
         _Wearable(),
         paymentBridge: paymentBridge,
+        distributionChannel: distributionChannel,
       )
       ..session = Session(
         accessToken: 'token',
@@ -168,6 +225,7 @@ HealthReportEligibility _eligibility({
   required bool eligible,
   required int distinctDays,
   List<String> missing = const [],
+  int availableCredits = 0,
 }) => HealthReportEligibility(
   eligible: eligible,
   periodFrom: DateTime(2026, 8, 1),
@@ -177,7 +235,7 @@ HealthReportEligibility _eligibility({
   minimumDistinctDays: 3,
   missing: missing,
   consentRequired: false,
-  availableCredits: 0,
+  availableCredits: availableCredits,
 );
 
 const _awaitingReport = HealthReportSummary(
@@ -229,6 +287,8 @@ class _HealthReportApi extends Fake
   final List<HealthReportSummary> reports;
   final List<HealthProfileMetric> profileMetrics;
   int paymentCreateCalls = 0;
+  int offerLoads = 0;
+  int createdReports = 0;
 
   @override
   Future<HealthProfileSummary> getHealthProfile() async => HealthProfileSummary(
@@ -255,21 +315,24 @@ class _HealthReportApi extends Fake
   @override
   Future<List<HealthReportOffer>> getHealthReportOffers({
     required String platform,
-  }) async => const [
-    HealthReportOffer(
-      id: 'offer-12345678',
-      code: 'single-report',
-      title: '单次详细报告',
-      description: '生成1份详细报告',
-      entitlement: HealthReportEntitlement.singleReport,
-      priceCents: 990,
-      currency: 'CNY',
-      creditCount: 1,
-      durationDays: null,
-      appleProductId: 'cc.saidian.report.single',
-      version: 1,
-    ),
-  ];
+  }) async {
+    offerLoads++;
+    return const [
+      HealthReportOffer(
+        id: 'offer-12345678',
+        code: 'single-report',
+        title: '单次详细报告',
+        description: '生成1份详细报告',
+        entitlement: HealthReportEntitlement.singleReport,
+        priceCents: 990,
+        currency: 'CNY',
+        creditCount: 1,
+        durationDays: null,
+        appleProductId: 'cc.saidian.report.single',
+        version: 1,
+      ),
+    ];
+  }
 
   @override
   Future<HealthReportEntitlements> getHealthReportEntitlements() async =>
@@ -281,8 +344,10 @@ class _HealthReportApi extends Fake
       );
 
   @override
-  Future<HealthReportSummary> createHealthReport() async =>
-      reports.isEmpty ? _awaitingReport : reports.first;
+  Future<HealthReportSummary> createHealthReport() async {
+    createdReports++;
+    return reports.isEmpty ? _awaitingReport : reports.first;
+  }
 
   @override
   Future<Map<String, Object?>> getFullHealthReport(String reportId) async => {

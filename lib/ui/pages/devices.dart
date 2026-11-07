@@ -122,27 +122,31 @@ class DevicePage extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (controller.capabilities?.supportsHistorySync !=
-                        false) ...[
+                    if (controller.capabilities?.supportsHistorySync != false ||
+                        (connected != null &&
+                            controller.isRingInitializationPending)) ...[
                       SizedBox(
                         child: FilledButton(
                           key: const Key('device-sync-data'),
                           onPressed:
                               connected == null ||
-                                  controller.isDeviceSyncing ||
+                                  controller.isDeviceHistorySyncing ||
                                   controller.isDeviceSyncPreparing ||
                                   (controller.isRingInitializationPending &&
                                       !controller
                                           .canRetryDeviceSyncPreparation) ||
                                   controller
-                                          .capabilities
-                                          ?.supportsHistorySync ==
-                                      false
+                                              .capabilities
+                                              ?.supportsHistorySync ==
+                                          false &&
+                                      !controller.isRingInitializationPending
                               ? null
                               : () async {
                                   final succeeded = await controller
                                       .syncDeviceData();
                                   if (!context.mounted ||
+                                      controller.isDeviceHistorySyncing ||
+                                      controller.isDeviceSyncPreparing ||
                                       controller.syncStatus.isEmpty) {
                                     return;
                                   }
@@ -161,7 +165,8 @@ class DevicePage extends StatelessWidget {
                             minimumSize: const Size.fromHeight(48),
                             padding: const EdgeInsets.symmetric(horizontal: 10),
                             disabledForegroundColor: SaydianColors.muted,
-                            disabledBackgroundColor: controller.isDeviceSyncing
+                            disabledBackgroundColor:
+                                controller.isDeviceHistorySyncing
                                 ? SaydianColors.techBlueSoft
                                 : SaydianColors.line,
                           ),
@@ -179,7 +184,7 @@ class DevicePage extends StatelessWidget {
                                     Text('正在准备同步'),
                                   ],
                                 )
-                              : controller.isDeviceSyncing
+                              : controller.isDeviceHistorySyncing
                               ? DeviceWaitStatus(
                                   connected: connected != null,
                                   receivedRecords:
@@ -192,7 +197,11 @@ class DevicePage extends StatelessWidget {
                                     const Icon(Icons.sync_rounded),
                                     const SizedBox(width: 8),
                                     Flexible(
-                                      child: Text(context.l10n.syncData),
+                                      child: Text(
+                                        controller.isRingInitializationPending
+                                            ? '恢复同步'
+                                            : context.l10n.syncData,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -284,7 +293,7 @@ class DevicePage extends StatelessWidget {
                           ),
                           TextButton.icon(
                             key: const Key('device-unbind'),
-                            onPressed: controller.isDeviceSyncing
+                            onPressed: controller.isDeviceHistorySyncing
                                 ? null
                                 : () => _confirmUnbind(context),
                             icon: const Icon(Icons.link_off_rounded, size: 18),
@@ -1065,26 +1074,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   Future<void> _findCachedOrScan() async {
     if (!mounted || !widget.controller.canSearchForDevice) return;
-    if (!widget.controller.supportsBondedDeviceSelection) {
-      await _startScan();
-      return;
-    }
-    if (_bondedLookupInFlight || _scanInFlight) return;
-    setState(() => _bondedLookupInFlight = true);
-    try {
-      final session = widget.controller.session;
-      widget.controller.clearError();
-      await widget.controller.listBondedDevicesForSelection();
-      // 缓存候选可以立即连接，但不能代替这次附近搜索。保留本轮缓存项并继续
-      // 接收广播；换号、连接成功或离开页面后，旧查询不得重新启动扫描。
-      if (mounted &&
-          identical(session, widget.controller.session) &&
-          widget.controller.canSearchForDevice &&
-          ModalRoute.of(context)?.isCurrent == true) {
-        await _startScan(preserveCandidates: true);
-      }
-    } finally {
-      if (mounted) setState(() => _bondedLookupInFlight = false);
+    final session = widget.controller.session;
+    // Always discover nearby devices first. A system-cached choice may be
+    // offline and must not suppress a fresh search when opening this page.
+    await _startScan();
+    if (mounted &&
+        identical(session, widget.controller.session) &&
+        widget.controller.canSearchForDevice &&
+        widget.controller.deviceState != DeviceConnectionState.error &&
+        widget.controller.deviceScanIssue == null &&
+        widget.controller.supportsBondedDeviceSelection &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      await _findBondedDevices();
     }
   }
 
@@ -1177,7 +1178,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     setState(() => _bondedLookupInFlight = true);
     try {
       widget.controller.clearError();
-      await widget.controller.listBondedDevicesForSelection();
+      await widget.controller.listBondedDevicesForSelection(
+        preserveCandidates: true,
+      );
     } finally {
       if (mounted) setState(() => _bondedLookupInFlight = false);
     }

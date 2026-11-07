@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.util.Base64
 
 plugins {
     id("com.android.application")
@@ -56,6 +57,20 @@ val qaReleaseAllowed = releaseModeFlag("SAIDIAN_ALLOW_QA_RELEASE")
 // emulators are x86_64, so permit that ABI only when the explicit Debug-only
 // switch is supplied.  Release tasks below reject this switch.
 val emulatorDebugRequested = releaseModeFlag("SAIDIAN_EMULATOR_DEBUG")
+// 与 Flutter 使用同一份编译参数，避免原生权限和 Dart 更新通道配置不一致。
+val distributionDefinitions = providers.gradleProperty("dart-defines").orNull.orEmpty()
+    .split(',').filter(String::isNotEmpty).map { encoded ->
+        String(Base64.getDecoder().decode(encoded), Charsets.UTF_8)
+    }.filter { it.startsWith("SAY_RING_DISTRIBUTION_CHANNEL=") }
+if (distributionDefinitions.size > 1) {
+    throw GradleException("Duplicate distribution channel definitions")
+}
+val distributionChannel = distributionDefinitions.singleOrNull()
+    ?.substringAfter('=') ?: "direct"
+if (distributionChannel !in setOf("direct", "google-play")) {
+    throw GradleException("Unsupported distribution channel")
+}
+val googlePlayDistribution = distributionChannel == "google-play"
 val debugEmulatorAbis = if (emulatorDebugRequested) setOf("x86_64") else emptySet()
 val updateManifestUrl =
     providers.environmentVariable("SAYDIAN_UPDATE_MANIFEST_URL")
@@ -170,10 +185,15 @@ android {
             jpushChannel.ifEmpty { "developer-disabled" }
         buildConfigField("boolean", "VEEPOO_SDK_PRESENT", hasCompleteVeepooSdk.toString())
         buildConfigField("String", "WECHAT_APP_ID", "\"$wechatAppId\"")
+        buildConfigField("boolean", "SAY_RING_GOOGLE_PLAY", googlePlayDistribution.toString())
     }
 
     buildFeatures {
         buildConfig = true
+    }
+
+    if (googlePlayDistribution) {
+        sourceSets.getByName("release").manifest.srcFile("src/googlePlay/AndroidManifest.xml")
     }
 
     packaging {

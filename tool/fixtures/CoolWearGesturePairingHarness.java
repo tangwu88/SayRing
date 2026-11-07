@@ -8,6 +8,10 @@ import java.util.Set;
 
 /** Executes the production gesture entry/ACK/rollback methods, without a radio. */
 public final class CoolWearGesturePairingHarness {
+    private static void profileTrace(String event) { }
+    private int readbacks;
+    private static final class CoolWearReadRequests { enum Kind { MIXED_INFO } }
+    private void requestRingInfo(CoolWearReadRequests.Kind... kinds) { readbacks++; }
     private final CoolWearGestureState gesture = new CoolWearGestureState();
     private MethodChannel.Result pendingGesture;
     private String gesturePairingFailureCode, gesturePairingFailureMessage;
@@ -42,6 +46,7 @@ public final class CoolWearGesturePairingHarness {
     public static void main(String[] args) {
         var h = new CoolWearGesturePairingHarness();
         h.begin(1);
+        require(h.readbacks == 1, "set requires a separate actual state read; never optimistic confirmation");
         require(h.helper.modes.equals(List.of(1)), "scene must precede OS bond");
         require(h.pairRequests == 0 && !h.result.done, "no pairing or success before ACK");
         h.ack(2);

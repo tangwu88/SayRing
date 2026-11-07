@@ -1637,7 +1637,8 @@ void main() {
       await controller.refreshSportRecords();
       expect(controller.sportRecords.single.id, record.id);
       expect((await store.localSportRecords()).single.id, record.id);
-      expect(controller.errorMessage, contains('收到的运动记录已保存'));
+      expect(controller.sportHistoryReadStatus, SportHistoryReadStatus.partial);
+      expect(controller.errorMessage, isNull);
     },
   );
 

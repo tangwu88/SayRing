@@ -787,7 +787,8 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
                     child: _CatalogImage(url),
                   ),
                 ..._detailWidgets('${product['detailHtml'] ?? ''}'),
-                if (_rows(product['reviews']).isNotEmpty) ...[
+                if (widget.controller.publicShopReviewsAvailable &&
+                    _rows(product['reviews']).isNotEmpty) ...[
                   const SizedBox(height: 20),
                   Text(
                     context.l10n.customerReviews,

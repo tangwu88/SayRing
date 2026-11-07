@@ -1,4 +1,7 @@
 {
+  "workoutReadPartial": "受信した運動記録を保存しました。後でもう一度更新してください。",
+  "workoutReadIncomplete": "更新が完了していません。保存済みの運動記録に影響はありません。",
+  "workoutReadFailed": "運動記録を更新できません。保存済みの記録に影響はありません。",
   "savedActivity": "活動履歴",
   "activitySourceChanged": "アカウントまたはリングが切り替わりました。活動履歴を開き直してください。",
   "noSavedWorkouts": "保存済みのワークアウトはありません",

@@ -9,6 +9,18 @@ class AppLocalizationsEs extends AppLocalizations {
   AppLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
+  String get workoutReadPartial =>
+      'Se guardaron algunos entrenamientos. Actualiza más tarde para buscar el resto.';
+
+  @override
+  String get workoutReadIncomplete =>
+      'La actualización no se completó. Tus entrenamientos guardados no se han modificado.';
+
+  @override
+  String get workoutReadFailed =>
+      'No se pudieron actualizar los entrenamientos. Tus registros guardados no se han modificado.';
+
+  @override
   String get savedActivity => 'Historial de actividad';
 
   @override

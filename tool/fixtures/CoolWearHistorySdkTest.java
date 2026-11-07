@@ -27,6 +27,16 @@ public final class CoolWearHistorySdkTest {
         check(order.equals(List.of("parser", "replacement")), "data frame without transport ACK was discarded");
         order.clear(); packet.setCmd(-99); manager.process(packet);
         check(order.equals(List.of("parser")), "ACK entered data completion path");
+        order.clear(); packet.setDataType(44); manager.process(packet);
+        check(order.equals(List.of("parser")), "default observer must ignore gesture command ACK");
+        check(SayRingHistoryObserver.install(manager, p -> order.add("diagnostic"), true), "diagnostic install failed");
+        order.clear(); manager.process(packet);
+        check(order.equals(List.of("parser", "diagnostic")), "opt-in diagnostic missed gesture ACK");
+        order.clear(); packet.setDataType(5); manager.process(packet);
+        check(order.equals(List.of("parser")), "diagnostic leaked a health ACK into history");
+        check(SayRingHistoryObserver.install(manager, p -> order.add("replacement")), "default reinstall failed");
+        order.clear(); packet.setDataType(44); manager.process(packet);
+        check(order.equals(List.of("parser")), "default reinstall retained diagnostic ACK subscription");
 
         ProcessDATA_TYPE_SPORT parser = new ProcessDATA_TYPE_SPORT(null);
         check(parser.isMy(5) && parser.isMy(4), "audit SDK history/current types again");

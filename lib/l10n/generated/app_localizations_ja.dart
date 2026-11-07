@@ -9,6 +9,15 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get workoutReadPartial => '受信した運動記録を保存しました。後でもう一度更新してください。';
+
+  @override
+  String get workoutReadIncomplete => '更新が完了していません。保存済みの運動記録に影響はありません。';
+
+  @override
+  String get workoutReadFailed => '運動記録を更新できません。保存済みの記録に影響はありません。';
+
+  @override
   String get savedActivity => '活動履歴';
 
   @override

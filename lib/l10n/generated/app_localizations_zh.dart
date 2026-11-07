@@ -9,6 +9,15 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get workoutReadPartial => '已保存收到的运动记录，可稍后刷新补充。';
+
+  @override
+  String get workoutReadIncomplete => '本次刷新尚未完成，已有运动记录不受影响。';
+
+  @override
+  String get workoutReadFailed => '暂时无法刷新运动记录，已有记录不受影响。';
+
+  @override
   String get savedActivity => '活动记录';
 
   @override
@@ -2084,6 +2093,15 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   AppLocalizationsZhHans() : super('zh_Hans');
 
   @override
+  String get workoutReadPartial => '已保存收到的运动记录，可稍后刷新补充。';
+
+  @override
+  String get workoutReadIncomplete => '本次刷新尚未完成，已有运动记录不受影响。';
+
+  @override
+  String get workoutReadFailed => '暂时无法刷新运动记录，已有记录不受影响。';
+
+  @override
   String get savedActivity => '活动记录';
 
   @override
@@ -4157,6 +4175,15 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get workoutReadPartial => '已儲存收到的運動紀錄，可稍後重新整理補充。';
+
+  @override
+  String get workoutReadIncomplete => '本次重新整理尚未完成，已有運動紀錄不受影響。';
+
+  @override
+  String get workoutReadFailed => '暫時無法重新整理運動紀錄，已有紀錄不受影響。';
 
   @override
   String get savedActivity => '活動記錄';

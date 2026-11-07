@@ -11,6 +11,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'app_distribution.dart';
 import 'global_environment.dart';
 import 'network_audit.dart';
 import 'safe_secure_storage.dart';
@@ -173,6 +174,8 @@ class AppUpdateService {
     Future<PackageInfo> Function()? packageInfoLoader,
     Set<String>? allowedDestinationHosts,
     Duration requestTimeout = const Duration(seconds: 15),
+    this._distributionChannel = AppDistribution.channel,
+    Future<bool> Function(Uri)? storeLauncher,
   }) : _client = client ?? http.Client(),
        assert(endpointUri == null || manifestUri == null),
        _endpointUri =
@@ -182,7 +185,8 @@ class AppUpdateService {
        _allowedDestinationHosts = allowedDestinationHosts == null
            ? null
            : Set.unmodifiable(allowedDestinationHosts),
-       _requestTimeout = Duration(microseconds: requestTimeout.inMicroseconds);
+       _requestTimeout = Duration(microseconds: requestTimeout.inMicroseconds),
+       _storeLauncher = storeLauncher ?? _launchStorePage;
 
   final http.Client _client;
   final Uri? _endpointUri;
@@ -190,13 +194,33 @@ class AppUpdateService {
   final Future<PackageInfo> Function() _packageInfoLoader;
   final Set<String>? _allowedDestinationHosts;
   final Duration _requestTimeout;
+  final String _distributionChannel;
+  final Future<bool> Function(Uri) _storeLauncher;
 
-  bool get isConfigured => _endpointUri != null;
+  bool get usesStoreManagedUpdates => AppDistribution.usesGooglePlay(
+    _targetPlatform,
+    distributionChannel: _distributionChannel,
+  );
+  bool get isConfigured => !usesStoreManagedUpdates && _endpointUri != null;
   bool get opensProductDownloadPage => false;
 
   Future<PackageInfo> loadCurrentPackage() => _packageInfoLoader();
 
+  Future<void> openStoreManagedUpdates() async {
+    if (!usesStoreManagedUpdates ||
+        (await loadCurrentPackage()).packageName !=
+            GlobalEnvironment.packageId) {
+      throw const AppUpdateException('无法打开此应用的更新页面');
+    }
+    if (!await _storeLauncher(AppDistribution.googlePlayUri)) {
+      throw const AppUpdateException('暂时无法打开 Google Play');
+    }
+  }
+
   Future<AppUpdateInfo> check() async {
+    if (usesStoreManagedUpdates) {
+      throw const AppUpdateException('请通过 Google Play 更新');
+    }
     final endpointUri = _endpointUri;
     if (endpointUri == null) {
       throw const AppUpdateException('暂时无法检查更新，请稍后再试');
@@ -441,6 +465,7 @@ class AppUpdateService {
   }
 
   Future<void> openDestination(AppUpdateInfo info) async {
+    if (usesStoreManagedUpdates) return openStoreManagedUpdates();
     if (info.destinationType == AppUpdateDestinationType.androidApk) {
       throw const AppUpdateException('请先安全下载并校验安装包');
     }
@@ -455,6 +480,8 @@ class AppUpdateService {
   Future<void> openDownload(AppUpdateInfo info) => openDestination(info);
 
   bool validatePersisted(AppUpdateInfo info) {
+    // 商店包不能恢复官网包留下的强制 APK 更新；只清更新待办，不动健康库。
+    if (usesStoreManagedUpdates) return false;
     final endpointUri = _endpointUri;
     if (endpointUri == null) return false;
     try {
@@ -537,6 +564,7 @@ class AndroidApkUpdateInstaller {
     MethodChannel? channel,
     Future<Directory> Function()? temporaryDirectory,
     bool? isAndroid,
+    this.distributionChannel = AppDistribution.channel,
     this._allowedDownloadUri,
     this._requireSha256 = false,
   }) : _client = client ?? http.Client(),
@@ -549,11 +577,13 @@ class AndroidApkUpdateInstaller {
     MethodChannel? channel,
     Future<Directory> Function()? temporaryDirectory,
     bool? isAndroid,
+    String distributionChannel = AppDistribution.channel,
   }) : this(
          client: client,
          channel: channel,
          temporaryDirectory: temporaryDirectory,
          isAndroid: isAndroid,
+         distributionChannel: distributionChannel,
          allowedDownloadUri: _isAllowedGlobalApkUri,
          requireSha256: true,
        );
@@ -564,11 +594,19 @@ class AndroidApkUpdateInstaller {
   final bool _isAndroid;
   final bool Function(Uri)? _allowedDownloadUri;
   final bool _requireSha256;
+  final String distributionChannel;
 
   Future<void> downloadAndInstall(
     AppUpdateInfo info, {
     void Function(double progress)? onProgress,
   }) async {
+    if (_isAndroid &&
+        AppDistribution.usesGooglePlay(
+          TargetPlatform.android,
+          distributionChannel: distributionChannel,
+        )) {
+      throw const AppUpdateException('请通过 Google Play 更新');
+    }
     if (!_isAndroid ||
         info.destinationType != AppUpdateDestinationType.androidApk) {
       throw const AppUpdateException('当前更新不能使用 Android 安装器');
@@ -665,6 +703,9 @@ class AndroidApkUpdateInstaller {
     }
   }
 }
+
+Future<bool> _launchStorePage(Uri uri) =>
+    launchUrl(uri, mode: LaunchMode.externalApplication);
 
 abstract interface class AppUpdateCheckStore {
   Future<DateTime?> readLastSuccessfulCheck();

@@ -11,21 +11,29 @@ import ce.com.cenewbluesdk.proxy.interfaces.IK6AnalysiDevRcvDataManager;
  */
 public final class SayRingHistoryObserver extends BaseK6AnalysiDevData<Object> {
     private volatile Consumer<CEDevData> receiver;
+    private volatile boolean observeGestureAcks;
     private SayRingHistoryObserver(Consumer<CEDevData> receiver) {
         super(null);
         this.receiver = receiver;
     }
 
     public static boolean install(IK6AnalysiDevRcvDataManager source, Consumer<CEDevData> receiver) {
+        return install(source, receiver, false);
+    }
+
+    public static boolean install(IK6AnalysiDevRcvDataManager source, Consumer<CEDevData> receiver, boolean observeGestureAcks) {
         if (!(source instanceof K6AnalysiDevRcvDataManager)) return false;
         K6AnalysiDevRcvDataManager manager = (K6AnalysiDevRcvDataManager) source;
         for (BaseK6AnalysiDevData<?> parser : manager.allProcess) {
             if (parser instanceof SayRingHistoryObserver) {
                 ((SayRingHistoryObserver) parser).receiver = receiver;
+                ((SayRingHistoryObserver) parser).observeGestureAcks = observeGestureAcks;
                 return true;
             }
         }
-        manager.allProcess.add(new SayRingHistoryObserver(receiver));
+        SayRingHistoryObserver observer = new SayRingHistoryObserver(receiver);
+        observer.observeGestureAcks = observeGestureAcks;
+        manager.allProcess.add(observer);
         return true;
     }
 
@@ -34,7 +42,9 @@ public final class SayRingHistoryObserver extends BaseK6AnalysiDevData<Object> {
         // SDK data frames: -10001 requires transport ACK, -10002 does not.
         // A command ACK (-99) is never a history terminal.
         if (current != null && packet != null
-                && (packet.getCmd() == -10001 || packet.getCmd() == -10002)) current.accept(packet);
+                && (packet.getCmd() == -10001 || packet.getCmd() == -10002
+                    || (observeGestureAcks
+                        && packet.getCmd() == -99 && packet.getDataType() == 44))) current.accept(packet);
         return false;
     }
     @Override protected Object realProcess(byte[] bytes) { return null; }

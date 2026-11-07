@@ -9,6 +9,15 @@ class AppLocalizationsKo extends AppLocalizations {
   AppLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get workoutReadPartial => '수신된 운동 기록을 저장했습니다. 나중에 새로고침해 추가 기록을 확인하세요.';
+
+  @override
+  String get workoutReadIncomplete => '새로고침이 완료되지 않았습니다. 저장된 운동 기록에는 영향이 없습니다.';
+
+  @override
+  String get workoutReadFailed => '운동 기록을 새로고침할 수 없습니다. 저장된 기록에는 영향이 없습니다.';
+
+  @override
   String get savedActivity => '활동 기록';
 
   @override

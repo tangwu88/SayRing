@@ -71,6 +71,8 @@ List<Map<String, Object?>> get _checkoutItems => [
 ];
 
 class _FlowController extends Fake implements AppController {
+  @override
+  bool get publicShopReviewsAvailable => true;
   final drafts = <String, Map<String, Object?>>{};
   final placed = <Map<String, Object?>>[];
   final afterSales = <Map<String, Object?>>[];

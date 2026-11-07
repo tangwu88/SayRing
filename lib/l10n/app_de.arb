@@ -1,4 +1,7 @@
 {
+  "workoutReadPartial": "Einige Trainingsdaten wurden gespeichert. Später erneut aktualisieren.",
+  "workoutReadIncomplete": "Die Aktualisierung ist unvollständig. Gespeicherte Trainings bleiben erhalten.",
+  "workoutReadFailed": "Trainings können derzeit nicht aktualisiert werden. Gespeicherte Daten bleiben erhalten.",
   "savedActivity": "Aktivitätsverlauf",
   "activitySourceChanged": "Konto oder Ring wurde gewechselt. Öffne den Aktivitätsverlauf erneut.",
   "noSavedWorkouts": "Noch keine Trainings gespeichert",

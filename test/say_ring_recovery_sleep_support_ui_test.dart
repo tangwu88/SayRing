@@ -205,6 +205,8 @@ class _UiController extends Fake implements AppController {
 
   @override
   bool get isDeviceSyncing => false;
+  @override
+  bool get isDeviceHistorySyncing => isDeviceSyncing;
 
   @override
   double get deviceSyncProgress => 0;

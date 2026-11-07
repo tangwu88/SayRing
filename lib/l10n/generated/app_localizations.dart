@@ -110,6 +110,24 @@ abstract class AppLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
   ];
 
+  /// No description provided for @workoutReadPartial.
+  ///
+  /// In en, this message translates to:
+  /// **'Some workout records were saved. Refresh later to check for more.'**
+  String get workoutReadPartial;
+
+  /// No description provided for @workoutReadIncomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'This refresh is incomplete. Your saved workouts are unchanged.'**
+  String get workoutReadIncomplete;
+
+  /// No description provided for @workoutReadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to refresh workouts. Your saved records are unchanged.'**
+  String get workoutReadFailed;
+
   /// No description provided for @savedActivity.
   ///
   /// In en, this message translates to:

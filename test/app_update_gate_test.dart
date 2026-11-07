@@ -24,6 +24,50 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
+    'Play manual check opens its store without an APK update dialog',
+    (tester) async {
+      final controller = _authenticatedController();
+      final gate = AppUpdateGateController();
+      Uri? opened;
+      final service = GlobalAppUpdateService(
+        distributionChannel: 'google-play',
+        targetPlatform: TargetPlatform.android,
+        packageInfoLoader: () async => PackageInfo(
+          appName: 'Say Ring',
+          packageName: 'cn.saydian.ring',
+          version: '1.0.12',
+          buildNumber: '1267',
+        ),
+        client: MockClient((_) async => throw StateError('No APK manifest')),
+        storeLauncher: (uri) async {
+          opened = uri;
+          return true;
+        },
+      );
+      await tester.pumpWidget(
+        SaydianApp(
+          controller: controller,
+          updateService: service,
+          updateGateController: gate,
+          updateCheckStore: _UpdateGateStore(Future.value(null)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await gate.checkNow();
+      await tester.pumpAndSettle();
+      expect(
+        opened.toString(),
+        'https://play.google.com/store/apps/details?id=cn.saydian.ring',
+      );
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(AppShell), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
     'fast optional manifest waits for the localized startup Navigator',
     (tester) async {
       final controller = _authenticatedController();

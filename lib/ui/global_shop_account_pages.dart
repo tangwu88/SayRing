@@ -967,6 +967,7 @@ class _GlobalShopOrderDetailPageState extends State<GlobalShopOrderDetailPage> {
   }
 
   Future<void> _review(Map<String, Object?> item) async {
+    if (!widget.controller.publicShopReviewsAvailable) return;
     var rating = 5;
     final text = TextEditingController();
     final submitted = await showDialog<bool>(
@@ -1209,7 +1210,8 @@ class _GlobalShopOrderDetailPageState extends State<GlobalShopOrderDetailPage> {
                           '${commerceText(item['specificationSnapshot'])} × ${commerceCents(item['quantity']) ?? 1}',
                         ),
                         trailing:
-                            item['review'] == null &&
+                            widget.controller.publicShopReviewsAvailable &&
+                                item['review'] == null &&
                                 [
                                   'RECEIVED',
                                   'COMPLETED',

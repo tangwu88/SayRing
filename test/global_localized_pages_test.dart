@@ -94,6 +94,9 @@ class _GlobalPageController extends Fake implements AppController {
   bool get hideAiContent => false;
 
   @override
+  bool get healthReportPurchasesAvailable => true;
+
+  @override
   Future<GlobalAuthCapabilities> globalAuthCapabilities() async =>
       const GlobalAuthCapabilities(
         email: false,

@@ -582,9 +582,9 @@ void main() {
         expect(c.firstRingBindingStatus, contains('未清空'));
         expect(c.syncStatus, '请重新连接后再同步');
         expect(await c.syncDeviceData(), isFalse);
-        expect(c.errorMessage, '设备正在准备，请稍后再试');
+        expect(c.errorMessage, '设备准备尚未完成，请点击恢复同步重试');
         expect(await c.startMeasurement(HealthMetric.heartRate), isFalse);
-        expect(c.errorMessage, '请重新连接戒指后重试');
+        expect(c.errorMessage, '设备准备尚未完成，请在设备页点击恢复同步后再测量');
         expect(ring.clears, 0);
         expect(ring.historyReads, 0);
       },

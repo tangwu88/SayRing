@@ -239,12 +239,18 @@ public final class CoolWearRingBridge
             final long request = historyRequestGeneration;
             final String target = connectedId;
             final int type = packet.getDataType();
+            final int command = packet.getCmd();
             final int itemLength = packet.getItemL();
             final int itemCount = packet.getItemNumber();
             final byte[] bytes = packet.getData() == null ? null : packet.getData().clone();
             main.post(() -> {
                 if (activeBridge != this || epoch != connectionEpoch
                         || target == null || !target.equals(connectedId) || !linkConnected || !recoveryTarget.isActive()) return;
+                if (type == 44 && pendingGesture != null) {
+                    profileTrace("gesture:envelope;command=" + command + ";bytes="
+                            + (bytes == null ? -1 : bytes.length) + ";items=" + itemCount);
+                }
+                if (command == -99) return; // Diagnostic command ACK is never a data/history terminal.
                 if (BuildConfig.DEBUG) {
                     String evidence = CoolWearProtocolEvidence.describe(type, itemLength, itemCount, bytes);
                     if (evidence != null) Log.i(TAG, evidence);
@@ -252,7 +258,7 @@ public final class CoolWearRingBridge
                 if (request != historyRequestGeneration && type != 61) return;
                 receiveHistoryBatch(type, bytes);
             });
-        });
+        }, "profile".equals(BuildConfig.BUILD_TYPE));
     }
 
     private void configureScanCallback(final long generation) {
@@ -1521,8 +1527,10 @@ public final class CoolWearRingBridge
     }
 
     private void onGestureMode(int mode, long generation) {
-        if (!canUseGesture() || pendingGesture == null ||
-                !gesture.confirm(mode, generation, android.os.SystemClock.elapsedRealtime())) return;
+        boolean accepted = canUseGesture() && pendingGesture != null &&
+                gesture.confirm(mode, generation, android.os.SystemClock.elapsedRealtime());
+        profileTrace("gesture:decoded;accepted=" + accepted);
+        if (!accepted) return;
         clearGestureWaiters();
         if (gesturePairingFailureCode != null) {
             finishGesture(gesturePairingFailureCode,
@@ -1639,6 +1647,7 @@ public final class CoolWearRingBridge
             finishGesture("OPERATION_BUSY", "请重新连接后设置手势"); return;
         }
         gestureDeadline = () -> {
+            profileTrace("gesture:confirmation_timeout");
             gesture.fail();
             finishGesture("GESTURE_CONFIRMATION_TIMEOUT", gesturePairingFailureCode != null
                     ? "手势关闭尚未确认，请重连后先关闭" : "戒指未确认，重新连接后重试");
@@ -1648,6 +1657,12 @@ public final class CoolWearRingBridge
             // Use the OEM send API: its actual wire type is 44. The similarly
             // named entity.toCEDevData() emits 128 and is not this command.
             helper.getSendBlueData().sendGestureConfig(mode);
+            profileTrace("gesture:command_dispatched");
+            // The SDK's set command does not promise a standalone scene echo.
+            // Queue a read-only mixed-settings request behind that same proxy's
+            // write; only its actual decoded matching mode can confirm state.
+            requestRingInfo(CoolWearReadRequests.Kind.MIXED_INFO);
+            profileTrace("gesture:readback_requested");
         } catch (RuntimeException error) {
             gesture.fail();
             finishGesture("GESTURE_SEND_FAILED", "手势设置失败，重新连接后重试");

@@ -339,7 +339,7 @@ void main() {
         final reconnect = find.byKey(const ValueKey('gesture-refresh'));
         await tester.ensureVisible(reconnect);
         await tester.pumpAndSettle();
-        expect(find.text('重新连接'), findsOneWidget);
+        expect(find.text('恢复控制'), findsOneWidget);
         await tester.tap(reconnect);
         expect(reconnects, 1);
         expect(selected, [3]);

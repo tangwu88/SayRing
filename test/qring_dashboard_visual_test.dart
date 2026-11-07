@@ -97,6 +97,16 @@ class _Controller extends AppController {
   void announceChange() => notifyListeners();
 }
 
+class _SportOverviewController extends _Controller {
+  _SportOverviewController(super.store);
+  int deviceReads = 0;
+  @override
+  Future<bool> syncDeviceData() async {
+    deviceReads++;
+    return true;
+  }
+}
+
 Finder get _activity => find.byKey(const Key('dashboard-today-health'));
 
 Finder _activityText(String text) =>
@@ -171,6 +181,27 @@ Future<void> _mount(
 
 void main() {
   setUpAll(() => initializeDateFormatting('zh_Hans'));
+  testWidgets(
+    'opening sports only loads saved activity; pull refresh still reads the ring',
+    (tester) async {
+      final controller = _SportOverviewController(MemoryHealthStore());
+      await _mount(
+        tester,
+        controller,
+        page: SportOverviewPage(controller: controller),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.deviceReads, 0);
+      unawaited(
+        tester
+            .state<RefreshIndicatorState>(find.byType(RefreshIndicator))
+            .show(),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.deviceReads, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   const ring = DeviceInfo(
     id: 'coolwear:qa-saved-only',

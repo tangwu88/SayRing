@@ -51,7 +51,10 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
     super.initState();
     _wasDeviceSyncing = widget.controller.isDeviceSyncing;
     widget.controller.addListener(_onDeviceSyncChanged);
-    unawaited(_refreshActivity());
+    // Opening the page must not start a new device history transfer immediately
+    // before the user starts a workout. Reconnect sync remains automatic;
+    // pulling to refresh remains an explicit device read.
+    unawaited(_refreshActivity(synchronize: false));
   }
 
   @override
@@ -66,13 +69,15 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
     _wasDeviceSyncing = syncing;
   }
 
-  Future<void> _refreshActivity() async {
+  Future<void> _refreshActivity({bool synchronize = true}) async {
     // Show already saved activity immediately. HR05 history can wait for a
     // vendor completion event that some firmware never sends.
     await _loadActivity();
     try {
-      if (widget.controller.connectedDevice != null &&
-          !widget.controller.isDeviceSyncing) {
+      if (synchronize &&
+          widget.controller.connectedDevice != null &&
+          !widget.controller.isDeviceSyncing &&
+          widget.controller.activeSport == null) {
         await widget.controller.syncDeviceData();
       }
       await widget.controller.refreshSportRecords(includeDevice: false);
@@ -602,6 +607,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
   @override
   void dispose() {
     widget.controller.removeListener(_handleControllerChange);
+    widget.controller.cancelPendingSportStart(widget.mode);
     _timer?.cancel();
     unawaited(_positionSubscription?.cancel());
     super.dispose();
@@ -984,6 +990,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
                     key: const Key('sport-session-toggle'),
                     onPressed:
                         widget.controller.connectedDevice == null ||
+                            widget.controller.isSportStarting ||
                             anotherSportActive ||
                             _finalizingSport
                         ? null
@@ -1003,6 +1010,8 @@ class _SportSessionPageState extends State<SportSessionPage> {
                     label: Text(
                       _finalizingSport
                           ? context.l10n.saving
+                          : widget.controller.isSportStarting
+                          ? context.l10n.loading
                           : anotherSportActive
                           ? context.l10n.finishOtherWorkout(
                               context.l10n.sportModeName(
@@ -1097,6 +1106,17 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
         listenable: widget.controller,
         builder: (context, _) {
           final records = widget.controller.sportRecords;
+          final notice = _reading != null
+              ? null
+              : switch (widget.controller.sportHistoryReadStatus) {
+                  SportHistoryReadStatus.partial =>
+                    context.l10n.workoutReadPartial,
+                  SportHistoryReadStatus.incomplete =>
+                    context.l10n.workoutReadIncomplete,
+                  SportHistoryReadStatus.failed =>
+                    context.l10n.workoutReadFailed,
+                  _ => null,
+                };
           if (records.isEmpty) {
             final connected = widget.controller.connectedDevice != null;
             final loading = _reading != null;
@@ -1123,8 +1143,8 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
                       child: Text(
                         loading
                             ? context.l10n.readingData
-                            : _loadFailed
-                            ? context.l10n.serviceUnavailable
+                            : notice != null || _loadFailed
+                            ? notice ?? context.l10n.workoutReadFailed
                             : context.l10n.noSavedWorkouts,
                         textAlign: TextAlign.center,
                       ),
@@ -1136,12 +1156,17 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
                         textAlign: TextAlign.center,
                       ),
                     ],
-                    if (!loading && (connected || _loadFailed)) ...[
+                    if (!loading &&
+                        (connected || _loadFailed || notice != null)) ...[
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
                         onPressed: _refresh,
                         icon: const Icon(Icons.refresh_rounded),
-                        label: Text(context.l10n.refresh),
+                        label: Text(
+                          notice != null
+                              ? context.l10n.retry
+                              : context.l10n.refresh,
+                        ),
                       ),
                     ],
                   ],
@@ -1153,12 +1178,39 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
             onRefresh: _refresh,
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: records.length,
+              itemCount: records.length + (notice == null ? 0 : 1),
               separatorBuilder: (_, _) => const SizedBox(height: 10),
-              itemBuilder: (context, index) => _SportRecordTile(
-                controller: widget.controller,
-                record: records[index],
-              ),
+              itemBuilder: (context, index) {
+                if (notice != null && index == 0) {
+                  return Semantics(
+                    liveRegion: true,
+                    child: Card(
+                      key: const Key('sport-history-read-notice'),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          children: [
+                            Text(notice),
+                            TextButton(
+                              onPressed: _refresh,
+                              child: Text(context.l10n.retry),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                return _SportRecordTile(
+                  controller: widget.controller,
+                  record: records[index - (notice == null ? 0 : 1)],
+                );
+              },
             ),
           );
         },

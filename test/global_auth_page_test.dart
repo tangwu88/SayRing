@@ -98,6 +98,37 @@ Widget host(AppController controller, {bool reset = false, double scale = 1}) =>
     );
 
 void main() {
+  testWidgets('registration code autofill keeps one six-digit code', (
+    tester,
+  ) async {
+    final controller = NoCodeController();
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: GlobalAuthPage(controller: controller, createAccount: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final field = find.byKey(const Key('auth-code'));
+    await tester.scrollUntilVisible(
+      field,
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(field, '416184416184');
+    expect(tester.widget<TextFormField>(field).controller!.text, '416184');
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '416184416184',
+        selection: TextSelection.collapsed(offset: 12),
+      ),
+    );
+    await tester.pump();
+    expect(tester.widget<TextFormField>(field).controller!.text, '416184');
+    expect(controller.registeredIdentity, isNull);
+  });
   for (final scenario in [
     (name: 'short', password: '1234567', dispatch: false),
     (name: 'long', password: 'a' * 73, dispatch: false),

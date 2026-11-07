@@ -1,4 +1,7 @@
 {
+  "workoutReadPartial": "Some workout records were saved. Refresh later to check for more.",
+  "workoutReadIncomplete": "This refresh is incomplete. Your saved workouts are unchanged.",
+  "workoutReadFailed": "Unable to refresh workouts. Your saved records are unchanged.",
   "savedActivity": "Activity history",
   "activitySourceChanged": "The account or ring has changed. Reopen activity history.",
   "noSavedWorkouts": "No workouts saved yet",

@@ -1393,6 +1393,7 @@ class RoutedWearableBridge
             records.statuses,
             historyDays: records.historyDays,
             receipts: records.receipts,
+            protocolChecks: records.protocolChecks,
           )
         : scoped;
   }

@@ -8,6 +8,9 @@ import 'package:saydian_app/ui/global_shop_pages.dart';
 import 'package:saydian_app/ui/shop_pages.dart';
 
 class _Controller extends Fake implements AppController {
+  bool reviewsAvailable = true;
+  @override
+  bool get publicShopReviewsAvailable => reviewsAvailable;
   @override
   void addListener(VoidCallback listener) {}
   @override
@@ -137,6 +140,23 @@ Future<void> _pump(WidgetTester tester, Widget page, {double scale = 1}) async {
 }
 
 void main() {
+  testWidgets('Play hides public reviews while retaining product purchase', (
+    tester,
+  ) async {
+    final controller = _Controller()..reviewsAvailable = false;
+    await _pump(
+      tester,
+      GlobalShopProductPage(controller: controller, productId: 'uuid-watch'),
+    );
+    expect(find.text('Watch details'), findsOneWidget);
+    expect(find.text('Buy now'), findsOneWidget);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(find.text('Customer reviews'), findsNothing);
+    expect(find.text('Comfortable all day.'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'actual global shop entry renders V2 products and opens UUID details',
     (tester) async {

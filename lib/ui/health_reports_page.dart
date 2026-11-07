@@ -334,6 +334,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   }
 
   Future<void> _purchase(HealthReportSummary report) async {
+    if (!widget.controller.healthReportPurchasesAvailable) return;
     if (!await _ensureGlobalAnalysisConsent()) return;
     final dashboard = _dashboard;
     if (dashboard == null || !dashboard.eligibility.eligible) {
@@ -557,12 +558,18 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                 children: [
                   _ProfileOverview(profile: dashboard.profile),
                   const SizedBox(height: 12),
-                  _EntitlementCard(entitlements: dashboard.entitlements),
+                  _EntitlementCard(
+                    entitlements: dashboard.entitlements,
+                    purchasesAvailable:
+                        widget.controller.healthReportPurchasesAvailable,
+                  ),
                   const SizedBox(height: 12),
                   _EligibilityCard(
                     eligibility: dashboard.eligibility,
                     working: _working,
                     analysisAvailable: _reviewedAnalysisAvailable,
+                    purchasesAvailable:
+                        widget.controller.healthReportPurchasesAvailable,
                     onGenerate: _generateReport,
                   ),
                   if (_pendingPayment case final payment?) ...[
@@ -610,7 +617,10 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                         report: report,
                         canPurchase:
                             dashboard.eligibility.eligible &&
-                            _reviewedAnalysisAvailable,
+                            _reviewedAnalysisAvailable &&
+                            widget.controller.healthReportPurchasesAvailable,
+                        purchasesAvailable:
+                            widget.controller.healthReportPurchasesAvailable,
                         working: _working,
                         onOpen: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
@@ -946,9 +956,13 @@ class _ProfileNumber extends StatelessWidget {
 }
 
 class _EntitlementCard extends StatelessWidget {
-  const _EntitlementCard({required this.entitlements});
+  const _EntitlementCard({
+    required this.entitlements,
+    required this.purchasesAvailable,
+  });
 
   final HealthReportEntitlements entitlements;
+  final bool purchasesAvailable;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -959,11 +973,13 @@ class _EntitlementCard extends StatelessWidget {
         child: Icon(Icons.workspace_premium_outlined),
       ),
       title: Text('可用详细报告 ${entitlements.availableReportCredits} 次'),
-      subtitle: Text(
-        entitlements.hasActiveMembership
-            ? '健康会员有效至 ${_date(entitlements.membershipExpiresAt)}，会员剩余 ${entitlements.membershipRemainingCredits} 次'
-            : '可单次购买，或选择30天健康会员（含4份报告）',
-      ),
+      subtitle: entitlements.hasActiveMembership || purchasesAvailable
+          ? Text(
+              entitlements.hasActiveMembership
+                  ? '健康会员有效至 ${_date(entitlements.membershipExpiresAt)}，会员剩余 ${entitlements.membershipRemainingCredits} 次'
+                  : '可单次购买，或选择30天健康会员（含4份报告）',
+            )
+          : null,
     ),
   );
 }
@@ -973,12 +989,14 @@ class _EligibilityCard extends StatelessWidget {
     required this.eligibility,
     required this.working,
     required this.analysisAvailable,
+    required this.purchasesAvailable,
     required this.onGenerate,
   });
 
   final HealthReportEligibility eligibility;
   final bool working;
   final bool analysisAvailable;
+  final bool purchasesAvailable;
   final VoidCallback onGenerate;
 
   @override
@@ -1019,7 +1037,8 @@ class _EligibilityCard extends StatelessWidget {
               context.l10n.reportInsufficientDataHint,
               style: TextStyle(fontSize: 13, color: SaydianColors.muted),
             ),
-          ] else ...[
+          ] else if (purchasesAvailable ||
+              eligibility.availableCredits > 0) ...[
             const SizedBox(height: 14),
             FilledButton.icon(
               key: const Key('health-report-generate'),
@@ -1033,6 +1052,12 @@ class _EligibilityCard extends StatelessWidget {
                     : '生成详细报告',
               ),
             ),
+          ],
+          if (eligibility.eligible &&
+              !purchasesAvailable &&
+              eligibility.availableCredits <= 0) ...[
+            const SizedBox(height: 10),
+            const Text('暂无可用分析次数'),
           ],
           if (!analysisAvailable) ...[
             const SizedBox(height: 10),
@@ -1121,6 +1146,7 @@ class _ReportCard extends StatelessWidget {
   const _ReportCard({
     required this.report,
     required this.canPurchase,
+    required this.purchasesAvailable,
     required this.working,
     required this.onOpen,
     required this.onPurchase,
@@ -1130,6 +1156,7 @@ class _ReportCard extends StatelessWidget {
 
   final HealthReportSummary report;
   final bool canPurchase;
+  final bool purchasesAvailable;
   final bool working;
   final VoidCallback onOpen;
   final VoidCallback onPurchase;
@@ -1177,7 +1204,8 @@ class _ReportCard extends StatelessWidget {
             const SizedBox(height: 9),
             Text(report.previewSummary),
             if (report.status == HealthReportStatus.awaitingPayment &&
-                !canPurchase) ...[
+                !canPurchase &&
+                purchasesAvailable) ...[
               const SizedBox(height: 8),
               Text(
                 context.l10n.reportPurchaseDataMissing,

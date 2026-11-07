@@ -174,6 +174,44 @@ void main() {
     },
   );
 
+  test(
+    'late cache snapshot cannot replace newer persisted ring history',
+    () async {
+      final fixture = await setup();
+      final store = fixture.store as _HistoryStore;
+      final oldRead = Completer<List<HealthRecord>>();
+      store.delayedLatest = oldRead;
+      fixture.wearable.emitRecord(_record('same-sample'));
+      await _settle();
+      expect(store.delayedLatest, isNull);
+      fixture.wearable.emitRecord(
+        HealthRecord.fromJson({
+          ..._record('newer-sample').toJson(),
+          'measuredAt': '2026-10-03T00:00:00.000Z',
+          'values': {'value': 88},
+        }),
+      );
+      await _settle();
+      expect(
+        fixture
+            .controller
+            .latestByMetric[HealthMetric.heartRate]
+            ?.values['value'],
+        88,
+      );
+      oldRead.complete([_record('same-sample')]);
+      await _settle();
+      expect((await store.recent()).first.values['value'], 88);
+      expect(
+        fixture
+            .controller
+            .latestByMetric[HealthMetric.heartRate]
+            ?.values['value'],
+        88,
+      );
+    },
+  );
+
   test('unconfirmed legacy result cannot authorize skipping history', () async {
     final fixture = await setup(recentHistory: true);
     fixture.wearable.nextHistory = [];
@@ -187,6 +225,91 @@ void main() {
     expect(fixture.wearable.syncCount, 3);
     expect(fixture.wearable.recentDays, isEmpty);
   });
+
+  test(
+    'workout start drains an existing background sport read without SDK overlap',
+    () async {
+      final fixture = await setup();
+      final pending = Completer<List<SportRecord>>();
+      fixture.wearable.sportResult = pending.future;
+      final read = fixture.controller.refreshSportRecords();
+      await _settle();
+      final start = fixture.controller.startSport(SportMode.walking);
+      await _settle();
+      expect(fixture.controller.isSportStarting, isTrue);
+      expect(fixture.wearable.operations, isNot(contains('start:walking')));
+      pending.complete([]);
+      await read;
+      expect(await start, isTrue);
+      expect(fixture.controller.activeSport, SportMode.walking);
+      expect(fixture.controller.isSportStarting, isFalse);
+      expect(
+        fixture.wearable.operations.where((op) => op == 'start:walking'),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'leaving workout preparation cancels the delayed start without stopping a read',
+    () async {
+      final fixture = await setup();
+      final pending = Completer<List<SportRecord>>();
+      fixture.wearable.sportResult = pending.future;
+      final read = fixture.controller.refreshSportRecords();
+      await _settle();
+      final start = fixture.controller.startSport(SportMode.walking);
+      await _settle();
+      fixture.controller.cancelPendingSportStart(SportMode.walking);
+      pending.complete([]);
+      await read;
+      expect(await start, isFalse);
+      expect(fixture.controller.activeSport, isNull);
+      expect(fixture.wearable.operations, isNot(contains('start:walking')));
+    },
+  );
+
+  test(
+    'workout start drains the current health read and blocks new sync while recording',
+    () async {
+      final fixture = await setup();
+      final pending = Completer<List<HealthRecord>>();
+      fixture.wearable.historyResult = pending.future;
+      final read = fixture.controller.syncDeviceData();
+      await _settle();
+      final start = fixture.controller.startSport(SportMode.walking);
+      await _settle();
+      expect(fixture.wearable.operations, isNot(contains('start:walking')));
+      pending.complete([]);
+      await read;
+      expect(await start, isTrue);
+      final reads = fixture.wearable.syncCount;
+      expect(await fixture.controller.syncDeviceData(), isFalse);
+      expect(fixture.wearable.syncCount, reads);
+    },
+  );
+
+  test(
+    'account change cancels a workout queued behind a history read',
+    () async {
+      final fixture = await setup();
+      final pending = Completer<List<SportRecord>>();
+      fixture.wearable.sportResult = pending.future;
+      final read = fixture.controller.refreshSportRecords();
+      await _settle();
+      final start = fixture.controller.startSport(SportMode.walking);
+      await _settle();
+      expect(
+        await fixture.controller.login('owner-b', 'test-password'),
+        isTrue,
+      );
+      pending.complete([]);
+      await read;
+      expect(await start, isFalse);
+      expect(fixture.controller.activeSport, isNull);
+      expect(fixture.wearable.operations, isNot(contains('start:walking')));
+    },
+  );
 
   test(
     'local persistence failure cannot create a successful checkpoint',
@@ -468,6 +591,14 @@ void main() {
 
 class _HistoryStore extends MemoryHealthStore {
   bool failWrites = false;
+  Completer<List<HealthRecord>>? delayedLatest;
+  @override
+  Future<List<HealthRecord>> latestForEachMetric() {
+    final delay = delayedLatest;
+    delayedLatest = null;
+    return delay?.future ?? super.latestForEachMetric();
+  }
+
   @override
   Future<void> upsert(List<HealthRecord> records) async {
     if (failWrites) throw StateError('test persistence failure');
@@ -559,6 +690,7 @@ class _Wearable extends Fake
   Completer<void>? disconnectResult;
   Completer<void>? connectResult;
   Future<List<HealthRecord>>? historyResult;
+  Future<List<SportRecord>>? sportResult;
   List<HealthRecord> nextHistory = const [];
   int connectCount = 0;
   int syncCount = 0;
@@ -617,5 +749,8 @@ class _Wearable extends Fake
   Future<void> stopMeasurement(HealthMetric metric) async =>
       operations.add('stop');
   @override
-  Future<List<SportRecord>> readSportRecords() async => const [];
+  Future<List<SportRecord>> readSportRecords() async => sportResult ?? const [];
+  @override
+  Future<void> startSport(SportMode mode) async =>
+      operations.add('start:${mode.wireName}');
 }
