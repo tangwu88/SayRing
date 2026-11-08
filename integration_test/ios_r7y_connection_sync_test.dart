@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
@@ -29,6 +30,71 @@ void main() {
       String? selectedId;
       final documents = await getApplicationDocumentsDirectory();
       final report = File('${documents.path}/r7y-1275-acceptance-private.json');
+      // 重跑时沿用上轮真实选中的标识，避免同名新设备替代本轮目标。
+      String? expectedTargetId;
+      if (await report.exists()) {
+        final previous = jsonDecode(await report.readAsString());
+        final selected = previous is Map ? previous['selectedTarget'] : null;
+        if (selected is Map && selected['id'] is String) {
+          expectedTargetId = selected['id'] as String;
+        }
+      }
+      // 只旁观真实原生通道：原消息、原回包逐字节透传，不伪造 SDK 成功。
+      // 仅记录方法名、耗时和错误码，不保存参数、健康值或设备标识。
+      final nativeCommands = <Map<String, Object?>>[];
+      proof['nativeCommands'] = nativeCommands;
+      const channel = 'cc.saidian.ring/commands';
+      const codec = StandardMethodCodec();
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      expect(messenger.checkMockMessageHandler(channel, null), isTrue);
+      messenger.setMockMessageHandler(channel, (message) async {
+        if (message == null) return messenger.delegate.send(channel, message);
+        final method = codec.decodeMethodCall(message).method;
+        final callClock = Stopwatch()..start();
+        final trace = <String, Object?>{
+          'method': method,
+          'startedAtMs': total.elapsedMilliseconds,
+        };
+        nativeCommands.add(trace);
+        try {
+          final reply = await messenger.delegate.send(channel, message);
+          trace['status'] = reply == null ? 'no_reply' : 'returned';
+          if (reply != null) {
+            try {
+              codec.decodeEnvelope(reply);
+              trace['status'] = 'ok';
+            } on PlatformException catch (error) {
+              trace['status'] = 'error';
+              trace['code'] = error.code;
+              final details = error.details;
+              if (details is Map) {
+                for (final key in const [
+                  'handshakeCommand',
+                  'nativeErrorCode',
+                  'deviceInfoReceived',
+                  'capabilitiesReceived',
+                ]) {
+                  final value = details[key];
+                  if (value is String || value is num || value is bool) {
+                    trace[key] = value;
+                  }
+                }
+              }
+            } on FormatException {
+              trace['status'] = 'invalid_envelope';
+            }
+          }
+          trace['appStateAtReply'] = app.deviceState.name;
+          trace['appCapabilityAtReply'] = app.deviceCapabilityState.name;
+          trace['selectedTargetConnectedAtReply'] =
+              selectedId != null && app.connectedDevice?.id == selectedId;
+          return reply;
+        } finally {
+          trace['durationMs'] = callClock.elapsedMilliseconds;
+        }
+      });
+      addTearDown(() => messenger.setMockMessageHandler(channel, null));
       Future<void> save(String stage) async {
         proof['stage'] = stage;
         proof['elapsedSeconds'] = total.elapsedMilliseconds / 1000;
@@ -104,6 +170,14 @@ void main() {
         }
         proof['targetFound'] = target != null;
         expect(target, isNotNull, reason: 'R7y must actually be discoverable');
+        if (expectedTargetId != null) {
+          expect(
+            target!.id,
+            expectedTargetId,
+            reason: 'Repeat only the same physically selected R7y',
+          );
+          proof['sameTargetAsPreviousRound'] = true;
+        }
         selectedId = target!.id;
         private['selectedTarget'] = target.toJson();
         final vault = SecureSessionVault.global();
@@ -126,6 +200,7 @@ void main() {
         await save('preservation-confirmed');
         final clock = Stopwatch()..start();
         await app.connectDevice(target).timeout(const Duration(seconds: 75));
+        proof['connectionOperationSeconds'] = clock.elapsedMilliseconds / 1000;
         await waitFor(connected, 20);
         proof['connectionSeconds'] = clock.elapsedMilliseconds / 1000;
         proof['exactTargetReady'] = connected();
@@ -208,6 +283,7 @@ void main() {
         proof['ownerUnchanged'] =
             owner != null && app.session?.accountKey == owner;
         private['finalError'] = app.errorMessage;
+        private['connectionDiagnostics'] = app.connectionDiagnostics;
         await save('final');
         app.dispose();
       }
