@@ -15,7 +15,7 @@ export class CoolWearReadOnlySession {
     const client = this.client; this.client = undefined;
     if (client) { try { client.disconnect(); } catch {} try { client.close(); } catch {} }
   }
-  async read(target: string, current: () => boolean): Promise<CoolWearReadResult> {
+  async read(target: string, current: () => boolean, onProgress: (message: string) => void = () => {}): Promise<CoolWearReadResult> {
     this.cancel();
     if (!target || !current()) throw new Error('请重新选择设备');
     const generation = this.generation, client = ble.createGattClientDevice(target);
@@ -25,7 +25,9 @@ export class CoolWearReadOnlySession {
     let timer: number = -1, ownerTimer: number = -1;
     const result = new Promise<CoolWearReadResult>((resolve, reject) => {
       this.rejectPending = reject;
-      timer = setTimeout(() => reject(new Error('设备读取超时，请确认戒指未被其他应用占用')), 18000);
+      let phase = '蓝牙连接';
+      const progress = (next: string): void => { phase = next; if (active()) onProgress(`正在${next}…`); };
+      timer = setTimeout(() => reject(new Error(`${phase}超时，本次验证已结束`)), 18000);
       ownerTimer = setInterval(() => { if (!active()) reject(new Error('连接验证已取消')); }, 200);
       const decoder = new CoolWearReadDecoder();
       let writer: ble.BLECharacteristic | undefined = undefined;
@@ -46,14 +48,18 @@ export class CoolWearReadOnlySession {
       client.on('BLECharacteristicChange', (value: ble.BLECharacteristic) => {
         if (!active() || !notifier || value.serviceUuid.toLowerCase() !== COOLWEAR_SERVICE ||
           value.characteristicUuid.toLowerCase() !== notifier.characteristicUuid.toLowerCase()) return;
-        const packet = decoder.accept(Array.from(new Uint8Array(value.characteristicValue)), Date.now());
+        const bytes = Array.from(new Uint8Array(value.characteristicValue));
+        // Structural diagnostics only: no address, payload or health values.
+        console.warn(`[RingRead] bytes=${bytes.length}, page=${bytes[0]}, role=${bytes[0] === 0 ? bytes[1] : -1}, pages=${bytes[0] === 0 ? bytes[2] : -1}, cmd=${bytes.length >= 10 && bytes[0] === 0 ? bytes[4] : -1}, type=${bytes.length >= 10 && bytes[0] === 0 ? bytes[5] : -1}, size=${bytes.length >= 10 && bytes[0] === 0 ? bytes[8] + bytes[9] * 256 : -1}`);
+        const packet = decoder.accept(bytes, Date.now());
         if (!packet) return;
         if (packet.command === 1) write(coolWearAck(packet)).catch(() => reject(new Error('设备确认未完成')));
         if (packet.type === 2) {
           firmware = coolWearFirmware(packet.body) ?? '';
           if (firmware && !batteryRequested) {
             batteryRequested = true;
-            write(coolWearQuery(3, 2)).catch(reject);
+            progress('读取电量');
+            write(coolWearQuery(3, 2, packet.role)).catch(reject);
           }
         }
         if (packet.type === 3) { battery = coolWearBattery(packet.body); charging = packet.body.length > 1 && packet.body[1] <= 1 ? packet.body[1] === 1 : undefined; }
@@ -62,11 +68,12 @@ export class CoolWearReadOnlySession {
         }
       });
       client.on('BLEConnectionStateChange', (event: ble.BLEConnectionChangeState) => {
-        if (!active() || event.deviceId !== target) return;
+        if (!active() || event.deviceId.toUpperCase() !== target.toUpperCase()) return;
         if (event.state === constant.ProfileConnectionState.STATE_DISCONNECTED) { reject(new Error('设备已断开，请稍后重试')); return; }
         if (event.state !== constant.ProfileConnectionState.STATE_CONNECTED || connecting) return;
         connecting = true;
         const initialize = async (): Promise<void> => {
+          progress('读取蓝牙服务');
           const services = await client.getServices(); assertCurrent();
           const service = services.find(item => item.serviceUuid.toLowerCase() === COOLWEAR_SERVICE);
           if (!service) throw new Error('该设备没有匹配的数据服务');
@@ -74,7 +81,9 @@ export class CoolWearReadOnlySession {
           const writes = service.characteristics.filter(item => item.properties?.write || item.properties?.writeNoResponse);
           if (notify.length !== 1 || writes.length !== 1) throw new Error('设备数据通道尚未确认');
           notifier = notify[0]; writer = writes[0];
+          progress('开启设备通知');
           await client.setCharacteristicChangeNotification(notifier, true); assertCurrent();
+          progress('读取设备信息');
           await write(coolWearQuery(2, 1));
         };
         initialize().catch(reject);

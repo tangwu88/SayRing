@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-11-08 鸿蒙R7 Ultra实际只读连接1192](implementation-log/2026-11-08-harmony-r7-read-validation.md) — 定位并修正设备role被误作固定身份的解析问题；原AAR状态转移Oracle、双时区各564及实际设备信息/电量回包通过，临时读取后自动断开，完整功能仍待适配。
+
 - [2026-11-07 鸿蒙R7 Ultra只读互操作1189（实验待验）](implementation-log/2026-11-07-harmony-coolwear-transport.md) — 原AAR帧对照、临时GATT读取与取消边界；564项双时区通过，现场同名多目标需明确选择，未宣称连接或完整功能通过。
 
 - [2026-11-07 鸿蒙布局与戒指搜索1188](implementation-log/2026-11-07-harmony-layout-discovery.md) — 等宽网格、数字会员编号、通用扫描与未适配戒指独立展示；558项双时区测试、构建与手机发现/界面回执分别记录。

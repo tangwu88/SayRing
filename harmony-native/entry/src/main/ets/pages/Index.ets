@@ -1803,7 +1803,9 @@ struct Index {
       sameHealthSession(session, saydianApi.healthSession()) && careNotifications.isForeground();
     vepWearable.stopScan();
     try {
-      const result = await this.ringReadSession.read(device.key, current);
+      const result = await this.ringReadSession.read(device.key, current, (message: string) => {
+        if (current()) this.ringProbeStatus = message;
+      });
       if (current()) this.ringProbeStatus = `已读取设备，电量${result.battery}% · 固件${result.firmware}。本次验证已结束连接。`;
     } catch (error) {
       if (current()) this.ringProbeStatus = (error as Error).message || '设备读取未完成';
