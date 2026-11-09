@@ -1,6 +1,6 @@
 import { ble, constant } from '@kit.ConnectivityKit';
 import { COOLWEAR_SERVICE, CoolWearPacket, CoolWearReadDecoder, CoolWearReadResult,
-  coolWearQuery, coolWearAck, coolWearFirmware, coolWearBattery } from '../model/CoolWearReadProtocol';
+  coolWearQuery, coolWearAck, coolWearFirmware, coolWearBattery, coolWearCapabilitiesQuery, coolWearCapabilities, CoolWearCapabilities } from '../model/CoolWearReadProtocol';
 
 // A temporary, explicitly selected target. Never creates a persistent binding
 // or reports SDK capabilities. Leaving the page/owner cancels every callback.
@@ -15,7 +15,7 @@ export class CoolWearReadOnlySession {
     const client = this.client; this.client = undefined;
     if (client) { try { client.disconnect(); } catch {} try { client.close(); } catch {} }
   }
-  async read(target: string, current: () => boolean, onProgress: (message: string) => void = () => {}): Promise<CoolWearReadResult> {
+  async read(target: string, current: () => boolean, onProgress: (message: string) => void = () => {}, readCapabilities: boolean = false): Promise<CoolWearReadResult> {
     this.cancel();
     if (!target || !current()) throw new Error('请重新选择设备');
     const generation = this.generation, client = ble.createGattClientDevice(target);
@@ -34,6 +34,7 @@ export class CoolWearReadOnlySession {
       let notifier: ble.BLECharacteristic | undefined = undefined;
       let connecting: boolean = false, batteryRequested: boolean = false, firmware: string = '';
       let battery: number | undefined = undefined, charging: boolean | undefined = undefined;
+      let capabilities: CoolWearCapabilities | undefined = undefined, capabilitiesRequested: boolean = false;
       let writeQueue: Promise<void> = Promise.resolve();
       const write = (bytes: number[]): Promise<void> => {
         writeQueue = writeQueue.then(async (): Promise<void> => {
@@ -63,8 +64,12 @@ export class CoolWearReadOnlySession {
           }
         }
         if (packet.type === 3) { battery = coolWearBattery(packet.body); charging = packet.body.length > 1 && packet.body[1] <= 1 ? packet.body[1] === 1 : undefined; }
-        if (firmware && battery !== undefined) {
-          writeQueue.then(() => { if (active()) resolve({ firmware, battery, charging }); }).catch(reject);
+        if (packet.type === 22 && readCapabilities && capabilitiesRequested) capabilities = coolWearCapabilities(packet.body);
+        if (firmware && battery !== undefined && readCapabilities && !capabilitiesRequested) {
+          capabilitiesRequested = true; progress('读取戒指能力'); write(coolWearCapabilitiesQuery(3, packet.role)).catch(reject);
+        }
+        if (firmware && battery !== undefined && (!readCapabilities || capabilities !== undefined)) {
+          writeQueue.then(() => { if (active()) resolve(readCapabilities ? { firmware, battery, charging, capabilities } : { firmware, battery, charging }); }).catch(reject);
         }
       });
       client.on('BLEConnectionStateChange', (event: ble.BLEConnectionChangeState) => {

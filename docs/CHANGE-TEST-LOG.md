@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-11-09 鸿蒙测量/管理适配准备1193](implementation-log/2026-11-09-harmony-measurement-management.md) — 能力真实回读、原厂手测开始/停止编码对照与566项双时区测试；未开放测量，等待佩戴目标确认和后续会话/真机验收。
+
 - [2026-11-08 鸿蒙R7 Ultra实际只读连接1192](implementation-log/2026-11-08-harmony-r7-read-validation.md) — 定位并修正设备role被误作固定身份的解析问题；原AAR状态转移Oracle、双时区各564及实际设备信息/电量回包通过，临时读取后自动断开，完整功能仍待适配。
 
 - [2026-11-07 鸿蒙R7 Ultra只读互操作1189（实验待验）](implementation-log/2026-11-07-harmony-coolwear-transport.md) — 原AAR帧对照、临时GATT读取与取消边界；564项双时区通过，现场同名多目标需明确选择，未宣称连接或完整功能通过。

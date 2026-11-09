@@ -1805,8 +1805,8 @@ struct Index {
     try {
       const result = await this.ringReadSession.read(device.key, current, (message: string) => {
         if (current()) this.ringProbeStatus = message;
-      });
-      if (current()) this.ringProbeStatus = `已读取设备，电量${result.battery}% · 固件${result.firmware}。本次验证已结束连接。`;
+      }, true);
+      if (current()) this.ringProbeStatus = `已读取设备，电量${result.battery}% · 固件${result.firmware}。能力回读：心率手测${result.capabilities?.heartManual ? '支持' : '未开放'}，血氧${result.capabilities?.oxygenManual ? '支持' : '未开放'}。本次读取已结束连接。`;
     } catch (error) {
       if (current()) this.ringProbeStatus = (error as Error).message || '设备读取未完成';
     } finally { this.ringProbeBusy = false; }
