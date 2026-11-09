@@ -1037,6 +1037,53 @@ public final class QRingBridge
         return isCurrentConnection(generation, id) && context != null && context.equals(recoveryContext);
     }
 
+    private String beginFactoryResetRequest(String id, String context) {
+        String token = java.util.UUID.randomUUID().toString();
+        String key = factoryInitializationKey(id, context);
+        boolean saved = activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE)
+                .edit().putInt(key, 1).putString(key + ".request", token).commit();
+        return saved ? token : null;
+    }
+
+    private boolean recordFactoryResetAck(String id, String context, String token) {
+        if (id == null || context == null || token == null) return false;
+        try {
+            String key = factoryInitializationKey(id, context);
+            var prefs = activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE);
+            if (prefs.getInt(key, 0) != 1 || !token.equals(prefs.getString(key + ".request", null))) return false;
+            return prefs.edit().putInt(key, 3).commit();
+        } catch (ClassCastException unavailable) { return false; }
+    }
+
+    private void acceptFactoryResetAck(int requestGeneration, String id, String context,
+                                       String token, BaseRspCmd ack) {
+        // Reset can legitimately end its GATT before main-thread ACK delivery.
+        // Retain only the real response for the exact persisted original request;
+        // an old receipt may never authorize a different account or device.
+        if (ack == null || ack.getStatus() != BaseRspCmd.RESULT_OK
+                || !recordFactoryResetAck(id, context, token)) return;
+        if (id == null || !id.equalsIgnoreCase(connectedId) || !context.equals(recoveryContext) || !resolved()) return;
+        if (connectionGeneration == requestGeneration) {
+            emit("capabilitiesUpdated", capabilities()); emitFactoryInitialization();
+            return; // Require a fresh post-reset handshake before settings/readback.
+        }
+        if (Integer.valueOf(connectionGeneration).equals(factoryInitializingGeneration)) return;
+        final int generation = connectionGeneration;
+        factoryInitializingGeneration = generation;
+        pendingProfile = recoveryProfile == null ? new HashMap<>() : new HashMap<>(recoveryProfile);
+        final boolean[] done = {false};
+        Runnable finish = () -> {
+            if (done[0]) return;
+            done[0] = true;
+            if (Integer.valueOf(generation).equals(factoryInitializingGeneration)) factoryInitializingGeneration = null;
+            if (currentFactoryTarget(generation, id, context) && resolved()) {
+                emit("capabilitiesUpdated", capabilities()); emitFactoryInitialization();
+            }
+        };
+        main.postDelayed(finish, 12_000L);
+        writeProfileWithCompletion(finish);
+    }
+
     private void initializeFactoryTarget(Runnable completion) {
         final int generation = connectionGeneration;
         final boolean rearming = Integer.valueOf(generation).equals(factoryInitializingGeneration);
@@ -1086,21 +1133,15 @@ public final class QRingBridge
             result.error("DEVICE_BUSY", "设备忙或已请求初始化，不会重复重置", null); return;
         }
         final String context = recoveryContext;
-        if (!saveFactoryInitialization(id, context, 1)) {
+        final String requestToken = beginFactoryResetRequest(id, context);
+        if (requestToken == null) {
             result.error("INITIALIZATION_STORAGE_FAILED", "初始化记录未能保存，未重置戒指", null); return;
         }
         factoryResetGeneration = connectionGeneration;
         final int generation = connectionGeneration;
         CommandHandle.getInstance().executeReqCmd(new RestoreKeyReq(Constants.CMD_RE_STORE),
-                (ICommandResponse<BaseRspCmd>) ack -> main.post(() -> {
-                    if (!currentFactoryTarget(generation, id, context)) return;
-                    if (ack != null && ack.getStatus() == BaseRspCmd.RESULT_OK) {
-                        updateFactoryInitialization(id, context, 2);
-                        if (id.equalsIgnoreCase(connectedId) && context.equals(recoveryContext) && resolved()) {
-                            emit("capabilitiesUpdated", capabilities()); emitFactoryInitialization();
-                        }
-                    }
-                }));
+                (ICommandResponse<BaseRspCmd>) ack -> main.post(() ->
+                        acceptFactoryResetAck(generation, id, context, requestToken, ack)));
         result.success("factoryResetRequested");
     }
 

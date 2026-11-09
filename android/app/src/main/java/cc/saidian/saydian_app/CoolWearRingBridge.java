@@ -59,6 +59,7 @@ import ce.com.cenewbluesdk.proxy.interfaces.K6BleDataResult;
 import ce.com.cenewbluesdk.proxy.interfaces.OnScanDevListener;
 import ce.com.cenewbluesdk.proxy.BleFactory;
 import ce.com.cenewbluesdk.proxy.CEBluetoothProxyBase;
+import ce.com.cenewbluesdk.proxy.SayRingClearResultTap;
 import ce.com.cenewbluesdk.proxy.sdkhelper.BluetoothHelper;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.EventChannel;
@@ -163,6 +164,11 @@ public final class CoolWearRingBridge
     private long rriHistoryEvidenceEpoch = -1, rriHistoryProbeEpoch = -1;
     private long cameraSession;
     private long clearAttemptEpoch = -1;
+    private MethodChannel.Result pendingClear;
+    private volatile CEDevData pendingClearCommand;
+    private Runnable clearDeadline;
+    private long clearOwnerGeneration;
+    private SayRingClearResultTap clearResultTap;
     private volatile boolean deviceInfoReceived;
     private boolean recoveringConnection;
     private boolean resultEmitted;
@@ -258,7 +264,9 @@ public final class CoolWearRingBridge
                     profileTrace("gesture:envelope;command=" + command + ";bytes="
                             + (bytes == null ? -1 : bytes.length) + ";items=" + itemCount);
                 }
-                if (command == -99) return; // Diagnostic command ACK is never a data/history terminal.
+                if (command == -99) {
+                    return; // A command ACK is never a history/data terminal.
+                }
                 if (activeSportMode != null) profileTrace("sport:packet;type=" + type + ";command=" + command + ";items=" + itemCount);
                 if (type == 4 && activeSportMode != null && !sportActivityPaused) {
                     Map<String, Object> live = CoolWearLiveActivity.accept(bytes, sportCounters, System.currentTimeMillis());
@@ -976,6 +984,7 @@ public final class CoolWearRingBridge
     }
 
     private void failConnect(String code, String message) {
+        finishHistoryClear(false, code);
         cancelSdkRecoveryLease();
         cancelHealthPulse(true);
         resetGesture(code, message);
@@ -993,6 +1002,65 @@ public final class CoolWearRingBridge
         connectedVendorId = null;
         pauseSdkRecovery();
         if (result != null) result.error(code, message, null);
+    }
+
+    private void finishHistoryClear(boolean acknowledged, String errorCode) {
+        MethodChannel.Result result = pendingClear;
+        pendingClear = null;
+        pendingClearCommand = null;
+        if (clearResultTap != null) clearResultTap.close();
+        clearResultTap = null;
+        if (clearDeadline != null) main.removeCallbacks(clearDeadline);
+        clearDeadline = null;
+        if (result == null) return;
+        if (acknowledged) result.success("acknowledged");
+        else if (errorCode != null) result.error(errorCode, "设备初始化未完成，请保持戒指靠近", null);
+        else result.success("requested"); // Silence never proves completion.
+    }
+
+    private void onHistoryClearResult(long epoch, String target, long ownerGeneration, CEDevData sent, int status) {
+        if (activeBridge != this || !linkConnected || !deviceInfoReceived
+                || epoch != connectionEpoch || target == null || !target.equals(connectedId)
+                || !recoveryTarget.isActive() || ownerGeneration != clearOwnerGeneration
+                || ownerGeneration != recoveryTarget.generation()
+                || sent == null || sent != pendingClearCommand) return;
+        CoolWearClearAck.Reply reply = CoolWearClearAck.reply(sent, status);
+        if (reply == CoolWearClearAck.Reply.CONFIRMED) finishHistoryClear(true, null);
+        else if (reply == CoolWearClearAck.Reply.REJECTED) finishHistoryClear(false, "RING_HISTORY_CLEAR_REJECTED");
+    }
+
+    private void clearFirstMemberHistory(MethodCall call, MethodChannel.Result result) {
+        String target = call.argument("id"), owner = call.argument("ownerKey");
+        if (clearAttemptEpoch == connectionEpoch) {
+            result.error("RING_HISTORY_CLEAR_ALREADY_REQUESTED", "本次连接已请求初始化，不会重复执行", null); return;
+        }
+        if (!linkConnected || !deviceInfoReceived || connectedId == null
+                || !connectedId.equalsIgnoreCase(target) || owner == null || owner.isEmpty()
+                || !recoveryTarget.isActive()) {
+            result.error("STALE_DEVICE_SESSION", "戒指或账号已变化，未清空数据", null); return;
+        }
+        if (pendingConnect != null || pendingHealthSync != null || pendingSportSync != null
+                || pendingAutoSettings != null || pendingReminders != null || activeMeasurement != null
+                || activeSportMode != null || pendingClear != null) {
+            result.error("DEVICE_BUSY", "设备忙，未发送初始化指令", null); return;
+        }
+        CEBluetoothProxyBase proxy = currentReadProxy(); // Verify actual SDK target before dispatch.
+        CEDevData command = CoolWearClearAck.request();
+        final long epoch = connectionEpoch, ownerGeneration = recoveryTarget.generation();
+        clearResultTap = SayRingClearResultTap.install(proxy, status -> main.post(() ->
+                onHistoryClearResult(epoch, target, ownerGeneration, command, status)));
+        if (clearResultTap == null) {
+            result.error("RING_HISTORY_CLEAR_UNSUPPORTED", "此设备暂不支持确认初始化结果", null); return;
+        }
+        clearAttemptEpoch = connectionEpoch;
+        failPendingSync("CONNECT_CANCELLED", "戒指已开始初始化");
+        clearOwnerGeneration = recoveryTarget.generation();
+        pendingClearCommand = command;
+        pendingClear = result;
+        clearDeadline = () -> { if (pendingClear == result) finishHistoryClear(false, null); };
+        main.postDelayed(clearDeadline, 45_000L);
+        try { proxy.sendData(command); }
+        catch (RuntimeException error) { finishHistoryClear(false, "RING_HISTORY_CLEAR_UNCONFIRMED"); }
     }
 
     private void pauseSdkRecovery() {
@@ -1062,6 +1130,7 @@ public final class CoolWearRingBridge
             }
             completeConnectIfReady();
         } else if (status == K6_Action.RCVD.BLUE_DISCONNECT) {
+            finishHistoryClear(false, "CONNECTION_DROPPED");
             boolean retainSport = activeSportMode != null && activeSportType != null
                     && connectedId != null && connectedId.equalsIgnoreCase(activeSportTargetId)
                     && CoolWearLiveActivity.usesExerciseHeart(supportedModel(connectedName));
@@ -2152,6 +2221,10 @@ public final class CoolWearRingBridge
                 return;
             }
             ensureSdk();
+            if (pendingClear != null && !("disconnect".equals(call.method)
+                    || "getCapabilities".equals(call.method) || "stopScan".equals(call.method))) {
+                result.error("DEVICE_BUSY", "正在完成设备初始化，请稍候", null); return;
+            }
             if (pendingGesture != null && !("disconnect".equals(call.method) ||
                     "getCapabilities".equals(call.method) || "getDeviceDetails".equals(call.method) ||
                     "stopScan".equals(call.method) ||
@@ -2163,29 +2236,7 @@ public final class CoolWearRingBridge
             profileTrace("method " + call.method + "; link=" + linkConnected + "; info=" + deviceInfoReceived);
             switch (call.method) {
                 case "clearRingHistory":
-                    if (clearAttemptEpoch == connectionEpoch) {
-                        result.error("RING_HISTORY_CLEAR_ALREADY_REQUESTED", "本次连接已请求清空，不会重复执行", null);
-                        return;
-                    }
-                    String clearTarget = call.argument("id");
-                    String clearOwner = call.argument("ownerKey");
-                    if (!linkConnected || !deviceInfoReceived || connectedId == null ||
-                            !connectedId.equalsIgnoreCase(clearTarget) || clearOwner == null || clearOwner.isEmpty()) {
-                        result.error("STALE_DEVICE_SESSION", "戒指或账号已变化，未清空数据", null);
-                        return;
-                    }
-                    if (pendingConnect != null || pendingHealthSync != null || pendingSportSync != null ||
-                            pendingAutoSettings != null || pendingReminders != null || activeMeasurement != null || activeSportMode != null) {
-                        result.error("DEVICE_BUSY", "设备忙，未发送清空指令", null);
-                        return;
-                    }
-                    // History-only SDK operation; no factory reset or retry.
-                    // This Android SDK exposes no clear-data ACK callback.
-                    clearAttemptEpoch = connectionEpoch;
-                    // 清空之前退役上一轮只等待晚到运动的窗口，不向新一轮交付旧缓存。
-                    failPendingSync("CONNECT_CANCELLED", "戒指已开始初始化");
-                    helper.getSendDataManager().sendClearData();
-                    result.success("requested");
+                    clearFirstMemberHistory(call, result);
                     break;
                 case "scanDevices":
                     if (pendingScan != null) {
@@ -2272,6 +2323,7 @@ public final class CoolWearRingBridge
                     main.postDelayed(connectDeadline, CONNECT_MS);
                     break;
                 case "disconnect":
+                    finishHistoryClear(false, "CONNECT_CANCELLED");
                     cancelSdkRecoveryLease();
                     cancelHealthPulse(true);
                     resetGesture("CONNECT_CANCELLED", "连接已断开");
@@ -2661,6 +2713,7 @@ public final class CoolWearRingBridge
     }
 
     public void dispose() {
+        finishHistoryClear(false, "BRIDGE_DISPOSED");
         cancelSdkRecoveryLease();
         clearSportContext();
         pendingSportStopTarget = null;
