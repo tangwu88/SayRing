@@ -25,3 +25,4 @@
 - 首次verify因本轮漏跑native阶段、缺少native.log依赖报告而失败，未把签名/Manifest局部成功当全部通过。保留verify-missing-report.log，补跑原生测试与依赖报告后重新verify，签名、产品配置、推送配置、ABI、zipalign及既有ELF门禁全部通过。
 - 正常正式签名包1.0.11（1276），未开启debuggable，沿用原证书SHA-256 81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de。APK SHA-256 358C3BE41EA6E86327B0209FA2650EBCF2557FB2511C9FB41054FDB2CDD84548。签名临时key.properties已清除；APK、凭证、完整测试输出不提交Git。
 - 本轮未运行iOS Debug/Profile（Windows不可执行）、未进行客户R8真机验收、未安装手机、未发布后台或应用市场。对真实完全缺失回执的设备仍保留初始化保护，不能声称截图设备的全部潜在原因已经排除。
+- 源码提交bebca93。首次push遭Windows schannel握手失败；保持TLS证书验证开启，仅使用单次OpenSSL/HTTP1.1配置重试成功，ls-remote与本地SHA一致。未修改全局Git配置、未强推。
