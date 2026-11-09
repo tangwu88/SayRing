@@ -8,27 +8,15 @@ const cycleFields = [
   ('mood', '心情', Icons.sentiment_satisfied_alt),
   ('fatigue', '疲劳', Icons.battery_4_bar_rounded),
 ];
-const _choices = {
-  'flow': {'none': '无', 'light': '少', 'medium': '中等', 'heavy': '多'},
-  'pain': {'none': '无', 'mild': '轻微', 'moderate': '中等', 'severe': '明显'},
-  'mood': {'calm': '平稳', 'low': '低落', 'irritable': '烦躁'},
-  'fatigue': {'none': '无', 'mild': '轻微', 'strong': '明显'},
-};
-const _tags = {
-  'travel': '旅行',
-  'unwell': '身体不适',
-  'medication': '用药',
-  'late_sleep': '晚睡',
-};
 
 List<String> diarySummary(Map<String, Object?> data) => [
   for (final f in cycleFields)
-    if (_choices[f.$1]?[data[f.$1]] case final String value)
+    if (cycleFeelingChoices[f.$1]?[data[f.$1]] case final String value)
       value == '无' ? '无${f.$2}' : '${f.$2}$value',
   for (final k in (data['symptoms'] as List? ?? const []))
     if (cycleSymptomLabels[k] case final String label) label,
   for (final k in (data['tags'] as List? ?? const []))
-    if (_tags[k] case final String label) label,
+    if (cycleTagLabels[k] case final String label) label,
 ];
 
 class CycleDiarySheet extends StatefulWidget {
@@ -119,7 +107,7 @@ class _CycleDiarySheetState extends State<CycleDiarySheet> {
               children: [
                 for (final f in cycleFields)
                   group(f.$2, f.$3, [
-                    for (final v in _choices[f.$1]!.entries)
+                    for (final v in cycleFeelingChoices[f.$1]!.entries)
                       ChoiceChip(
                         key: ValueKey('diary-${f.$1}-${v.key}'),
                         selected: data[f.$1] == v.key,
@@ -151,7 +139,7 @@ class _CycleDiarySheetState extends State<CycleDiarySheet> {
                         multiChip('symptoms', e.key, e.value),
                     ]),
                     group('生活标记', Icons.bookmark_outline, [
-                      for (final e in _tags.entries)
+                      for (final e in cycleTagLabels.entries)
                         multiChip('tags', e.key, e.value),
                     ]),
                   ],

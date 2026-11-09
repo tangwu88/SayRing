@@ -731,7 +731,8 @@ struct Index {
 
   private displayRecord(record?: HealthRecord): string {
     if (!record || record.values.length === 0) return healthRecordText(record);
-    return record.values.map(value => {
+    return record.values.filter(value => record.metric !== 'sport' ||
+      !/热量|卡路里|calor|energy/i.test(value.name)).map(value => {
       const converted = displayHealthValue(value, this.displayUnits);
       return `${converted.name} ${displayNumber(converted.value)}${converted.unit}`;
     }).join(' · ');
@@ -3394,8 +3395,6 @@ struct Index {
         .width(145).height(145).color(RING_THEME.primary).backgroundColor('#DFE5E8').style({ strokeWidth: 9 })
       Progress({ value: ringActivityProgress(this.activityValue('distance'), this.readingSettings.distanceGoal), total: 100, type: ProgressType.Ring })
         .width(113).height(113).color('#26878D').backgroundColor('#E1ECEC').style({ strokeWidth: 9 })
-      Progress({ value: ringActivityProgress(this.activityValue('calories'), this.readingSettings.calorieGoal), total: 100, type: ProgressType.Ring })
-        .width(81).height(81).color('#C3823E').backgroundColor('#EEE3D9').style({ strokeWidth: 9 })
       SymbolGlyph($r('sys.symbol.person_badge_heart')).fontSize(28).fontColor([RING_THEME.ink])
     }.width(153).height(153)
   }
@@ -3416,7 +3415,6 @@ struct Index {
     Column({ space: 10 }) {
       this.ActivityNumber('步数', 'steps', `${this.readingSettings.stepGoal}步`, RING_THEME.primary)
       this.ActivityNumber('距离', 'distance', `${this.readingSettings.distanceGoal.toFixed(2)}公里`, '#26878D', 2)
-      this.ActivityNumber('热量', 'calories', `${this.readingSettings.calorieGoal}千卡`, '#C3823E')
     }.width('100%').alignItems(HorizontalAlign.Start)
   }
 
@@ -4743,7 +4741,6 @@ struct Index {
           .fontFamily('HarmonyOS Sans').width('100%').textAlign(TextAlign.Center)
         Row() {
           this.SportLiveValue('ringDistance', this.sportSession.distanceKm > 0 ? `${this.sportSession.distanceKm.toFixed(2)} km` : '--')
-          this.SportLiveValue('热量', this.sportSession.calories > 0 ? `${Math.round(this.sportSession.calories)} kcal` : '--')
           this.SportLiveValue('心率', this.sportSession.heartRate > 0 ? `${Math.round(this.sportSession.heartRate)} BPM` : '--')
         }.width('100%')
         if (this.sportSession.route.length > 1) {

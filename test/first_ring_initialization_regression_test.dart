@@ -80,7 +80,7 @@ void main() {
       await _settle();
       expect(controller.isRingInitializationPending, isTrue);
       expect(await controller.startMeasurement(HealthMetric.hrv), isFalse);
-      expect(controller.measurementErrorMessage, contains('重新连接'));
+      expect(controller.measurementErrorMessage, contains('恢复同步'));
       expect(controller.activeMeasurementMetric, isNull);
       expect(vault.ringInitializationStages.values, [
         RingInitializationStage.decisionUnknown,
@@ -602,6 +602,170 @@ void main() {
     },
   );
 
+  test(
+    'sync recovery re-reads a completed native receipt without another reset',
+    () async {
+      final vault = MemorySessionVault();
+      final ring = _PendingInitializationRing()..rememberConnections = true;
+      final c = await setup(_ExistingBindingApi(), ring, vault: vault);
+      await c.connectDevice(_device);
+      await _settle();
+      expect(c.isRingInitializationPending, isTrue);
+      expect(c.capabilities?.supportsHistorySync, isFalse);
+      expect(c.canRetryDeviceSyncPreparation, isTrue);
+      ring.initializationStatus = 'complete';
+      expect(await c.syncDeviceData(), isTrue);
+      expect(c.isRingInitializationPending, isFalse);
+      expect(c.capabilities?.supportsHistorySync, isTrue);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 1);
+      expect(c.connectedDevice?.id, _device.id);
+    },
+  );
+
+  test(
+    'recovery accepts a native receipt queued after the method reply',
+    () async {
+      final ring = _PendingInitializationRing()..rememberConnections = true;
+      final c = await setup(_ExistingBindingApi(), ring);
+      await c.connectDevice(_device);
+      await _settle();
+      expect(c.isRingInitializationPending, isTrue);
+      ring.initializationStatus = 'complete';
+      ring.delayReceipt = true;
+      expect(await c.syncDeviceData(), isTrue);
+      expect(c.errorMessage, isNull);
+      expect(c.isRingInitializationPending, isFalse);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, greaterThan(0));
+    },
+  );
+
+  test(
+    'logout cancels the receipt wait and rejects late previous-owner proof',
+    () async {
+      final ring = _PendingInitializationRing()..rememberConnections = true;
+      final c = await setup(_ExistingBindingApi(), ring);
+      await c.connectDevice(_device);
+      await _settle();
+      final previousOwner = ring.ownerKey;
+      ring.suppressReceipt = true;
+      final recovery = c.syncDeviceData();
+      await _settle();
+      expect(c.isDeviceSyncPreparing, isTrue);
+      await c.logout();
+      expect(
+        await recovery.timeout(const Duration(milliseconds: 400)),
+        isFalse,
+      );
+      ring.emitInitialization('complete', owner: previousOwner);
+      await _settle();
+      expect(c.session, isNull);
+      expect(c.connectedDevice, isNull);
+      expect(ring.historyReads, 0);
+      expect(ring.resetCalls, 0);
+    },
+  );
+
+  test(
+    'sync recovery retries failed guard storage without treating failure as absence',
+    () async {
+      final vault = _RetryGuardVault()..failRead = true;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..rememberConnections = true;
+      final c = await setup(_ExistingBindingApi(), ring, vault: vault);
+      await c.connectDevice(_device);
+      await _settle();
+      expect(c.isRingInitializationPending, isTrue);
+      expect(ring.historyReads, 0);
+      expect(await c.syncDeviceData(), isFalse);
+      expect(ring.historyReads, 0);
+      vault.failRead = false;
+      expect(await c.syncDeviceData(), isTrue);
+      expect(c.isRingInitializationPending, isFalse);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 1);
+    },
+  );
+
+  test(
+    'sync recovery cannot turn missing reset proof into permission to import',
+    () async {
+      final vault = MemorySessionVault();
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = null
+        ..rememberConnections = true;
+      final c = await setup(_ExistingBindingApi(), ring, vault: vault);
+      await vault.writeRingInitializationStage(
+        c.homeHealthCardOwner,
+        _device.id,
+        RingInitializationStage.resetAttempted,
+      );
+      await c.connectDevice(_device);
+      await _settle();
+      expect(c.canRetryDeviceSyncPreparation, isTrue);
+      expect(await c.syncDeviceData(), isFalse);
+      expect(c.isRingInitializationPending, isTrue);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, 0);
+      expect(vault.ringInitializationStages.values, [
+        RingInitializationStage.resetAttempted,
+      ]);
+    },
+  );
+
+  test(
+    'matching receipt is retried after durable completion save failed',
+    () async {
+      final vault = _RetryGuardVault()..failClear = true;
+      final ring = _PendingInitializationRing()
+        ..initializationStatus = 'complete'
+        ..rememberConnections = true;
+      final c = await setup(_ExistingBindingApi(), ring, vault: vault);
+      await vault.writeRingInitializationStage(
+        c.homeHealthCardOwner,
+        _device.id,
+        RingInitializationStage.resetAttempted,
+      );
+      await c.connectDevice(_device);
+      await _settle();
+      expect(c.isRingInitializationPending, isTrue);
+      expect(ring.historyReads, 0);
+      vault.failClear = false;
+      await c.syncDeviceData();
+      await _settle();
+      expect(c.isRingInitializationPending, isFalse);
+      expect(vault.ringInitializationStages, isEmpty);
+      expect(ring.historyReads, greaterThan(0));
+      expect(ring.resetCalls, 0);
+    },
+  );
+
+  for (final missingReceipt in [false, true]) {
+    test(
+      'native pending guard survives ${missingReceipt ? 'missing receipt replay' : 'capability read failure'}',
+      () async {
+        final ring = _PendingInitializationRing()..rememberConnections = true;
+        final c = await setup(_ExistingBindingApi(), ring);
+        await c.connectDevice(_device);
+        await _settle();
+        expect(c.isRingInitializationPending, isTrue);
+        ring.initializationStatus = 'complete';
+        ring.failCapabilityRead = !missingReceipt;
+        ring.suppressReceipt = missingReceipt;
+        expect(await c.syncDeviceData(), isFalse);
+        expect(c.isRingInitializationPending, isTrue);
+        expect(ring.historyReads, 0);
+        expect(ring.resetCalls, 0);
+        ring.failCapabilityRead = ring.suppressReceipt = false;
+        expect(await c.syncDeviceData(), isTrue);
+        expect(c.isRingInitializationPending, isFalse);
+        expect(ring.resetCalls, 0);
+      },
+    );
+  }
+
   test('existing member without a native receipt can synchronize', () async {
     final api = _ExistingBindingApi();
     final ring = _PendingInitializationRing()..initializationStatus = null;
@@ -803,6 +967,8 @@ class _PendingInitializationRing extends Fake
   int resetCalls = 0;
   int historyReads = 0;
   String? initializationStatus = 'pending';
+  bool failCapabilityRead = false, suppressReceipt = false;
+  bool delayReceipt = false;
   String connectedDeviceId = _device.id;
   bool rememberConnections = false;
   bool failReset = false;
@@ -868,11 +1034,25 @@ class _PendingInitializationRing extends Fake
 
   @override
   Future<DeviceCapabilities> getCapabilities() async {
+    if (failCapabilityRead) {
+      throw StateError('Synthetic capability read failure');
+    }
     // iOS getCapabilities replays the durable native receipt before its
     // capability result. No reset is authorized in this reconnect scenario.
-    if (initializationStatus case final status?) {
+    if (!suppressReceipt && initializationStatus != null) {
       pendingEvents++;
-      emitInitialization(status);
+      if (delayReceipt) {
+        final status = initializationStatus!;
+        final target = connectedDeviceId;
+        final owner = ownerKey;
+        Timer(const Duration(milliseconds: 20), () {
+          if (!source.isClosed) {
+            emitInitialization(status, deviceId: target, owner: owner);
+          }
+        });
+      } else {
+        emitInitialization(initializationStatus!);
+      }
     }
     return capabilities;
   }
@@ -896,6 +1076,25 @@ class _PendingInitializationRing extends Fake
 
   @override
   Future<List<SportRecord>> readSportRecords() async => [];
+}
+
+class _RetryGuardVault extends MemorySessionVault {
+  bool failRead = false;
+  bool failClear = false;
+  @override
+  Future<void> clearRingInitializationStage(String owner, String deviceId) {
+    if (failClear) throw StateError('Synthetic completion storage failure');
+    return super.clearRingInitializationStage(owner, deviceId);
+  }
+
+  @override
+  Future<RingInitializationStage?> readRingInitializationStage(
+    String ownerKey,
+    String deviceId,
+  ) {
+    if (failRead) throw StateError('Synthetic guard read failure');
+    return super.readRingInitializationStage(ownerKey, deviceId);
+  }
 }
 
 class _UnavailableGuardVault extends MemorySessionVault {

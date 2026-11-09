@@ -1,4 +1,7 @@
 {
+  "workoutReadPartial": "Se guardaron algunos entrenamientos. Actualiza más tarde para buscar el resto.",
+  "workoutReadIncomplete": "La actualización no se completó. Tus entrenamientos guardados no se han modificado.",
+  "workoutReadFailed": "No se pudieron actualizar los entrenamientos. Tus registros guardados no se han modificado.",
   "savedActivity": "Historial de actividad",
   "activitySourceChanged": "La cuenta o el anillo ha cambiado. Vuelve a abrir el historial.",
   "noSavedWorkouts": "Aún no hay entrenamientos guardados",

@@ -24,6 +24,9 @@ class RingGesturePanel extends StatelessWidget {
     this.onStop,
     this.uncertainControl = false,
     this.tapControl = false,
+    this.preparingControl = false,
+    this.waitingForIdle = false,
+    this.syncingData = false,
     super.key,
   });
 
@@ -40,6 +43,7 @@ class RingGesturePanel extends StatelessWidget {
   final VoidCallback? onStop;
   final bool uncertainControl;
   final bool tapControl;
+  final bool preparingControl, waitingForIdle, syncingData;
 
   static const modes = <(int, String, IconData, String)>[
     (0, '关闭', Icons.power_settings_new_rounded, '暂停手势控制'),
@@ -118,10 +122,16 @@ class RingGesturePanel extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          uncertainControl
+                          preparingControl
+                              ? '正在准备手势控制'
+                              : syncingData
+                              ? '正在同步戒指数据'
+                              : waitingForIdle
+                              ? '等待设备空闲'
+                              : uncertainControl
                               ? '控制状态待确认'
                               : requiresReconnect
-                              ? '需要重新连接'
+                              ? '控制状态待恢复'
                               : !ready
                               ? '等待读取'
                               : selected?.$2 ??
@@ -134,8 +144,14 @@ class RingGesturePanel extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          requiresReconnect
-                              ? '请重新连接戒指'
+                          preparingControl
+                              ? '正在恢复控制连接，请稍候'
+                              : syncingData
+                              ? '同步完成后即可设置手势'
+                              : waitingForIdle
+                              ? '当前操作结束后会准备控制连接'
+                              : requiresReconnect
+                              ? '手势设置尚未确认'
                               : busy
                               ? '正在与戒指确认…'
                               : !ready
@@ -208,7 +224,7 @@ class RingGesturePanel extends StatelessWidget {
                     : Icons.refresh_rounded,
                 size: 20,
               ),
-              label: Text(requiresReconnect ? '重新连接' : '刷新状态'),
+              label: Text(requiresReconnect ? '恢复控制' : '刷新状态'),
             ),
           ],
         ),
@@ -216,12 +232,16 @@ class RingGesturePanel extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: Text(
-              error ??
-                  (requiresReconnect
-                      ? '重新连接后再设置手势'
-                      : busy
-                      ? '正在读取手势设置'
-                      : '暂未读到手势设置，请刷新重试'),
+              syncingData
+                  ? '数据同步完成后即可设置手势，请保持戒指靠近手机。'
+                  : (preparingControl || waitingForIdle)
+                  ? '请保持戒指靠近手机，准备过程中不需要重新选择场景。'
+                  : error ??
+                        (requiresReconnect
+                            ? '恢复控制后再设置手势'
+                            : busy
+                            ? '正在读取手势设置'
+                            : '暂未读到手势设置，请刷新重试'),
               style: const TextStyle(fontSize: 16),
             ),
           ),

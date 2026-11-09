@@ -74,6 +74,8 @@ public final class QRingRadioLifecycleHarness {
     boolean cancellingConnection,recoveryConnecting,handshakeStarted=true,bluetoothPowerUnavailable,permissions=true;
     final List<String> events=new ArrayList<>();
     int cameraResets,cameraFinishes;
+    int sportLiveStops;
+    void stopSportLive(boolean sendStop) { check(!sendStop); sportLiveStops++; }
     void resetRemoteCamera() { cameraResets++; }
     void finishCamera(Object value,String code,String message) { cameraFinishes++; }
     void failPendingSync(String code,String message) { pendingSync=null; }
@@ -96,6 +98,7 @@ public final class QRingRadioLifecycleHarness {
         // OEM reports physical radio loss but suppresses its application disconnect broadcast.
         BluetoothAdapter.state=BluetoothAdapter.STATE_OFF;b.manager.connected=false;
         b.onBluetoothState(BluetoothAdapter.STATE_OFF);
+        check(b.sportLiveStops == 1);
         check(b.connectedId==null && b.setTimeFlags==null && b.supportFlags==null);
         check(!b.resolved() && b.pendingSync==null && b.cameraResets==1 && b.cameraFinishes==1);
         check(b.connectionGeneration==5 && b.recoveryRetry==null && b.manager.disconnects==1);

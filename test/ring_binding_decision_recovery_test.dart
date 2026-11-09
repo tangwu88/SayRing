@@ -405,7 +405,7 @@ void main() {
       await _settle();
       expect(await controller.syncDeviceData(), isFalse);
       expect(controller.isRingInitializationPending, isTrue);
-      expect(controller.canRetryDeviceSyncPreparation, isFalse);
+      expect(controller.canRetryDeviceSyncPreparation, isTrue);
       expect(api.posts, isEmpty);
       expect(api.reads, isEmpty);
       expect(api.legacyProofReads, 0);

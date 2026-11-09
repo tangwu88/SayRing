@@ -29,9 +29,9 @@ test('原生取消连接真实方法清 SDK 地址而保留业务绑定，失败
     writeFileSync(file, fixture
       .replace('// PRODUCTION_ADAPTER', source.slice(start, end))
       .replace('// PRODUCTION_METHODS', nativeMethod('failConnect') + nativeMethod('pauseSdkRecovery')
-        + nativeMethod('clearMeasurementSession')));
+        + nativeMethod('clearMeasurementSession') + nativeMethod('releaseLostConnection')));
     const policy = fileURLToPath(new URL('../android/app/src/main/java/cc/saidian/saydian_app/CoolWearRecoveryTarget.java', import.meta.url));
-    execFileSync(java('javac'), ['-Xlint:all', '-Werror', '-d', directory, file, policy]);
+    execFileSync(java('javac'), ['-encoding', 'UTF-8', '-Xlint:all', '-Werror', '-d', directory, file, policy]);
     execFileSync(java('java'), ['-ea', '-cp', directory, 'cc.saidian.saydian_app.CoolWearRecoveryTargetHarness']);
   } finally { rmSync(directory, {recursive: true, force: true}); }
 });
@@ -70,6 +70,100 @@ test('仅已验证的显式连接授权地址，扫描和旧队列事件不能�
   assert.ok(connect.indexOf('recoveryTarget.activate(') < connect.indexOf('helper.connectDev('));
   const callback = nativeMethod('onConnectionState');
   assert.match(callback, /recoveryTarget\.acceptCallback\(generation,/);
-  assert.doesNotMatch(callback.slice(callback.indexOf('} else if (status == K6_Action.RCVD.BLUE_DISCONNECT)')), /pauseSdkRecovery\(\)/);
+  assert.match(callback.slice(callback.indexOf('} else if (status == K6_Action.RCVD.BLUE_DISCONNECT)')), /releaseLostConnection\(retiredId\)/);
   assert.doesNotMatch(source, /\.unbindDevice\(|\.removeBond\(|\.onDestroy\(/);
+});
+
+test('运动恢复仅给当前目标一段固定窗口，过期或取消后不再竞争控制层恢复', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'sayring-sport-lease-'));
+  try {
+    const file = join(directory, 'CoolWearRingBridge.java');
+    writeFileSync(file, `package cc.saidian.saydian_app;
+import java.util.*;
+class CoolWearRingBridge {
+  static CoolWearRingBridge activeBridge;
+  final CoolWearRecoveryLease sdkRecoveryLease = new CoolWearRecoveryLease();
+  final Recovery recoveryTarget = new Recovery();
+  final Main main = new Main();
+  Runnable sdkRecoveryDeadline;
+  boolean recoveringConnection, linkConnected, deviceInfoReceived;
+  int notifications, handoffs;
+  static class SystemClock { static long elapsedRealtime(){return 1000;} }
+  static class Recovery {
+    long owner=1; boolean active=true;
+    long generation(){return owner;}
+    boolean isCurrent(long n){return n==owner;}
+    boolean isActive(){return active;}
+  }
+  static class Main {
+    List<Runnable> tasks=new ArrayList<>();
+    void removeCallbacks(Runnable r){tasks.remove(r);}
+    void postDelayed(Runnable r,long delay){
+      if(delay!=15000)throw new AssertionError("unbounded recovery");tasks.add(r);
+    }
+  }
+  void emit(String type,Map<String,Object> event){
+    if(!"disconnected".equals(type)||!"native_sdk".equals(event.get("recoveryOwner")))
+      throw new AssertionError("wrong ownership event"); notifications++;
+  }
+  void releaseLostConnection(String target){
+    if(linkConnected||deviceInfoReceived)throw new AssertionError("stale transport ready");
+    cancelSdkRecoveryLease();recoveryTarget.active=false;handoffs++;
+  }
+  ${nativeMethod('cancelSdkRecoveryLease')}
+  ${nativeMethod('beginSdkSportRecovery')}
+  static void check(boolean value){if(!value)throw new AssertionError("lease violated");}
+  public static void main(String[] args){
+    CoolWearRingBridge s=new CoolWearRingBridge();activeBridge=s;
+    s.beginSdkSportRecovery("A");s.beginSdkSportRecovery("A");
+    check(s.notifications==1&&s.main.tasks.size()==1);
+    Runnable first=s.main.tasks.get(0);s.cancelSdkRecoveryLease();first.run();
+    check(s.handoffs==0);
+    s.beginSdkSportRecovery("A");Runnable old=s.main.tasks.get(0);
+    s.recoveryTarget.owner++;old.run();check(s.handoffs==0);
+    s.cancelSdkRecoveryLease();s.beginSdkSportRecovery("A");
+    s.main.tasks.get(0).run();check(s.handoffs==1&&!s.recoveryTarget.active);
+    s.main.tasks.clear();s.recoveryTarget.active=true;s.beginSdkSportRecovery("A");
+    activeBridge=new CoolWearRingBridge();s.main.tasks.get(0).run();check(s.handoffs==1);
+  }
+}`);
+    const policy = fileURLToPath(new URL('../android/app/src/main/java/cc/saidian/saydian_app/CoolWearRecoveryLease.java', import.meta.url));
+    execFileSync(java('javac'), ['-encoding', 'UTF-8', '-Xlint:all', '-Werror', '-d', directory, file, policy]);
+    execFileSync(java('java'), ['-ea', '-cp', directory, 'cc.saidian.saydian_app.CoolWearRingBridge']);
+  } finally { rmSync(directory, {recursive: true, force: true}); }
+});
+
+test('离线结束的STOP只在同目标真实握手后发送一次，写入结果不明确也不重放', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'sayring-offline-stop-'));
+  try {
+    const file = join(directory, 'StopHarness.java');
+    writeFileSync(file, `
+class StopHarness {
+  boolean linkConnected,deviceInfoReceived;
+  String connectedId="A",pendingSportStopTarget="A",TAG="test";
+  Integer pendingSportStopType=7;
+  final Helper helper=new Helper();
+  static class K6_SEND_APP_SPORT_STRUCT { static final int SPORT_STATUS_STOP=0; }
+  static class Log { static void w(String t,String s){} }
+  static class Helper {
+    int sends;boolean reject;
+    Helper getSendBlueData(){return this;}
+    void sendAppSport(int type,int state,int time,int distance){
+      if(type!=7||state!=0||time!=0||distance!=0)throw new AssertionError("wrong stop");
+      sends++;if(reject)throw new IllegalStateException("ambiguous write");
+    }
+  }
+  ${nativeMethod('dispatchPendingSportStop')}
+  static void check(boolean v){if(!v)throw new AssertionError("stop replay");}
+  public static void main(String[] args){
+    StopHarness s=new StopHarness();s.dispatchPendingSportStop();check(s.helper.sends==0);
+    s.linkConnected=true;s.dispatchPendingSportStop();check(s.helper.sends==0);
+    s.deviceInfoReceived=true;s.connectedId="B";s.dispatchPendingSportStop();check(s.helper.sends==0);
+    s.connectedId="a";s.helper.reject=true;s.dispatchPendingSportStop();s.dispatchPendingSportStop();
+    check(s.helper.sends==1&&s.pendingSportStopType==null&&s.pendingSportStopTarget==null);
+  }
+}`);
+    execFileSync(java('javac'), ['-encoding', 'UTF-8', '-Xlint:all', '-Werror', '-d', directory, file]);
+    execFileSync(java('java'), ['-ea', '-cp', directory, 'StopHarness']);
+  } finally { rmSync(directory, {recursive: true, force: true}); }
 });

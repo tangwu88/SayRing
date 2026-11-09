@@ -97,7 +97,6 @@ class GoalSettingsPage extends StatefulWidget {
 class _GoalSettingsPageState extends State<GoalSettingsPage> {
   late final TextEditingController _steps;
   late final TextEditingController _distance;
-  late final TextEditingController _calories;
 
   @override
   void initState() {
@@ -106,27 +105,19 @@ class _GoalSettingsPageState extends State<GoalSettingsPage> {
     _distance = TextEditingController(
       text: '${widget.controller.distanceGoal}',
     );
-    _calories = TextEditingController(text: '${widget.controller.calorieGoal}');
   }
 
   @override
   void dispose() {
     _steps.dispose();
     _distance.dispose();
-    _calories.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     final steps = int.tryParse(_steps.text);
     final distance = double.tryParse(_distance.text);
-    final calories = int.tryParse(_calories.text);
-    if (steps == null ||
-        distance == null ||
-        calories == null ||
-        steps <= 0 ||
-        distance <= 0 ||
-        calories <= 0) {
+    if (steps == null || distance == null || steps <= 0 || distance <= 0) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('请输入有效的目标数值')));
@@ -135,7 +126,7 @@ class _GoalSettingsPageState extends State<GoalSettingsPage> {
     final saved = await widget.controller.saveActivityGoals(
       steps: steps,
       distance: distance,
-      calories: calories,
+      calories: widget.controller.calorieGoal,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -167,14 +158,6 @@ class _GoalSettingsPageState extends State<GoalSettingsPage> {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
               labelText: context.l10n.dailyDistanceGoalField,
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _calories,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: context.l10n.dailyCalorieGoalField,
             ),
           ),
           const SizedBox(height: 20),

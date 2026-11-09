@@ -33,6 +33,9 @@ import com.oudmon.ble.base.communication.Constants;
 import com.oudmon.ble.base.communication.bigData.BloodOxygenEntity;
 import com.oudmon.ble.base.communication.bigData.bean.IntervalTemperatureEntity;
 import com.oudmon.ble.base.communication.entity.BleStepDetails;
+import com.oudmon.ble.base.communication.entity.BleStepTotal;
+import com.oudmon.ble.base.communication.req.StartHeartRateReq;
+import com.oudmon.ble.base.communication.rsp.RealTimeHeartRateRsp;
 import com.oudmon.ble.base.communication.req.BloodOxygenSettingReq;
 import com.oudmon.ble.base.communication.req.BaseReqCmd;
 import com.oudmon.ble.base.communication.req.CameraReq;
@@ -127,6 +130,10 @@ public final class QRingBridge
     private int measurementOperation;
     private String activeSportMode;
     private Integer activeSportType;
+    private final SportSessionCounters sportCounters = new SportSessionCounters();
+    private Runnable sportPoll;
+    private int sportLiveGeneration;
+    private boolean sportHeartEnabled;
     private boolean manualResultEmitted;
     private Boolean autoHeart;
     private Boolean autoOxygen;
@@ -483,8 +490,28 @@ public final class QRingBridge
             failScan("QRING_SCAN_FAILED", "蓝牙扫描无法开始，请检查权限与蓝牙后重试");
             return;
         }
+        // Bonded HID rings may stop advertising while Android owns their
+        // control connection. Keep them selectable without forgetting the
+        // system bond; selection still requires the normal SDK handshake.
+        publishBondedScanCandidates();
         scanDeadline = () -> { if (generation == scanGeneration) finishScan(); };
         main.postDelayed(scanDeadline, SCAN_MS);
+    }
+
+    private void publishBondedScanCandidates() {
+        if (pendingScan == null) return;
+        try {
+            for (Map<String, Object> value : readBondedDevices()) {
+                if (pendingScan == null) return;
+                String id = (String) value.get("id");
+                if (!scanned.containsKey(id)) {
+                    scanned.put(id, value);
+                    emit("scanDevice", value);
+                }
+            }
+        } catch (SecurityException unavailable) {
+            // Optional system lookup must not cancel actual BLE discovery.
+        }
     }
 
     private void receiveScan(BluetoothDevice device, int rssi, String advertisedName) {
@@ -553,13 +580,18 @@ public final class QRingBridge
             result.error("BLUETOOTH_OFF", "请先开启手机蓝牙", null);
             return;
         }
+        List<Map<String, Object>> values = readBondedDevices();
+        for (Map<String, Object> value : values) {
+            scanned.putIfAbsent((String) value.get("id"), value);
+        }
+        result.success(values);
+    }
+
+    private List<Map<String, Object>> readBondedDevices() {
+        List<Map<String, Object>> values = new ArrayList<>();
         BluetoothManager bluetooth =
                 (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
-        if (bluetooth == null || bluetooth.getAdapter() == null) {
-            result.success(new ArrayList<>());
-            return;
-        }
-        List<Map<String, Object>> values = new ArrayList<>();
+        if (bluetooth == null || bluetooth.getAdapter() == null) return values;
         for (BluetoothDevice device : bluetooth.getAdapter().getBondedDevices()) {
             String id = device.getAddress();
             String name = device.getName();
@@ -570,10 +602,9 @@ public final class QRingBridge
             value.put("model", name.trim());
             value.put("hardwareAddress", id);
             value.put("bonded", true);
-            scanned.put(id, value);
             values.add(value);
         }
-        result.success(values);
+        return values;
     }
 
     private void prepareRememberedDevice(MethodCall call, MethodChannel.Result result) {
@@ -721,6 +752,7 @@ public final class QRingBridge
     }
 
     private void finishDisconnectedSession() {
+        stopSportLive(false);
         resetRemoteCamera();
         finishCamera(null, "QRING_DISCONNECTED", "戒指已断开");
         String retired = connectedId;
@@ -1275,7 +1307,10 @@ public final class QRingBridge
             if (supportsManualTemperature(setTimeFlags, supportFlags))
                 manual.add("body_temperature");
         }
-        if (setTimeFlags.supportsSportRecord()) {
+        // PhoneSportReq is phone-initiated exercise, as on iOS. The separate
+        // stored-sport-record flag does not gate this command (e.g. R8).
+        // A resolved handshake exposes SDK command modes; start still needs ACK.
+        {
             String[] supported = {"running", "indoor_running", "walking", "cycling",
                     "indoor_cycling", "basketball", "football", "badminton",
                     "swimming", "jump_rope", "yoga", "hiking", "mountaineering"};
@@ -1650,11 +1685,14 @@ public final class QRingBridge
     }
 
     private void startSport(String mode, MethodChannel.Result result) {
+        if (factoryInitializationPending()) {
+            result.error("INITIALIZATION_PENDING", "请先在设备页恢复同步后再开始运动", null); return;
+        }
         if (!resolved() || !((List<?>) capabilities().get("sportModes")).contains(mode)) {
             result.error("QRING_SPORT_UNAVAILABLE", "此运动模式未获戒指确认", null);
             return;
         }
-        if (activeMeasurement != null || activeSportType != null) {
+        if (pendingSync != null || activeMeasurement != null || activeSportType != null) {
             result.error("DEVICE_BUSY", "请先结束当前测量或运动", null);
             return;
         }
@@ -1663,15 +1701,21 @@ public final class QRingBridge
             result.error("QRING_SPORT_UNAVAILABLE", "此运动模式暂不支持", null);
             return;
         }
+        final int generation = connectionGeneration;
+        final String id = connectedId, context = recoveryContext;
         CommandHandle.getInstance().executeReqCmd(
                 PhoneSportReq.getSportStatus((byte) 1, type.byteValue()),
                 (ICommandResponse<AppSportRsp>) response -> main.post(() -> {
+                    if (!isCurrentConnection(generation, id) || !java.util.Objects.equals(context, recoveryContext)) {
+                        result.error("QRING_SESSION_CHANGED", "戒指连接已改变，运动未开始", null); return;
+                    }
                     if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) {
                         result.error("QRING_SPORT_START_FAILED", "戒指未能开始运动", null);
                         return;
                     }
                     activeSportMode = mode;
                     activeSportType = type;
+                    startSportLive();
                     Map<String, Object> event = new HashMap<>();
                     event.put("value", "running");
                     event.put("mode", mode);
@@ -1687,21 +1731,108 @@ public final class QRingBridge
         }
         int type = activeSportType;
         String mode = activeSportMode;
+        final int generation = connectionGeneration;
+        final String id = connectedId, context = recoveryContext;
         CommandHandle.getInstance().executeReqCmd(
                 PhoneSportReq.getSportStatus((byte) 4, (byte) type),
                 (ICommandResponse<AppSportRsp>) response -> main.post(() -> {
+                    if (!isCurrentConnection(generation, id) || !java.util.Objects.equals(context, recoveryContext)) {
+                        result.error("QRING_SESSION_CHANGED", "戒指连接已改变，请检查运动记录", null); return;
+                    }
                     if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) {
                         result.error("QRING_SPORT_STOP_FAILED", "戒指未能结束运动", null);
                         return;
                     }
                     activeSportMode = null;
                     activeSportType = null;
+                    stopSportLive(true);
                     Map<String, Object> event = new HashMap<>();
                     event.put("value", "stopped");
                     event.put("mode", mode == null ? "" : mode);
                     emit("sportState", event);
                     result.success(null);
                 }));
+    }
+
+    private void stopSportLive(boolean sendStop) {
+        sportLiveGeneration++;
+        if (sportPoll != null) main.removeCallbacks(sportPoll);
+        sportPoll = null;
+        manager.removeNotifyListener(Constants.CMD_REAL_TIME_HEART_RATE);
+        if (sportHeartEnabled && sendStop && resolved()) {
+            try {
+                CommandHandle.getInstance().executeReqCmdNoCallback(
+                        StartHeartRateReq.getRealtimeHeartRate(StartHeartRateReq.ACTION_STOP));
+            } catch (RuntimeException ignored) { /* No physical command replay. */ }
+        }
+        sportHeartEnabled = false;
+        sportCounters.reset();
+    }
+
+    private void startSportLive() {
+        stopSportLive(false);
+        final int operation = sportLiveGeneration, connection = connectionGeneration;
+        final String id = connectedId, context = recoveryContext;
+        if (setTimeFlags != null && (setTimeFlags.supportsHeartRate()
+                || supportFlags.supportHeart || supportFlags.supportIntervalHeartRate)) {
+            sportHeartEnabled = manager.addNotifyListener(Constants.CMD_REAL_TIME_HEART_RATE,
+                    (ICommandResponse<RealTimeHeartRateRsp>) response -> main.post(() -> {
+                        if (sportLiveCurrent(operation, connection, id, context) && response != null
+                                && response.getStatus() == BaseRspCmd.RESULT_OK) emitSportHeart(response.getHeart() & 255);
+                    }));
+            if (sportHeartEnabled) {
+                // Named public SDK API: type6 realtime HR with START/STOP, not
+                // an inferred RealTimeHeartRate(int) selector or manual result.
+                try {
+                    CommandHandle.getInstance().executeReqCmd(
+                            StartHeartRateReq.getRealtimeHeartRate(StartHeartRateReq.ACTION_START),
+                            (ICommandResponse<StartHeartRateRsp>) response -> main.post(() -> {
+                                if (sportLiveCurrent(operation, connection, id, context)
+                                        && !measurementFailed(response)) emitSportHeart(response.getHeartRate());
+                            }));
+                } catch (RuntimeException ignored) { /* Workout remains valid without a reading. */ }
+            }
+        }
+        sportPoll = new Runnable() {
+            @Override public void run() {
+                if (sportPoll != this || !sportLiveCurrent(operation, connection, id, context)) return;
+                final Runnable self = this;
+                final long requestedDay = java.time.LocalDate.now().toEpochDay() + 1;
+                manager.getTodayStepTotal(new BleOperateManager.HealthDataCallback<BleStepTotal>() {
+                    @Override public void onSuccess(BleStepTotal value) {
+                        main.post(() -> {
+                            if (sportPoll != self || !sportLiveCurrent(operation, connection, id, context)) return;
+                            if (value != null) {
+                                Map<String, Object> data = sportCounters.acceptReadDay(
+                                        requestedDay, java.time.LocalDate.now().toEpochDay() + 1,
+                                        value.getTotalSteps(), value.getWalkDistance());
+                                if (data != null) { data.put("deviceId", id); emit("sportData", data); }
+                            }
+                            main.postDelayed(self, 10_000L);
+                        });
+                    }
+                    @Override public void onError(int code, String message) {
+                        main.post(() -> {
+                            if (sportPoll == self && sportLiveCurrent(operation, connection, id, context))
+                                main.postDelayed(self, 10_000L);
+                        });
+                    }
+                });
+            }
+        };
+        main.post(sportPoll);
+    }
+
+    private boolean sportLiveCurrent(int operation, int connection, String id, String context) {
+        return operation == sportLiveGeneration && activeSportType != null
+                && isCurrentConnection(connection, id) && java.util.Objects.equals(context, recoveryContext);
+    }
+
+    private void emitSportHeart(int bpm) {
+        if (bpm < 20 || bpm > 250) return;
+        Map<String, Object> value = new HashMap<>();
+        value.put("deviceId", connectedId); value.put("heartRate", bpm);
+        emit("sportData", value);
     }
 
     private void readSportRecords(MethodChannel.Result result) {
@@ -2373,6 +2504,7 @@ public final class QRingBridge
     }
 
     public void dispose() {
+        stopSportLive(true);
         resetRemoteCamera();
         finishCamera(null, "BRIDGE_DISPOSED", "戒指通信已关闭");
         recoveryTargetId = null;

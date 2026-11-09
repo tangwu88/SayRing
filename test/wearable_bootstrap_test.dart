@@ -11,6 +11,45 @@ import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'Android lists bonded R8 alongside cached R7 without connecting either',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final coolwear = _RememberedRingBridge();
+      final qring = _BondedRingBridge();
+      final store = _MemoryBindingStore()
+        ..binding = const SavedWearableBinding(
+          WearableTransport.coolwear,
+          'cached-r7',
+          deviceName: 'R7 Ultra',
+          ownerKey: 'synthetic-owner',
+        );
+      final bridge =
+          createProductionWearableBridge(
+                veepoo: _FakeBridge(const []),
+                yucheng: _FakeBridge(const []),
+                coolwear: coolwear,
+                qring: qring,
+                preferenceStore: store,
+              )
+              as RoutedWearableBridge;
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(
+        ownerKey: 'synthetic-owner',
+        profile: _profile,
+      );
+      final candidates = await bridge.listBondedDevicesForSelection();
+      expect(
+        candidates.map((device) => device.name),
+        containsAll(['R7 Ultra', 'SD_RING_R8']),
+      );
+      expect(coolwear.connectCalls, isEmpty);
+      expect(qring.connectCalls, isEmpty);
+      expect(store.writes, 0);
+      expect(store.clears, 0);
+    },
+  );
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     test(
       '$platform QRing uses its supported native connection details API',
@@ -278,6 +317,26 @@ class _FakeBridge implements WearableBridge {
     DeviceFeature feature, {
     bool enabled = true,
   }) async {}
+}
+
+class _RememberedRingBridge extends _FakeBridge
+    implements WearableRememberedDeviceSelectionBridge {
+  _RememberedRingBridge() : super(const []);
+  @override
+  Future<DeviceInfo?> prepareRememberedDeviceForSelection(
+    String nativeIdentifier, {
+    String? knownName,
+    bool cacheOnly = false,
+  }) async => DeviceInfo(id: nativeIdentifier, name: knownName ?? 'R7 Ultra');
+}
+
+class _BondedRingBridge extends _FakeBridge
+    implements WearableBondedDeviceSelectionBridge {
+  _BondedRingBridge() : super(const []);
+  @override
+  Future<List<DeviceInfo>> listBondedDevicesForSelection() async => const [
+    DeviceInfo(id: 'bonded-r8', name: 'SD_RING_R8'),
+  ];
 }
 
 class _MemoryBindingStore implements WearableBindingPreferenceStore {

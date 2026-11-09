@@ -722,7 +722,7 @@ class RoutedWearableBridge
     }
     if (!current()) return const [];
 
-    // iOS 已连接的戒指可能暂停广播；即使已找回另一枚缓存戒指，也要合并系统候选。
+    // 系统已连接的戒指可能暂停广播；即使已找回另一枚缓存戒指，也要合并系统候选。
     final hasCached = selected.isNotEmpty;
     if (!hasCached || includeSystemConnectedCandidates) {
       for (final entry in _sources.entries) {
@@ -1426,6 +1426,7 @@ class RoutedWearableBridge
             records.statuses,
             historyDays: records.historyDays,
             receipts: records.receipts,
+            protocolChecks: records.protocolChecks,
           )
         : scoped;
   }
@@ -1652,6 +1653,8 @@ class RoutedWearableBridge
           event.type == 'sleepReadStatus' ||
           event.type == 'ringInitialization' ||
           event.type == 'healthRecord' ||
+          event.type == 'sportData' ||
+          event.type == 'sportState' ||
           event.type == 'cameraShutter' ||
           event.type == 'cameraRemoteStopped') {
         final payload = Map<String, Object?>.from(event.payload);

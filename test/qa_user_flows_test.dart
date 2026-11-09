@@ -1272,6 +1272,7 @@ void main() {
       expect(controller.liveSportHeartRate, 96);
       expect(find.text('96 bpm'), findsOneWidget);
       expect(find.textContaining('kcal'), findsNothing);
+      expect(controller.liveSportData['calories'], 75);
       expect(find.byKey(const Key('sport-session-pause')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('sport-session-pause')));
@@ -1279,6 +1280,44 @@ void main() {
       expect(wearable.pauseCount, 1);
       expect(controller.sportPaused, isTrue);
       expect(find.text('继续运动'), findsOneWidget);
+    },
+  );
+
+  test(
+    'sport samples retain MAC case equivalence and reject another target',
+    () async {
+      final wearable = _QaSportWearable();
+      final controller = _controller(wearable: wearable);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      controller
+        ..connectedDevice = const DeviceInfo(
+          id: 'coolwear:aa:bb:cc:dd:ee:ff',
+          name: 'R7 Ultra',
+        )
+        ..activeSport = SportMode.walking;
+      wearable.emitEvent(
+        const WearableEvent(
+          type: 'sportData',
+          payload: {'deviceId': 'coolwear:AA:BB:CC:DD:EE:FF', 'steps': 12},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.liveSportData['steps'], 12);
+      wearable.emitEvent(
+        const WearableEvent(
+          type: 'sportData',
+          payload: {'deviceId': 'qring:AA:BB:CC:DD:EE:FF', 'steps': 999},
+        ),
+      );
+      wearable.emitEvent(
+        const WearableEvent(
+          type: 'sportData',
+          payload: {'deviceId': 'coolwear:AA:BB:CC:DD:EE:01', 'steps': 998},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.liveSportData['steps'], 12);
     },
   );
 
@@ -1637,7 +1676,8 @@ void main() {
       await controller.refreshSportRecords();
       expect(controller.sportRecords.single.id, record.id);
       expect((await store.localSportRecords()).single.id, record.id);
-      expect(controller.errorMessage, contains('收到的运动记录已保存'));
+      expect(controller.sportHistoryReadStatus, SportHistoryReadStatus.partial);
+      expect(controller.errorMessage, isNull);
     },
   );
 
@@ -1943,9 +1983,11 @@ void main() {
       await tester.tap(find.text('运动'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('sport-overview-page')), findsOneWidget);
+      expect(find.text('开始今日运动'), findsNothing);
+      expect(find.byKey(const Key('sport-start-section')), findsNothing);
       expect(
         find.text('当前戒指暂不支持由 App 发起运动记录，可继续查看已同步的日常活动与运动记录。'),
-        findsOneWidget,
+        findsNothing,
       );
       await _popRoute(tester);
       await tester.pumpAndSettle();

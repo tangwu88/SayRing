@@ -416,7 +416,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('connected pending initialization does not advertise reconnect', (
+  testWidgets('connected pending initialization retains safe sync recovery', (
     tester,
   ) async {
     final controller = _PendingInitializationController()
@@ -433,7 +433,14 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.byKey(const Key('device-sync-data')), findsNothing);
+    expect(find.byKey(const Key('device-sync-data')), findsOneWidget);
+    expect(find.text('恢复同步'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('device-sync-data')))
+          .onPressed,
+      isNotNull,
+    );
     expect(find.byKey(const Key('device-reconnect')), findsNothing);
     expect(find.text('重新连接'), findsNothing);
     expect(controller.isRingInitializationPending, isTrue);
@@ -1502,6 +1509,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('sport-overview-page')), findsOneWidget);
       expect(find.byKey(const Key('dashboard-today-health')), findsOneWidget);
+      expect(find.byKey(const Key('sport-start-section')), findsOneWidget);
+      expect(find.text('开始今日运动'), findsOneWidget);
       expect(find.byKey(const Key('sport-mode-grid')), findsOneWidget);
       expect(
         tester
@@ -1634,6 +1643,11 @@ void main() {
     expect(find.text('200'), findsOneWidget);
     expect(find.text('/10000步'), findsOneWidget);
     expect(find.text('999'), findsNothing);
+    expect(find.byKey(const Key('sport-start-section')), findsNothing);
+    expect(find.text('开始今日运动'), findsNothing);
+    expect(find.text('在手机选择运动，佩戴戒指并保持连接'), findsNothing);
+    expect(find.textContaining('暂不支持由 App'), findsNothing);
+    expect(find.text('运动记录'), findsOneWidget);
     expect(find.byKey(const Key('sport-mode-grid')), findsNothing);
     expect(find.byKey(const Key('all-sport-records')), findsNothing);
   });
@@ -2609,6 +2623,67 @@ void main() {
     await tester.pumpAndSettle();
     expect(app.stops, 0);
   });
+
+  testWidgets(
+    'R8 disconnect ends a pending measurement dialog before startup ACK',
+    (tester) async {
+      final ring = _PendingEventMeasurementWearable();
+      final app = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        ring,
+      );
+      await app.initialize();
+      addTearDown(() async {
+        app.dispose();
+        await ring.close();
+      });
+      app.connectedDevice = const DeviceInfo(id: 'qring:TEST', name: 'R8_TEST');
+      app.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.heartRate},
+      );
+      for (final state in const [
+        DeviceConnectionState.connecting,
+        DeviceConnectionState.authenticating,
+        DeviceConnectionState.syncing,
+        DeviceConnectionState.ready,
+      ]) {
+        app.deviceMachine.transition(state);
+      }
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthHistoryPage(
+            controller: app,
+            metric: HealthMetric.heartRate,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('health-measure-heart_rate')));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      ring.emit(
+        const WearableEvent(
+          type: 'disconnected',
+          payload: {'deviceId': 'qring:TEST'},
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(find.textContaining('连接中断'), findsOneWidget);
+      expect(app.activeMeasurementMetric, isNull);
+      ring.pending.complete();
+      await tester.pump();
+      expect(app.activeMeasurementMetric, isNull);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+      expect(ring.stops, 0);
+    },
+  );
 
   testWidgets('pending HRV start is bounded before native acknowledgement', (
     tester,
@@ -3710,7 +3785,7 @@ void main() {
       await tester.tap(find.text('拍照'));
       await tester.pumpAndSettle();
       expect(find.byIcon(Icons.check_circle_rounded), findsNothing);
-      expect(find.text('请重新连接戒指'), findsOneWidget);
+      expect(find.text('手势设置尚未确认'), findsOneWidget);
       final photoTile = tester.widget<InkWell>(
         find.byKey(const ValueKey('gesture-mode-4')),
       );
@@ -6544,6 +6619,12 @@ class _TrackingMeasurementWearable extends _NoopWearable {
   Future<void> stopMeasurement(HealthMetric metric) async {
     stops++;
   }
+}
+
+class _PendingEventMeasurementWearable extends _EventMeasurementWearable {
+  final pending = Completer<void>();
+  @override
+  Future<void> startMeasurement(HealthMetric metric) => pending.future;
 }
 
 class _EventMeasurementWearable extends _TrackingMeasurementWearable {

@@ -43,6 +43,7 @@ public class TargetScanTest {
   Map<String,Map<String,Object>> scanned=new LinkedHashMap<>();
   String supportedModel(String n) { return n.startsWith("R7") ? n : null; }
   void emit(String type,Object value) {}
+  static void profileTrace(String value) {}
 ${method('receiveScannedDevices')}
 ${method('finishScan')}
   static void check(boolean ok) { if (!ok) throw new AssertionError(); }

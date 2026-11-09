@@ -208,6 +208,37 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  testWidgets('phone code autofill cannot append a second six-digit code', (
+    tester,
+  ) async {
+    final controller = CodeLoginController();
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: GlobalCodeLoginPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('code-login-mode')));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const Key('code-login-code'));
+    await tester.enterText(field, '416184416184');
+    expect(tester.widget<TextField>(field).controller!.text, '416184');
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '416184416184',
+        selection: TextSelection.collapsed(offset: 12),
+      ),
+    );
+    await tester.pump();
+    expect(tester.widget<TextField>(field).controller!.text, '416184');
+    await tester.enterText(field, '12a34 56');
+    expect(tester.widget<TextField>(field).controller!.text, '123456');
+    expect(controller.requested, isNull);
+    expect(controller.codeLoginCalls, 0);
+  });
   for (final channel in ['手机号', '邮箱']) {
     for (final scenario in [
       (name: 'empty', password: '', error: 'empty', dispatch: false),

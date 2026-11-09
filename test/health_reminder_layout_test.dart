@@ -12,6 +12,7 @@ import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/health_reminder_center.dart';
+import 'package:saydian_app/ui/reading_reminder_widgets.dart';
 
 class _Api extends Fake implements SaydianApi {}
 
@@ -112,6 +113,44 @@ Widget layoutHost(
 );
 
 void main() {
+  testWidgets(
+    'reference explanation retains guidance without outbound reference links',
+    (tester) async {
+      final controller = LayoutController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ReadingReminderSettingsPanel(
+                controller: controller,
+                onHelp: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final explanation = find.text('参考值说明');
+      await tester.scrollUntilVisible(
+        explanation,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(explanation);
+      await tester.tap(explanation);
+      await tester.pumpAndSettle();
+      for (final title in ['心率参考', '血氧使用说明', '测量局限', 'HRV说明（Oura）']) {
+        expect(find.text(title), findsNothing);
+      }
+      expect(find.textContaining('120/40 bpm'), findsOneWidget);
+      expect(controller.saves, 0);
+      expect(controller.permissionRequests, 0);
+    },
+  );
   for (final locale in [const Locale('zh'), const Locale('en')]) {
     for (final scale in [1.0, 2.0]) {
       testWidgets(

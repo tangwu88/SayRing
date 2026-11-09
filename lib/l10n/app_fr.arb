@@ -1,4 +1,7 @@
 {
+  "workoutReadPartial": "Certains entraînements ont été enregistrés. Actualisez plus tard pour compléter.",
+  "workoutReadIncomplete": "Cette actualisation est incomplète. Vos entraînements enregistrés sont conservés.",
+  "workoutReadFailed": "Impossible d’actualiser les entraînements. Vos données enregistrées sont conservées.",
   "savedActivity": "Historique d’activité",
   "activitySourceChanged": "Le compte ou la bague a changé. Rouvrez l’historique d’activité.",
   "noSavedWorkouts": "Aucun entraînement enregistré",
