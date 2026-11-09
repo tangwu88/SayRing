@@ -624,6 +624,50 @@ void main() {
   );
 
   test(
+    'recovery accepts a native receipt queued after the method reply',
+    () async {
+      final ring = _PendingInitializationRing()..rememberConnections = true;
+      final c = await setup(_ExistingBindingApi(), ring);
+      await c.connectDevice(_device);
+      await _settle();
+      expect(c.isRingInitializationPending, isTrue);
+      ring.initializationStatus = 'complete';
+      ring.delayReceipt = true;
+      expect(await c.syncDeviceData(), isTrue);
+      expect(c.errorMessage, isNull);
+      expect(c.isRingInitializationPending, isFalse);
+      expect(ring.resetCalls, 0);
+      expect(ring.historyReads, greaterThan(0));
+    },
+  );
+
+  test(
+    'logout cancels the receipt wait and rejects late previous-owner proof',
+    () async {
+      final ring = _PendingInitializationRing()..rememberConnections = true;
+      final c = await setup(_ExistingBindingApi(), ring);
+      await c.connectDevice(_device);
+      await _settle();
+      final previousOwner = ring.ownerKey;
+      ring.suppressReceipt = true;
+      final recovery = c.syncDeviceData();
+      await _settle();
+      expect(c.isDeviceSyncPreparing, isTrue);
+      await c.logout();
+      expect(
+        await recovery.timeout(const Duration(milliseconds: 400)),
+        isFalse,
+      );
+      ring.emitInitialization('complete', owner: previousOwner);
+      await _settle();
+      expect(c.session, isNull);
+      expect(c.connectedDevice, isNull);
+      expect(ring.historyReads, 0);
+      expect(ring.resetCalls, 0);
+    },
+  );
+
+  test(
     'sync recovery retries failed guard storage without treating failure as absence',
     () async {
       final vault = _RetryGuardVault()..failRead = true;
@@ -924,6 +968,7 @@ class _PendingInitializationRing extends Fake
   int historyReads = 0;
   String? initializationStatus = 'pending';
   bool failCapabilityRead = false, suppressReceipt = false;
+  bool delayReceipt = false;
   String connectedDeviceId = _device.id;
   bool rememberConnections = false;
   bool failReset = false;
@@ -996,7 +1041,18 @@ class _PendingInitializationRing extends Fake
     // capability result. No reset is authorized in this reconnect scenario.
     if (!suppressReceipt && initializationStatus != null) {
       pendingEvents++;
-      emitInitialization(initializationStatus!);
+      if (delayReceipt) {
+        final status = initializationStatus!;
+        final target = connectedDeviceId;
+        final owner = ownerKey;
+        Timer(const Duration(milliseconds: 20), () {
+          if (!source.isClosed) {
+            emitInitialization(status, deviceId: target, owner: owner);
+          }
+        });
+      } else {
+        emitInitialization(initializationStatus!);
+      }
     }
     return capabilities;
   }

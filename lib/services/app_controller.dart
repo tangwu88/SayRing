@@ -1322,6 +1322,7 @@ class AppController extends ChangeNotifier {
   Object? _devicePreparationRecoveryToken;
   Future<void>? _ringInitializationCompletion;
   int _ringInitializationReceiptRevision = 0;
+  Completer<void>? _ringInitializationReceiptWaiter;
   bool _nativeRingInitializationPending = false;
   RingInitializationStage? _ringInitializationStage;
   String? _ringInitializationOperationId;
@@ -3761,6 +3762,7 @@ class AppController extends ChangeNotifier {
     final nativeWasPending = _nativeRingInitializationPending;
     final receiptRevision = _ringInitializationReceiptRevision;
     final token = Object();
+    final receiptWaiter = Completer<void>();
     bool current() =>
         !_disposed &&
         !_accountTransitioning &&
@@ -3775,9 +3777,21 @@ class AppController extends ChangeNotifier {
       // empty guard. Already-issued/ambiguous physical resets are not replayed.
       await _prepareRingInitializationGuard(device, allowNewDecision: false);
       if (!current() || !_ringInitializationGuardReadable) return;
+      _ringInitializationReceiptWaiter = receiptWaiter;
       final readCapabilities = await refreshDeviceCapabilities(
         announceFailure: false,
       );
+      // Android posts the receipt on EventChannel after replying on
+      // MethodChannel. A successful capability reply alone is not that proof.
+      if (current() &&
+          readCapabilities &&
+          nativeWasPending &&
+          receiptRevision == _ringInitializationReceiptRevision) {
+        await receiptWaiter.future.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {},
+        );
+      }
       await _ringInitializationCompletion;
       if (!current()) return;
       if (!readCapabilities ||
@@ -3809,6 +3823,9 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       if (current()) errorMessage = '暂时无法恢复同步，请保持戒指靠近后重试';
     } finally {
+      if (identical(_ringInitializationReceiptWaiter, receiptWaiter)) {
+        _ringInitializationReceiptWaiter = null;
+      }
       if (identical(_devicePreparationRecoveryToken, token)) {
         _devicePreparationRecoveryToken = null;
         if (!_disposed) notifyListeners();
@@ -4185,6 +4202,11 @@ class AppController extends ChangeNotifier {
       connectedDevice?.id == deviceId;
 
   void _invalidateDeviceSync() {
+    final receiptWaiter = _ringInitializationReceiptWaiter;
+    _ringInitializationReceiptWaiter = null;
+    if (receiptWaiter != null && !receiptWaiter.isCompleted) {
+      receiptWaiter.complete();
+    }
     _initialDeviceHistorySync = null;
     _devicePreparationRecoveryToken = null;
     _ringInitializationCompletion = null;
@@ -8744,6 +8766,10 @@ class AppController extends ChangeNotifier {
         return;
       }
       _ringInitializationReceiptRevision++;
+      final receiptWaiter = _ringInitializationReceiptWaiter;
+      if (receiptWaiter != null && !receiptWaiter.isCompleted) {
+        receiptWaiter.complete();
+      }
       final wasPending = _firstRingBindingPending;
       final complete = event.payload['status'] == 'complete';
       if (complete &&
