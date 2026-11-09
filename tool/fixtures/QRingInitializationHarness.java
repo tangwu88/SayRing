@@ -130,8 +130,8 @@ public final class QRingInitializationHarness {
         QRingInitializationHarness b = fresh(3); Reply reply = new Reply();
         b.configureRecoveryTarget(call, reply);
         check(reply.calls == 1 && reply.error == null && b.profileWrites == 1 && b.phase == 7);
-        check(CommandHandle.instance.reads == 2 && CommandHandle.instance.writes == 1);
-        check(CommandHandle.instance.values[0] == 9000 && CommandHandle.instance.values[1] == 350
+        check(CommandHandle.instance.reads == 0 && CommandHandle.instance.writes == 0);
+        check(CommandHandle.instance.values[0] == 8000 && CommandHandle.instance.values[1] == 350
                 && CommandHandle.instance.values[2] == 10 && CommandHandle.instance.values[3] == 30
                 && CommandHandle.instance.values[4] == 480);
         check(b.factoryInitializingGeneration == null);
@@ -149,7 +149,7 @@ public final class QRingInitializationHarness {
         b=fresh(1);CommandHandle.instance.badProfileRead=true;b.configureRecoveryTarget(call,new Reply());
         check(b.phase==1 && b.cutoff==0);
         b=fresh(1);CommandHandle.instance.badGoalRead=true;b.configureRecoveryTarget(call,new Reply());
-        check(b.phase==1 && b.cutoff==0);
+        check(b.phase==13 && b.cutoff>0 && CommandHandle.instance.writes==0);
         b=fresh(1);CommandHandle.instance.badProfileFlags=true;b.configureRecoveryTarget(call,new Reply());
         check(b.phase==1 && b.cutoff==0);
         b=fresh(1);b.failPersistence=true;b.configureRecoveryTarget(call,new Reply());

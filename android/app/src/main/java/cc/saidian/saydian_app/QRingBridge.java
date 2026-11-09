@@ -1190,42 +1190,23 @@ public final class QRingBridge
         if (QRingInitializationPolicy.complete(phase, factorySyncNotBefore())
                 || !QRingInitializationPolicy.canInitialize(phase,
                 Integer.valueOf(generation).equals(factoryResetGeneration))) { completion.run(); return; }
-        final int target = profileInt("targetSteps", 8000, 1000, 100000);
         final boolean[] done = {false};
         Runnable finish = () -> { if (!done[0]) { done[0] = true; completion.run(); } };
         java.util.function.BooleanSupplier current = () -> !done[0] &&
                 (!rearming || Integer.valueOf(generation).equals(factoryInitializingGeneration)) && currentFactoryTarget(generation, id, context);
         main.postDelayed(() -> { if (current.getAsBoolean()) finish.run(); }, 8_000L);
-        CommandHandle.getInstance().executeReqCmd(TargetSettingReq.getReadInstance(),
-                (ICommandResponse<TargetSettingRsp>) before -> main.post(() -> {
+        // Match iOS's required time/capabilities/profile boundary. The SDK has
+        // no declared goal capability; R8 does not answer TargetSetting reads.
+        // Do not gate history on optional goals or overwrite unrelated targets.
+        CommandHandle.getInstance().executeReqCmd(TimeFormatReq.getReadInstance(),
+                (ICommandResponse<TimeFormatRsp>) profile -> main.post(() -> {
                     if (!current.getAsBoolean()) return;
-                    if (before == null || before.getStatus() != BaseRspCmd.RESULT_OK || before.getAction() != TargetSettingRsp.ACTION_READ) { finish.run(); return; }
-                    CommandHandle.getInstance().executeReqCmd(TargetSettingReq.getWriteInstance(target,
-                            before.getCalorie(), before.getDistance(), before.getmSport(), before.getmSleep()),
-                            (ICommandResponse<TargetSettingRsp>) ack -> main.post(() -> {
-                                if (!current.getAsBoolean()) return;
-                                if (ack == null || ack.getStatus() != BaseRspCmd.RESULT_OK) { finish.run(); return; }
-                                CommandHandle.getInstance().executeReqCmd(TargetSettingReq.getReadInstance(),
-                                        (ICommandResponse<TargetSettingRsp>) actual -> main.post(() -> {
-                                            if (!current.getAsBoolean()) return;
-                                            if (actual != null && actual.getStatus() == BaseRspCmd.RESULT_OK && actual.getAction() == TargetSettingRsp.ACTION_READ &&
-                                                    actual.getStep() == target && actual.getCalorie() == before.getCalorie() &&
-                                                    actual.getDistance() == before.getDistance() && actual.getmSport() == before.getmSport() &&
-                                                    actual.getmSleep() == before.getmSleep()) {
-                                                CommandHandle.getInstance().executeReqCmd(TimeFormatReq.getReadInstance(),
-                                                        (ICommandResponse<TimeFormatRsp>) profile -> main.post(() -> {
-                                                            if (!current.getAsBoolean()) return;
-                                                            if (profile != null && profile.getStatus() == BaseRspCmd.RESULT_OK
-                                                                    && profile.getAction() == TimeFormatRsp.ACTION_READ
-                                                                    && profile.is24() && profile.isMetric()) completeFactorySetup(id, context, phase);
-                                                            finish.run();
-                                                        }));
-                                            } else finish.run();
-                                        }));
-                            }));
+                    if (profile != null && profile.getStatus() == BaseRspCmd.RESULT_OK
+                            && profile.getAction() == TimeFormatRsp.ACTION_READ
+                            && profile.is24() && profile.isMetric()) completeFactorySetup(id, context, phase);
+                    finish.run();
                 }));
     }
-
     private void resetFirstMemberRing(MethodCall call, MethodChannel.Result result) {
         String id = call.argument("id"), owner = call.argument("ownerKey");
         if (!Boolean.TRUE.equals(call.argument("allowFactoryReset")) || !resolved() || id == null ||

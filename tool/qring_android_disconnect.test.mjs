@@ -104,7 +104,6 @@ test('approved Android NO_ACK recovery verifies settings without another reset o
     assert.equal(result.status, 0, result.stderr);
     process.stdout.write(result.stdout);
     for (const mutation of [
-      methods.replace('actual.getCalorie() == before.getCalorie()', 'true'),
       methods.replace('profile.is24() && profile.isMetric()', 'true'),
     ]) {
       assert.notEqual(mutation, methods);
