@@ -2,6 +2,13 @@ import ce.com.cenewbluesdk.entity.CEDevData;
 import ce.com.cenewbluesdk.queue.CEProtocolB;
 public final class CoolWearHarmonyReadOracle {
  public static void main(String[] args) {
+  byte[] sample=new byte[]{0, (byte)0xd2, 0x49, 0x6b, 72};
+  ce.com.cenewbluesdk.entity.k6.K6_HeartStruct heart=new ce.com.cenewbluesdk.entity.k6.K6_HeartStruct(sample);
+  System.out.println("sample:"+heart.getHeartNums()+":"+heart.getTime());
+  for(int control=0;control<256;control++){
+   ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_HR_CONTROL state=new ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_HR_CONTROL(new byte[]{(byte)control});
+   System.out.println("ended:"+control+":"+(state.controlType==1&&state.controlState==0)+":"+(state.controlType==3&&state.controlState==0));
+  }
   for(int type:new int[]{2,3}) for(int n:new int[]{0,7,255}) for(int cmd:new int[]{3,-10001}){
    CEDevData data=new CEDevData();data.setDataType(type);data.setN(n);data.setCmd(cmd);
    byte[] bytes=new CEProtocolB(1).getSendData(data).getSendData();StringBuilder hex=new StringBuilder();

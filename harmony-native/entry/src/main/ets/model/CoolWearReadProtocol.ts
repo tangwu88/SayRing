@@ -19,12 +19,14 @@ export function coolWearQuery(type: number, sequence: number, role: number = 1):
   return bytes;
 }
 export function coolWearAck(packet: CoolWearPacket): number[] {
-  if (![2, 3, 22].includes(packet.type) || packet.command !== 1) throw new Error('Unsupported acknowledgement');
+  if (![2, 3, 22, 20, 24, 7, 21].includes(packet.type) || packet.command !== 1) throw new Error('Unsupported acknowledgement');
   const bytes = coolWearQuery(2, packet.sequence, packet.role); bytes[5] = packet.type;
   bytes[4] = 4; bytes[8] = 1; bytes[10] = 1;
   return bytes;
 }
 export class CoolWearReadDecoder {
+  private allowed: number[];
+  constructor(allowed: number[] = [2, 3, 22]) { this.allowed = allowed.slice(); }
   private pending: CoolWearPacket | undefined = undefined;
   private size: number = 0;
   private index: number = 0;
@@ -38,7 +40,7 @@ export class CoolWearReadDecoder {
       this.clear();
       if (bytes.length < 10) return undefined;
       const command = bytes[4] & 15, size = bytes[8] | (bytes[9] << 8);
-      if (![1, 2].includes(command) || ![2, 3, 22].includes(bytes[5]) || size < 1 || size > 64 ||
+      if (![1, 2].includes(command) || !this.allowed.includes(bytes[5]) || size < 1 || size > 64 ||
         bytes[2] !== Math.max(0, Math.ceil((size - 10) / 19)) || bytes.length < 10 + Math.min(size, 10)) return undefined;
       // The original Analysis updates its devType from the peer header (e.g.
       // 101 on R7 Ultra); this is a framing field, not device authentication.

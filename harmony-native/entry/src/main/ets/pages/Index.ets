@@ -1,3 +1,5 @@
+import { CoolWearManualMetric } from '../model/CoolWearMeasurementProtocol';
+import { CoolWearCapabilities } from '../model/CoolWearReadProtocol';
 import { CoolWearReadOnlySession } from '../services/CoolWearReadOnlySession';
 import { UnavailableRing } from '../model/WearableDiscovery';
 import { ApiError, MemberProfile, Article, ArticleBlock, Session,
@@ -318,6 +320,7 @@ struct Index {
   @State private ringProbeBusy: boolean = false;
   @State private ringProbeTarget: string = '';
   @State private ringProbeStatus: string = '';
+  @State private ringProbeCapabilities: CoolWearCapabilities | undefined = undefined;
   private ringReadSession: CoolWearReadOnlySession = new CoolWearReadOnlySession();
   @State private wearablePhase: WearableConnectionPhase = 'idle';
   @State private wearableMessage: string = '尚未连接戒指';
@@ -1794,19 +1797,22 @@ struct Index {
     return `${today.getMonth() + 1}月${today.getDate()}日`;
   }
 
-  private async verifyRingConnection(device: UnavailableRing): Promise<void> {
+  private async verifyRingConnection(device: UnavailableRing, metric?: CoolWearManualMetric): Promise<void> {
     if (this.ringProbeBusy || this.screen !== 'device-search' || !this.unavailableRings.some((item: UnavailableRing) => item.key === device.key)) return;
     if (!device.name.toUpperCase().replace(/[\s_-]/g, '').includes('R7ULTRA')) return;
     const session = saydianApi.healthSession();
-    this.ringProbeBusy = true; this.ringProbeTarget = device.key; this.ringProbeStatus = '正在连接并读取设备…';
+    this.ringProbeBusy = true; this.ringProbeTarget = device.key; this.ringProbeCapabilities = undefined;
+    this.ringProbeStatus = '正在连接并读取设备…';
     const current = (): boolean => this.screen === 'device-search' && this.ringProbeTarget === device.key &&
       sameHealthSession(session, saydianApi.healthSession()) && careNotifications.isForeground();
     vepWearable.stopScan();
     try {
       const result = await this.ringReadSession.read(device.key, current, (message: string) => {
         if (current()) this.ringProbeStatus = message;
-      }, true);
-      if (current()) this.ringProbeStatus = `已读取设备，电量${result.battery}% · 固件${result.firmware}。能力回读：心率手测${result.capabilities?.heartManual ? '支持' : '未开放'}，血氧${result.capabilities?.oxygenManual ? '支持' : '未开放'}。本次读取已结束连接。`;
+      }, true, metric);
+      if (current()) this.ringProbeCapabilities = result.capabilities;
+      if (current() && result.reading) this.ringProbeStatus = `${result.reading.metric === 'heart' ? '心率' : '血氧'} ${result.reading.value} ${result.reading.unit}，停止命令已确认。本次连接已结束。`;
+      else if (current()) this.ringProbeStatus = `已读取设备，电量${result.battery}% · 固件${result.firmware}。能力回读：心率手测${result.capabilities?.heartManual ? '支持' : '未开放'}，血氧${result.capabilities?.oxygenManual ? '支持' : '未开放'}。本次读取已结束连接。`;
     } catch (error) {
       if (current()) this.ringProbeStatus = (error as Error).message || '设备读取未完成';
     } finally { this.ringProbeBusy = false; }
@@ -4407,25 +4413,39 @@ struct Index {
     }
     if (this.unavailableRings.length > 0) {
       Text('发现附近戒指').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-      Text('以下型号尚未适配当前鸿蒙版，暂时无法连接。').fontSize(14).fontColor(MUTED).width('100%')
+      Text('R7 Ultra 可验证连接并测量支持的项目，其余型号仍在适配。').fontSize(14).fontColor(MUTED).width('100%')
       ForEach(this.unavailableRings, (device: UnavailableRing) => {
         Row({ space: 12 }) {
           SymbolGlyph($r('sys.symbol.circle')).fontSize(28).fontColor([MUTED])
           Column({ space: 6 }) {
             Text(device.name).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             Text(`标识尾号 ${device.key.slice(-5)} · ${this.signalText(device.rssi)}`).fontSize(13).fontColor(MUTED).width('100%')
-            Text('暂不支持连接').fontSize(14).fontColor(MUTED).width('100%')
+            Text(device.name.toUpperCase().replace(/[\s_-]/g, '').includes('R7ULTRA') ? '单次连接与测量' : '暂不支持连接').fontSize(14).fontColor(MUTED).width('100%')
             if (device.name.toUpperCase().replace(/[\s_-]/g, '').includes('R7ULTRA')) {
-              Button(this.ringProbeBusy && this.ringProbeTarget === device.key ? '正在读取…' : '验证连接')
+              Button(this.ringProbeBusy && this.ringProbeTarget === device.key ? '正在操作…' : '验证连接')
                 .fontSize(14).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(RED_SOFT)
                 .enabled(!this.ringProbeBusy).onClick(() => this.verifyRingConnection(device)).id(`verify_r7ultra_${device.key}`)
+            }
+            if (this.ringProbeTarget === device.key && this.ringProbeCapabilities && !this.ringProbeBusy) {
+              if (this.ringProbeCapabilities.heartManual) {
+                Button('测量心率').fontSize(14).constraintSize({ minHeight: 48 }).backgroundColor(RED)
+                  .onClick(() => this.verifyRingConnection(device, 'heart')).id(`ring_heart_${device.key}`)
+              }
+              if (this.ringProbeCapabilities.oxygenManual) {
+                Button('测量血氧').fontSize(14).constraintSize({ minHeight: 48 }).backgroundColor(RED)
+                  .onClick(() => this.verifyRingConnection(device, 'oxygen')).id(`ring_oxygen_${device.key}`)
+              }
+            }
+            if (this.ringProbeTarget === device.key && this.ringProbeBusy) {
+              Button('停止本次操作').fontSize(14).constraintSize({ minHeight: 48 }).backgroundColor(RED_SOFT).fontColor(RED)
+                .onClick(() => this.ringReadSession.cancel()).id('stop_ring_operation')
             }
             if (this.ringProbeTarget === device.key && this.ringProbeStatus) {
               Text(this.ringProbeStatus).fontSize(14).fontColor(MUTED).width('100%')
             }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
-          .accessibilityText(`${device.name}，暂不支持连接`)
+          .accessibilityText(`${device.name}，${device.name.toUpperCase().replace(/[\s_-]/g, '').includes('R7ULTRA') ? '可验证连接与测量' : '暂不支持连接'}`)
       }, (device: UnavailableRing) => device.key)
     }
     ForEach(this.wearableDevices, (device: WearableDevice) => {
