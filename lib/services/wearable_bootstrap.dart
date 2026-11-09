@@ -48,6 +48,8 @@ WearableBridge createProductionWearableBridge({
   restoreOnlyBoundDevice: true,
   requireOwnerScopedBinding: true,
   includeSystemConnectedCandidates:
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android),
   preferenceStore: preferenceStore,
 );

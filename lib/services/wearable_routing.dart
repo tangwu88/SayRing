@@ -719,7 +719,7 @@ class RoutedWearableBridge
     }
     if (!current()) return const [];
 
-    // iOS 已连接的戒指可能暂停广播；即使已找回另一枚缓存戒指，也要合并系统候选。
+    // 系统已连接的戒指可能暂停广播；即使已找回另一枚缓存戒指，也要合并系统候选。
     final hasCached = selected.isNotEmpty;
     if (!hasCached || includeSystemConnectedCandidates) {
       for (final entry in _sources.entries) {

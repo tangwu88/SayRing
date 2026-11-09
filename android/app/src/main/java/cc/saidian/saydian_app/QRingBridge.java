@@ -490,8 +490,28 @@ public final class QRingBridge
             failScan("QRING_SCAN_FAILED", "蓝牙扫描无法开始，请检查权限与蓝牙后重试");
             return;
         }
+        // Bonded HID rings may stop advertising while Android owns their
+        // control connection. Keep them selectable without forgetting the
+        // system bond; selection still requires the normal SDK handshake.
+        publishBondedScanCandidates();
         scanDeadline = () -> { if (generation == scanGeneration) finishScan(); };
         main.postDelayed(scanDeadline, SCAN_MS);
+    }
+
+    private void publishBondedScanCandidates() {
+        if (pendingScan == null) return;
+        try {
+            for (Map<String, Object> value : readBondedDevices()) {
+                if (pendingScan == null) return;
+                String id = (String) value.get("id");
+                if (!scanned.containsKey(id)) {
+                    scanned.put(id, value);
+                    emit("scanDevice", value);
+                }
+            }
+        } catch (SecurityException unavailable) {
+            // Optional system lookup must not cancel actual BLE discovery.
+        }
     }
 
     private void receiveScan(BluetoothDevice device, int rssi, String advertisedName) {
@@ -560,13 +580,18 @@ public final class QRingBridge
             result.error("BLUETOOTH_OFF", "请先开启手机蓝牙", null);
             return;
         }
+        List<Map<String, Object>> values = readBondedDevices();
+        for (Map<String, Object> value : values) {
+            scanned.putIfAbsent((String) value.get("id"), value);
+        }
+        result.success(values);
+    }
+
+    private List<Map<String, Object>> readBondedDevices() {
+        List<Map<String, Object>> values = new ArrayList<>();
         BluetoothManager bluetooth =
                 (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
-        if (bluetooth == null || bluetooth.getAdapter() == null) {
-            result.success(new ArrayList<>());
-            return;
-        }
-        List<Map<String, Object>> values = new ArrayList<>();
+        if (bluetooth == null || bluetooth.getAdapter() == null) return values;
         for (BluetoothDevice device : bluetooth.getAdapter().getBondedDevices()) {
             String id = device.getAddress();
             String name = device.getName();
@@ -577,10 +602,9 @@ public final class QRingBridge
             value.put("model", name.trim());
             value.put("hardwareAddress", id);
             value.put("bonded", true);
-            scanned.put(id, value);
             values.add(value);
         }
-        result.success(values);
+        return values;
     }
 
     private void prepareRememberedDevice(MethodCall call, MethodChannel.Result result) {
