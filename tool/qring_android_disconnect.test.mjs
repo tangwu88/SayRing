@@ -87,23 +87,25 @@ test('bundled SDK disconnect keeps the bond and retires response/task state', ()
   } finally { rmSync(folder, {recursive: true, force: true}); }
 });
 
-test('unknown Android factory receipts stay pending without profile/goal work or timeout waits', () => {
+test('approved Android NO_ACK recovery verifies settings without another reset or moving its import boundary', () => {
   const source = read('android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java');
   const methods = productionMethods(source, ['configureRecoveryTarget', 'initializeFactoryTarget']);
   const folder = mkdtempSync(join(tmpdir(), 'sayring-init-ack-'));
   try {
     const src = join(folder, 'QRingInitializationHarness.java');
+    const policy = join(folder, 'QRingInitializationPolicy.java');
+    writeFileSync(policy, read('android/app/src/main/java/cc/saidian/saydian_app/QRingInitializationPolicy.java'));
     const run = body => {
       writeFileSync(src, read('tool/fixtures/QRingInitializationHarness.java').replace('// PRODUCTION_METHODS', body));
-      execFileSync(java('javac'), ['-Xlint:all', '-Werror', '-d', folder, src], {stdio: 'pipe'});
+      execFileSync(java('javac'), ['-Xlint:all', '-Werror', '-d', folder, policy, src], {stdio: 'pipe'});
       return spawnSync(java('java'), ['-cp', folder, 'cc.saidian.saydian_app.QRingInitializationHarness'], {encoding: 'utf8'});
     };
     const result = run(methods);
     assert.equal(result.status, 0, result.stderr);
     process.stdout.write(result.stdout);
     for (const mutation of [
-      methods.replace('phase == 3 &&', 'phase != 0 && (phase & 4) == 0 &&'),
-      methods.replace('if (phase != 3)', 'if (phase == 0 || (phase & 4) != 0)'),
+      methods.replace('actual.getCalorie() == before.getCalorie()', 'true'),
+      methods.replace('profile.is24() && profile.isMetric()', 'true'),
     ]) {
       assert.notEqual(mutation, methods);
       const bad = run(mutation);

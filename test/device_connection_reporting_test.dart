@@ -637,7 +637,8 @@ void main() {
         final c = await setup(api, ring);
         await c.connectDevice(_device);
         expect(ring.factoryAllowed, isTrue);
-        expect(c.firstRingBindingStatus, contains('待确认'));
+        expect(c.firstRingBindingStatus, contains('正在准备戒指设置'));
+        expect(c.firstRingBindingStatus, isNot(contains('已确认重置')));
         ring.source.add(
           WearableEvent(
             type: 'ringInitialization',
@@ -661,7 +662,8 @@ void main() {
           ),
         );
         await _settle();
-        expect(c.firstRingBindingStatus, contains('已初始化'));
+        expect(c.firstRingBindingStatus, contains('基础设置已核验'));
+        expect(c.firstRingBindingStatus, isNot(contains('已确认重置')));
         expect(ring.historyReads, 1);
       },
     );

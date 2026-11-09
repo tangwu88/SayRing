@@ -3509,7 +3509,7 @@ class AppController extends ChangeNotifier {
       firstRingBindingStatus = cleared == RingDataClearResult.acknowledged
           ? '戒指已确认清空指令，请重新连接后同步新数据'
           : cleared == RingDataClearResult.factoryResetRequested
-          ? '恢复出厂指令已发送，重连后将初始化设置；结果待确认'
+          ? '正在准备戒指设置，完成后将自动同步新数据'
           : '清空指令已发送，设备结果待确认；请重新连接后核验';
     } catch (error) {
       if (!isCurrent() || connectedDevice?.id != device.id) return;
@@ -3551,7 +3551,7 @@ class AppController extends ChangeNotifier {
       }
       _nativeRingInitializationPending = false;
       _firstRingBindingPending = _firstRingBindingDecisionPending;
-      firstRingBindingStatus = '戒指已确认重置，基础设置已初始化';
+      firstRingBindingStatus = '戒指基础设置已核验，可以同步新数据';
       if (!_firstRingBindingPending &&
           deviceState == DeviceConnectionState.ready) {
         unawaited(_syncInitialDeviceData(deviceId));
@@ -3816,7 +3816,8 @@ class AppController extends ChangeNotifier {
           rememberedDevice?.id == device.id &&
           _privacyConsentGranted &&
           _wearableAccountRecoveryAllowed) {
-        // A fresh exact-target handshake can finish ACKed profile setup.
+        // A fresh exact-target handshake can verify QRing setup. Android's
+        // NO_ACK recovery also persists an ownership import boundary natively.
         // The native durable receipt still decides; no reset is replayed.
         await reconnectDevice();
       }
@@ -8781,7 +8782,7 @@ class AppController extends ChangeNotifier {
       _firstRingBindingPending =
           _firstRingBindingDecisionPending || _nativeRingInitializationPending;
       firstRingBindingStatus = complete
-          ? '戒指已确认重置，基础设置已初始化'
+          ? '戒指基础设置已核验，可以同步新数据'
           : '戒指重置或初始化尚未确认，历史同步已暂停';
       if (complete && wasPending && !_firstRingBindingPending) {
         unawaited(_syncInitialDeviceData(connectedDevice!.id));

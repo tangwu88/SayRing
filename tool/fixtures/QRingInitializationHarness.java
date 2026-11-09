@@ -53,12 +53,25 @@ public final class QRingInitializationHarness {
         static CommandHandle instance;
         int reads, writes;
         int[] values = {8000, 350, 10, 30, 480};
+        boolean badProfileRead, badGoalRead, badProfileFlags;
         static CommandHandle getInstance() { return instance; }
         void executeReqCmd(TargetSettingReq request, ICommandResponse<TargetSettingRsp> callback) {
             if (request.write) { writes++; values = request.values.clone(); }
             else reads++;
-            callback.onResponse(new TargetSettingRsp(values));
+            int[] readback=values.clone();
+            if (badGoalRead && !request.write && writes>0) readback[1]++;
+            callback.onResponse(new TargetSettingRsp(readback));
         }
+        void executeReqCmd(TimeFormatReq request, ICommandResponse<TimeFormatRsp> callback) {
+            TimeFormatRsp reply=new TimeFormatRsp();reply.valid=!badProfileFlags;
+            callback.onResponse(badProfileRead ? null : reply);
+        }
+    }
+    static final class TimeFormatReq {static TimeFormatReq getReadInstance(){return new TimeFormatReq();}}
+    static final class TimeFormatRsp extends BaseRspCmd {
+        static final int ACTION_READ=0;
+        boolean valid=true;
+        int getAction(){return ACTION_READ;} boolean is24(){return valid;} boolean isMetric(){return valid;}
     }
     final Handler main = new Handler();
     String connectedId = "synthetic-ring", recoveryTargetId, recoveryTargetName, recoveryContext = "synthetic-owner";
@@ -66,11 +79,22 @@ public final class QRingInitializationHarness {
     Integer factoryResetGeneration, factoryInitializingGeneration;
     Runnable recoveryRetry;
     int phase, connectionGeneration = 4, profileWrites, emitted;
+    long cutoff;
+    boolean failPersistence;
     boolean cancellingConnection, recoveryConnecting;
     boolean resolved() { return connectedId != null; }
     boolean isValidBluetoothAddress(String id) { return "synthetic-ring".equals(id); }
     boolean isQRingName(String name) { return "R21".equals(name); }
     int factoryInitialization(String id, String context) { return phase; }
+    long factorySyncNotBefore() {return cutoff;}
+    boolean factoryInitializationPending(){return !QRingInitializationPolicy.complete(phase, cutoff);}
+    boolean completeFactorySetup(String id,String context,int expected) {
+        check(currentFactoryTarget(4,id,context));
+        if (failPersistence || phase!=expected) return false;
+        phase=QRingInitializationPolicy.completedPhase(expected);
+        if(phase==13)cutoff=1234567890000L;
+        return true;
+    }
     void updateFactoryInitialization(String id, String context, int bits) { check(currentFactoryTarget(4, id, context)); phase |= bits; }
     boolean currentFactoryTarget(int generation, String id, String context) {
         return generation == connectionGeneration && id.equals(connectedId) && context.equals(recoveryContext);
@@ -94,7 +118,7 @@ public final class QRingInitializationHarness {
     public static void main(String[] args) {
         MethodCall call = new MethodCall(); call.values.put("id", "synthetic-ring");
         call.values.put("name", "R21"); call.values.put("context", "synthetic-owner");
-        for (int phase : new int[] {0, 1, 2, 4, 5, 6, 7, -1, 11}) {
+        for (int phase : new int[] {0, 2, 4, 5, 6, 7, -1, 11}) {
             QRingInitializationHarness b = fresh(phase); Reply reply = new Reply();
             b.configureRecoveryTarget(call, reply);
             check(reply.calls == 1 && reply.error == null && b.profileWrites == 0 && b.phase == phase);
@@ -115,6 +139,21 @@ public final class QRingInitializationHarness {
         check(reply.calls == 1 && b.profileWrites == 0 && b.phase == 3);
         b = fresh(3); b.connectedId = "other-ring"; reply = new Reply(); b.configureRecoveryTarget(call, reply);
         check(reply.calls == 1 && b.profileWrites == 0 && b.phase == 3);
+        b=fresh(1);reply=new Reply();b.configureRecoveryTarget(call,reply);
+        check(b.phase==13 && b.cutoff>0 && b.profileWrites==1 && (b.phase&2)==0);
+        long fixed=b.cutoff;int writes=CommandHandle.instance.writes;
+        b.configureRecoveryTarget(call,new Reply());b.initializeFactoryTarget(()->{});
+        check(b.cutoff==fixed && CommandHandle.instance.writes==writes && b.profileWrites==1);
+        b=fresh(1);b.factoryResetGeneration=4;b.configureRecoveryTarget(call,new Reply());
+        check(b.phase==1 && b.profileWrites==0 && CommandHandle.instance.writes==0);
+        b=fresh(1);CommandHandle.instance.badProfileRead=true;b.configureRecoveryTarget(call,new Reply());
+        check(b.phase==1 && b.cutoff==0);
+        b=fresh(1);CommandHandle.instance.badGoalRead=true;b.configureRecoveryTarget(call,new Reply());
+        check(b.phase==1 && b.cutoff==0);
+        b=fresh(1);CommandHandle.instance.badProfileFlags=true;b.configureRecoveryTarget(call,new Reply());
+        check(b.phase==1 && b.cutoff==0);
+        b=fresh(1);b.failPersistence=true;b.configureRecoveryTarget(call,new Reply());
+        check(b.phase==1 && b.cutoff==0);
         System.out.println("Production Android initialization assertions: " + checks);
     }
 }

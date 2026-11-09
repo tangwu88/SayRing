@@ -85,6 +85,7 @@ public final class QRingDisconnectHarness {
     }
 
     static final String TAG = "fixture";
+    void onFactoryResetWrite(Intent intent) { }
     final Handler main = new Handler();
     final Manager manager = new Manager();
     final List<String> events = new ArrayList<>();

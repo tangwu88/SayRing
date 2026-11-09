@@ -148,11 +148,27 @@ public final class QRingBridge
     private String recoveryTargetName;
     private String recoveryContext;
     private Integer factoryResetGeneration;
+    private Integer factoryWriteConfirmedGeneration;
+    private ResetWrite pendingResetWrite;
+    // SharedPreferences updates memory before its disk result. Keep failed
+    // writes closed across bridge recreation until a successful commit.
+    private static final java.util.concurrent.ConcurrentHashMap<String, Integer> factoryUncommittedPhases =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private Integer factoryInitializingGeneration;
     private Map<String, Object> recoveryProfile;
     private boolean recoveryConnecting;
     private boolean cancellingConnection;
     private boolean handshakeStarted;
+
+    private static final class ResetWrite {
+        final int generation;
+        final String id, context, token;
+        final byte[] frame;
+        ResetWrite(int generation, String id, String context, String token, byte[] frame) {
+            this.generation = generation; this.id = id; this.context = context; this.token = token;
+            this.frame = frame.clone();
+        }
+    }
     private MethodChannel.Result pendingDisconnect;
     private Runnable recoveryRetry;
     private MethodChannel.Result pendingCamera;
@@ -719,6 +735,10 @@ public final class QRingBridge
         // 原生广播保留了戒指地址；直接在接收广播的主线程核对，避免旧设备启动新设备的握手。
         String id = intent.getStringExtra(BleAction.EXTRA_ADDR);
         if (id == null || !id.equalsIgnoreCase(connectedId) || cancellingConnection) return;
+        if (BleAction.BLE_CHARACTERISTIC_WRITE.equals(action)) {
+            onFactoryResetWrite(intent);
+            return;
+        }
         if (BleAction.BLE_SERVICE_DISCOVERED.equals(action)) {
             onServiceReady();
         } else if (BleAction.BLE_CHARACTERISTIC_READ.equals(action) &&
@@ -883,8 +903,9 @@ public final class QRingBridge
         Map<String, Object> profile = call.argument("profile");
         recoveryProfile = profile == null ? new HashMap<>() : new HashMap<>(profile);
         int phase = factoryInitialization(id, context);
-        if (resolved() && id.equalsIgnoreCase(connectedId) && phase == 3 &&
-                !Integer.valueOf(connectionGeneration).equals(factoryResetGeneration)) {
+        if (resolved() && id.equalsIgnoreCase(connectedId) && factoryInitializationPending() &&
+                QRingInitializationPolicy.canInitialize(phase,
+                        Integer.valueOf(connectionGeneration).equals(factoryResetGeneration))) {
             if (Integer.valueOf(connectionGeneration).equals(factoryInitializingGeneration)) {
                 result.error("DEVICE_BUSY", "戒指正在初始化，请稍候", null); return;
             }
@@ -1003,10 +1024,13 @@ public final class QRingBridge
 
     private int factoryInitialization(String id, String context) {
         if (id == null || context == null || context.isEmpty()) return 0;
+        String key = factoryInitializationKey(id, context);
+        Integer uncommitted = factoryUncommittedPhases.get(key);
+        if (uncommitted != null) return uncommitted;
         try {
             return activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE)
-                    .getInt(factoryInitializationKey(id, context), 0);
-        } catch (ClassCastException error) { return 1; }
+                    .getInt(key, 0);
+        } catch (RuntimeException error) { return -1; }
     }
 
     private boolean saveFactoryInitialization(String id, String context, int phase) {
@@ -1021,7 +1045,42 @@ public final class QRingBridge
 
     private boolean factoryInitializationPending() {
         int phase = factoryInitialization(connectedId, recoveryContext);
-        return phase != 0 && phase != 7;
+        return !QRingInitializationPolicy.complete(phase, factorySyncNotBefore());
+    }
+
+    private long factorySyncNotBefore() {
+        int phase = factoryInitialization(connectedId, recoveryContext);
+        if (phase == 0 || phase == 7) return 0;
+        if (phase != QRingInitializationPolicy.SETUP_VERIFIED_NO_ACK
+                || connectedId == null || recoveryContext == null) return Long.MAX_VALUE;
+        try {
+            long cutoff = activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE)
+                    .getLong(factoryInitializationKey(connectedId, recoveryContext) + ".syncNotBefore", 0);
+            return cutoff > 0 && cutoff < Long.MAX_VALUE ? cutoff : Long.MAX_VALUE;
+        } catch (ClassCastException unavailable) { return Long.MAX_VALUE; }
+    }
+
+    private boolean completeFactorySetup(String id, String context, int expectedPhase) {
+        if (id == null || context == null || !id.equalsIgnoreCase(connectedId)
+                || !context.equals(recoveryContext) || !initializationHandshakeReady()
+                || !QRingInitializationPolicy.canInitialize(expectedPhase, false)
+                || factoryInitialization(id, context) != expectedPhase) return false;
+        String key = factoryInitializationKey(id, context);
+        var editor = activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE).edit();
+        int phase = QRingInitializationPolicy.completedPhase(expectedPhase);
+        if (phase == QRingInitializationPolicy.SETUP_VERIFIED_NO_ACK) {
+            // User-approved NO_ACK recovery: this is a new ownership boundary,
+            // not proof that the ring erased its earlier history.
+            long now = System.currentTimeMillis();
+            if (now <= 0) return false;
+            editor.putLong(key + ".syncNotBefore", now);
+        }
+        factoryUncommittedPhases.put(key, expectedPhase);
+        try {
+            boolean committed = editor.putInt(key, phase).commit();
+            if (committed) factoryUncommittedPhases.remove(key);
+            return committed;
+        } catch (RuntimeException unavailable) { return false; }
     }
 
     private void emitFactoryInitialization() {
@@ -1030,19 +1089,55 @@ public final class QRingBridge
         value.put("deviceId", connectedId);
         value.put("ownerKey", recoveryContext.substring(recoveryContext.lastIndexOf(':') + 1));
         value.put("status", factoryInitializationPending() ? "pending" : "complete");
+        value.put("verification", "settingsReadback");
+        value.put("requiresReconnect", factoryInitializationPending()
+                && Integer.valueOf(connectionGeneration).equals(factoryWriteConfirmedGeneration));
         emit("ringInitialization", value);
+    }
+
+    private void onFactoryResetWrite(Intent intent) {
+        ResetWrite request = pendingResetWrite;
+        if (request == null || !currentFactoryTarget(request.generation, request.id, request.context)
+                || !Constants.UUID_WRITE.toString().equalsIgnoreCase(intent.getStringExtra(BleAction.EXTRA_CHARACTER_UUID))
+                || !java.util.Arrays.equals(request.frame, intent.getByteArrayExtra(BleAction.EXTRA_DATA))) return;
+        pendingResetWrite = null;
+        if (intent.getIntExtra(BleAction.EXTRA_STATUS, -1) != BluetoothGatt.GATT_SUCCESS) return;
+        var prefs = activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE);
+        try {
+            if (!request.token.equals(prefs.getString(factoryInitializationKey(request.id, request.context) + ".request", null))) return;
+        } catch (ClassCastException unavailable) { return; }
+        // Physical write completion only requests a fresh handshake. It never
+        // sets the reset-ACK bit or releases the history guard.
+        factoryWriteConfirmedGeneration = request.generation;
+        emitFactoryInitialization();
     }
 
     private boolean currentFactoryTarget(int generation, String id, String context) {
         return isCurrentConnection(generation, id) && context != null && context.equals(recoveryContext);
     }
 
+    private boolean currentReadScope(int generation, String id, String context) {
+        return isCurrentConnection(generation, id) && java.util.Objects.equals(context, recoveryContext);
+    }
+
+    private boolean initializationHandshakeReady() {
+        // Setup completes inside the handshake, before pendingConnect/recovery
+        // publishes ready. Requiring resolved() here would deadlock that phase.
+        return manager != null && hasBlePermissions() && isBluetoothEnabled() && manager.isConnected()
+                && setTimeFlags != null && supportFlags != null && !cancellingConnection;
+    }
+
     private String beginFactoryResetRequest(String id, String context) {
         String token = java.util.UUID.randomUUID().toString();
         String key = factoryInitializationKey(id, context);
-        boolean saved = activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE)
-                .edit().putInt(key, 1).putString(key + ".request", token).commit();
-        return saved ? token : null;
+        factoryUncommittedPhases.put(key, -1);
+        try {
+            boolean saved = activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE)
+                    .edit().putInt(key, 1).putString(key + ".request", token).commit();
+            if (!saved) return null;
+            factoryUncommittedPhases.remove(key);
+            return token;
+        } catch (RuntimeException unavailable) { return null; }
     }
 
     private boolean recordFactoryResetAck(String id, String context, String token) {
@@ -1051,8 +1146,11 @@ public final class QRingBridge
             String key = factoryInitializationKey(id, context);
             var prefs = activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE);
             if (prefs.getInt(key, 0) != 1 || !token.equals(prefs.getString(key + ".request", null))) return false;
-            return prefs.edit().putInt(key, 3).commit();
-        } catch (ClassCastException unavailable) { return false; }
+            factoryUncommittedPhases.put(key, 1);
+            boolean committed = prefs.edit().putInt(key, 3).commit();
+            if (committed) factoryUncommittedPhases.remove(key);
+            return committed;
+        } catch (RuntimeException unavailable) { return false; }
     }
 
     private void acceptFactoryResetAck(int requestGeneration, String id, String context,
@@ -1089,9 +1187,9 @@ public final class QRingBridge
         final boolean rearming = Integer.valueOf(generation).equals(factoryInitializingGeneration);
         final String id = connectedId, context = recoveryContext;
         int phase = factoryInitialization(id, context);
-        // Only request+reset-ACK (1|2) may initialize. Unknown legacy receipts
-        // stay pending without repeating writes or adding an eight-second wait.
-        if (phase != 3) { completion.run(); return; }
+        if (QRingInitializationPolicy.complete(phase, factorySyncNotBefore())
+                || !QRingInitializationPolicy.canInitialize(phase,
+                Integer.valueOf(generation).equals(factoryResetGeneration))) { completion.run(); return; }
         final int target = profileInt("targetSteps", 8000, 1000, 100000);
         final boolean[] done = {false};
         Runnable finish = () -> { if (!done[0]) { done[0] = true; completion.run(); } };
@@ -1113,8 +1211,16 @@ public final class QRingBridge
                                             if (actual != null && actual.getStatus() == BaseRspCmd.RESULT_OK && actual.getAction() == TargetSettingRsp.ACTION_READ &&
                                                     actual.getStep() == target && actual.getCalorie() == before.getCalorie() &&
                                                     actual.getDistance() == before.getDistance() && actual.getmSport() == before.getmSport() &&
-                                                    actual.getmSleep() == before.getmSleep()) updateFactoryInitialization(id, context, 4);
-                                            finish.run();
+                                                    actual.getmSleep() == before.getmSleep()) {
+                                                CommandHandle.getInstance().executeReqCmd(TimeFormatReq.getReadInstance(),
+                                                        (ICommandResponse<TimeFormatRsp>) profile -> main.post(() -> {
+                                                            if (!current.getAsBoolean()) return;
+                                                            if (profile != null && profile.getStatus() == BaseRspCmd.RESULT_OK
+                                                                    && profile.getAction() == TimeFormatRsp.ACTION_READ
+                                                                    && profile.is24() && profile.isMetric()) completeFactorySetup(id, context, phase);
+                                                            finish.run();
+                                                        }));
+                                            } else finish.run();
                                         }));
                             }));
                 }));
@@ -1139,7 +1245,11 @@ public final class QRingBridge
         }
         factoryResetGeneration = connectionGeneration;
         final int generation = connectionGeneration;
-        CommandHandle.getInstance().executeReqCmd(new RestoreKeyReq(Constants.CMD_RE_STORE),
+        RestoreKeyReq request = new RestoreKeyReq(Constants.CMD_RE_STORE);
+        pendingResetWrite = new ResetWrite(generation, id, context, requestToken, request.getData());
+        ResetWrite attempt = pendingResetWrite;
+        main.postDelayed(() -> { if (pendingResetWrite == attempt) pendingResetWrite = null; }, 15_000L);
+        CommandHandle.getInstance().executeReqCmd(request,
                 (ICommandResponse<BaseRspCmd>) ack -> main.post(() ->
                         acceptFactoryResetAck(generation, id, context, requestToken, ack)));
         result.success("factoryResetRequested");
@@ -1553,7 +1663,8 @@ public final class QRingBridge
         for (String metric : new String[]{"sleep", "heart_rate", "blood_oxygen", "stress", "hrv", "body_temperature"}) {
             if (supportsMetric(metric, false)) metrics.add(metric);
         }
-        syncHistoryDays = requestedDays == null ? 7 : (Integer) requestedDays;
+        syncHistoryDays = QRingInitializationPolicy.eligibleDays(factorySyncNotBefore(), System.currentTimeMillis(),
+                java.time.ZoneId.systemDefault(), requestedDays == null ? 7 : (Integer) requestedDays);
         historyReads.begin(metrics, syncHistoryDays);
         syncDeadline = () -> {
             if (pendingSync == result) failPendingSync("SYNC_TIMEOUT", "戒指数据同步超时，请重试");
@@ -1584,13 +1695,14 @@ public final class QRingBridge
                 if (!supportsMetric("sleep", false)) { syncDay(day, 2); return; }
                 final MethodChannel.Result sleepSync = pendingSync;
                 final String sleepDeviceId = connectedId;
+                final String sleepOwner = recoveryContext;
                 final int sleepConnectionGeneration = connectionGeneration;
                 final QRingHistoryReadState.Ticket sleepRead = historyReads.open("sleep");
                 final QRingRecordMapper.SleepRequestDay sleepRequestDay = QRingRecordMapper.sleepRequestDay(day);
                 manager.getSleep(day, new BleOperateManager.HealthDataCallback<SleepDisplay>() {
                     @Override public void onSuccess(SleepDisplay value) {
                         main.post(() -> {
-                            if (pendingSync != sleepSync || !isCurrentConnection(sleepConnectionGeneration, sleepDeviceId)) return;
+                            if (pendingSync != sleepSync || !currentReadScope(sleepConnectionGeneration, sleepDeviceId, sleepOwner)) return;
                             Map<String, Object> timeline = QRingRecordMapper.sleepTimelineForSuccessfulRead(
                                     sleepDeviceId, sleepRequestDay, value);
                             boolean complete = QRingRecordMapper.sleepTimelineIsComplete(timeline);
@@ -1605,14 +1717,15 @@ public final class QRingBridge
                                 status.put("sleepTimeline", timeline);
                                 collect(QRingRecordMapper.sleepRecords(sleepDeviceId, connectedName, firmwareVersion, sleepRequestDay, value));
                             }
-                            emit("sleepReadStatus", status);
+                            if (QRingInitializationPolicy.sleepTimelineAllowed(timeline, factorySyncNotBefore()))
+                                emit("sleepReadStatus", status);
                             syncDay(day, 2);
                         });
                     }
 
                     @Override public void onError(int code, String message) {
                         main.post(() -> {
-                            if (pendingSync != sleepSync || !isCurrentConnection(sleepConnectionGeneration, sleepDeviceId)) return;
+                            if (pendingSync != sleepSync || !currentReadScope(sleepConnectionGeneration, sleepDeviceId, sleepOwner)) return;
                             if (!historyReads.accept(sleepRead, false, false)) return;
                             Map<String, Object> status = new HashMap<>();
                             status.put("deviceId", "qring:" + sleepDeviceId);
@@ -1671,11 +1784,12 @@ public final class QRingBridge
         final MethodChannel.Result request = pendingSync;
         final int requestConnection = connectionGeneration;
         final String requestDevice = connectedId;
+        final String requestOwner = recoveryContext;
         final QRingHistoryReadState.Ticket ticket = historyReads.open(metric);
         return new BleOperateManager.HealthDataCallback<T>() {
             @Override public void onSuccess(T value) {
                 main.post(() -> {
-                    if (pendingSync != request || !isCurrentConnection(requestConnection, requestDevice)) return;
+                    if (pendingSync != request || !currentReadScope(requestConnection, requestDevice, requestOwner)) return;
                     // Null is not an explicit empty history response.
                     List<Map<String, Object>> records = value == null ? null : mapper.map(value);
                     if (!historyReads.accept(ticket, records != null, records != null && !records.isEmpty())) return;
@@ -1686,7 +1800,7 @@ public final class QRingBridge
 
             @Override public void onError(int code, String message) {
                 main.post(() -> {
-                    if (pendingSync != request || !isCurrentConnection(requestConnection, requestDevice)) return;
+                    if (pendingSync != request || !currentReadScope(requestConnection, requestDevice, requestOwner)) return;
                     if (historyReads.accept(ticket, false, false)) next.run();
                 });
             }
@@ -1696,6 +1810,7 @@ public final class QRingBridge
     private void collect(List<Map<String, Object>> records) {
         if (records == null) return;
         for (Map<String, Object> record : records) {
+            if (!QRingInitializationPolicy.healthRecordAllowed(record, factorySyncNotBefore())) continue;
             Object id = record.get("id");
             if (id != null) syncRecords.put(String.valueOf(id), record);
         }
@@ -1882,18 +1997,25 @@ public final class QRingBridge
             result.error("NOT_CONNECTED", "请先连接戒指", null);
             return;
         }
-        manager.getSports(0, 7, new BleOperateManager.HealthDataCallback<
+        final int generation = connectionGeneration;
+        final String id = connectedId, context = recoveryContext;
+        manager.getSports(0, QRingInitializationPolicy.eligibleDays(factorySyncNotBefore(), System.currentTimeMillis(),
+                java.time.ZoneId.systemDefault(), 7), new BleOperateManager.HealthDataCallback<
                 List<BleOperateManager.DayIndexedData<List<SportPlusEntity>>>>() {
             @Override public void onSuccess(
                     List<BleOperateManager.DayIndexedData<List<SportPlusEntity>>> values) {
                 main.post(() -> {
+                    if (!currentReadScope(generation, id, context)) {
+                        result.error("QRING_SESSION_CHANGED", "戒指连接已变化，请重试", null); return;
+                    }
                     List<Map<String, Object>> records = new ArrayList<>();
                     if (values != null) {
                         for (BleOperateManager.DayIndexedData<List<SportPlusEntity>> item : values) {
                             if (item != null) records.addAll(QRingRecordMapper.sportRecords(
-                                    connectedId, item.getData()));
+                                    id, item.getData()));
                         }
                     }
+                    records.removeIf(record -> !QRingInitializationPolicy.sportRecordAllowed(record, factorySyncNotBefore()));
                     result.success(records);
                 });
             }
@@ -2526,7 +2648,13 @@ public final class QRingBridge
     }
 
     private void emit(String type, Map<String, Object> payload) {
+        if ("healthRecord".equals(type)
+                && !QRingInitializationPolicy.healthRecordAllowed(payload, factorySyncNotBefore())) return;
+        final boolean ownerData = "healthRecord".equals(type) || "sleepReadStatus".equals(type);
+        final int generation = connectionGeneration;
+        final String id = connectedId, context = recoveryContext;
         main.post(() -> {
+            if (ownerData && !currentReadScope(generation, id, context)) return;
             EventChannel.EventSink target = sink;
             if (target == null) return;
             Map<String, Object> event = new HashMap<>();
