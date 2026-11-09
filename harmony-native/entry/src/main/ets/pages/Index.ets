@@ -1797,7 +1797,7 @@ struct Index {
     return `${today.getMonth() + 1}月${today.getDate()}日`;
   }
 
-  private async verifyRingConnection(device: UnavailableRing, metric?: CoolWearManualMetric): Promise<void> {
+  private async verifyRingConnection(device: UnavailableRing, metric?: CoolWearManualMetric, stopOnly: boolean = false): Promise<void> {
     if (this.ringProbeBusy || this.screen !== 'device-search' || !this.unavailableRings.some((item: UnavailableRing) => item.key === device.key)) return;
     if (!device.name.toUpperCase().replace(/[\s_-]/g, '').includes('R7ULTRA')) return;
     const session = saydianApi.healthSession();
@@ -1809,9 +1809,10 @@ struct Index {
     try {
       const result = await this.ringReadSession.read(device.key, current, (message: string) => {
         if (current()) this.ringProbeStatus = message;
-      }, true, metric);
+      }, true, metric, stopOnly);
       if (current()) this.ringProbeCapabilities = result.capabilities;
-      if (current() && result.reading) this.ringProbeStatus = `${result.reading.metric === 'heart' ? '心率' : '血氧'} ${result.reading.value} ${result.reading.unit}，停止命令已确认。本次连接已结束。`;
+      if (current() && result.stopped) this.ringProbeStatus = '戒指已确认停止血氧测量，请检查内侧灯是否熄灭。';
+      else if (current() && result.reading) this.ringProbeStatus = `${result.reading.metric === 'heart' ? '心率' : '血氧'} ${result.reading.value} ${result.reading.unit}，本次测量已结束，连接已断开。`;
       else if (current()) this.ringProbeStatus = `已读取设备，电量${result.battery}% · 固件${result.firmware}。能力回读：心率手测${result.capabilities?.heartManual ? '支持' : '未开放'}，血氧${result.capabilities?.oxygenManual ? '支持' : '未开放'}。本次读取已结束连接。`;
     } catch (error) {
       if (current()) this.ringProbeStatus = (error as Error).message || '设备读取未完成';
@@ -4425,6 +4426,8 @@ struct Index {
               Button(this.ringProbeBusy && this.ringProbeTarget === device.key ? '正在操作…' : '验证连接')
                 .fontSize(14).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(RED_SOFT)
                 .enabled(!this.ringProbeBusy).onClick(() => this.verifyRingConnection(device)).id(`verify_r7ultra_${device.key}`)
+              Button('停止血氧测量').fontSize(14).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(RED_SOFT)
+                .enabled(!this.ringProbeBusy).onClick(() => this.verifyRingConnection(device, 'oxygen', true)).id(`stop_ring_sensor_${device.key}`)
             }
             if (this.ringProbeTarget === device.key && this.ringProbeCapabilities && !this.ringProbeBusy) {
               if (this.ringProbeCapabilities.heartManual) {

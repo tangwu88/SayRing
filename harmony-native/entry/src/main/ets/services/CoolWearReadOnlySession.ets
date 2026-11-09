@@ -3,7 +3,7 @@ import { ble, constant } from '@kit.ConnectivityKit';
 import { COOLWEAR_SERVICE, CoolWearPacket, CoolWearReadDecoder, CoolWearReadResult,
   coolWearQuery, coolWearAck, coolWearFirmware, coolWearBattery, coolWearCapabilitiesQuery, coolWearCapabilities, CoolWearCapabilities } from '../model/CoolWearReadProtocol';
 
-export interface CoolWearSessionResult extends CoolWearReadResult { reading?: CoolWearManualReading; }
+export interface CoolWearSessionResult extends CoolWearReadResult { reading?: CoolWearManualReading; stopped?: boolean; }
 
 // A temporary, explicitly selected target with fresh device capabilities.
 // Leaving the page/owner cancels callbacks and stops an issued measurement.
@@ -24,7 +24,7 @@ export class CoolWearReadOnlySession {
       finally { try { client.disconnect(); } catch {} try { client.close(); } catch {} }
     })();
   }
-  async read(target: string, current: () => boolean, onProgress: (message: string) => void = () => {}, readCapabilities: boolean = false, metric?: CoolWearManualMetric): Promise<CoolWearSessionResult> {
+  async read(target: string, current: () => boolean, onProgress: (message: string) => void = () => {}, readCapabilities: boolean = false, metric?: CoolWearManualMetric, stopOnly: boolean = false): Promise<CoolWearSessionResult> {
     this.cancel();
     const generation = this.generation; await this.closing;
     if (!target || !current() || generation !== this.generation) throw new Error('请重新选择设备');
@@ -49,7 +49,9 @@ export class CoolWearReadOnlySession {
       let measurementSent = false, startAccepted = false, stopSent = false, stopWritten = false;
       let sessionRole = 1;
       let reading: CoolWearManualReading | undefined = undefined;
-      const resultValue = (): CoolWearSessionResult => ({ firmware, battery, charging, capabilities, reading });
+      let cleanupActive = false;
+      let cleanupAcknowledged: (() => void) | undefined = undefined;
+      const resultValue = (): CoolWearSessionResult => stopOnly ? { firmware, battery, charging, capabilities, stopped: true } : { firmware, battery, charging, capabilities, reading };
       const write = (bytes: number[]): Promise<void> => {
         writeQueue = writeQueue.then(async (): Promise<void> => {
           assertCurrent(); if (!writer) throw new Error('设备没有可用的数据通道');
@@ -69,14 +71,20 @@ export class CoolWearReadOnlySession {
           characteristicValue: new Uint8Array(bytes).buffer, descriptors: writer.descriptors };
         const stopWriteType = writer.properties?.writeNoResponse ? ble.GattWriteType.WRITE_NO_RESPONSE : ble.GattWriteType.WRITE;
         let cleanupTimer: number = -1; let cleanupOpen = true;
-        try { await Promise.race([writeQueue.catch(() => {}).then(async (): Promise<void> => { if (cleanupOpen) { stopWritten = true; await client.writeCharacteristicValue(stopValue, stopWriteType); } }),
-          new Promise<void>((done) => { cleanupTimer = setTimeout(done, 2000); })]); }
-        finally { cleanupOpen = false; clearTimeout(cleanupTimer); }
+        const confirmed = new Promise<void>((done) => { cleanupAcknowledged = done; });
+        try { await Promise.race([writeQueue.catch(() => {}).then(async (): Promise<void> => {
+          if (cleanupOpen) { stopWritten = true; cleanupActive = true; await client.writeCharacteristicValue(stopValue, stopWriteType); await confirmed; }
+        }), new Promise<void>((done) => { cleanupTimer = setTimeout(done, 2500); })]); }
+        finally { cleanupOpen = false; cleanupActive = false; cleanupAcknowledged = undefined; clearTimeout(cleanupTimer); }
       };
       client.on('BLECharacteristicChange', (value: ble.BLECharacteristic) => {
-        if (!active() || !notifier || value.serviceUuid.toLowerCase() !== COOLWEAR_SERVICE ||
+        if (!notifier || value.serviceUuid.toLowerCase() !== COOLWEAR_SERVICE ||
           value.characteristicUuid.toLowerCase() !== notifier.characteristicUuid.toLowerCase()) return;
         const bytes = Array.from(new Uint8Array(value.characteristicValue));
+        if (cleanupActive && bytes.length >= 11 && bytes[0] === 0 && bytes[1] === sessionRole && bytes[2] === 0 && bytes[3] === 5 && (bytes[4] & 15) === 4 && bytes[5] === (metric === 'heart' ? 24 : 20) && bytes[8] === 1 && bytes[9] === 0 && bytes[10] === 1) {
+          console.warn('[RingRead] cleanup STOP acknowledged'); cleanupAcknowledged?.(); return;
+        }
+        if (!active()) return;
         // Structural diagnostics only: no address, payload or health values.
         console.warn(`[RingRead] bytes=${bytes.length}, page=${bytes[0]}, role=${bytes[0] === 0 ? bytes[1] : -1}, pages=${bytes[0] === 0 ? bytes[2] : -1}, cmd=${bytes.length >= 10 && bytes[0] === 0 ? bytes[4] : -1}, type=${bytes.length >= 10 && bytes[0] === 0 ? bytes[5] : -1}, size=${bytes.length >= 10 && bytes[0] === 0 ? bytes[8] + bytes[9] * 256 : -1}`);
         if (metric && measurementSent && bytes.length >= 11 && bytes[0] === 0 && bytes[1] === sessionRole && bytes[2] === 0 && bytes[8] === 1 && bytes[9] === 0 && (bytes[4] & 15) === 4 && bytes[5] === (metric === 'heart' ? 24 : 20)) {
@@ -86,7 +94,7 @@ export class CoolWearReadOnlySession {
           }
           if (bytes[3] === 5 && stopSent) {
             if (bytes[10] !== 1) { reject(new Error('停止测量未获确认')); return; }
-            if (reading) writeQueue.then(() => { if (active()) resolve(resultValue()); }).catch(reject);
+            if (reading || stopOnly) writeQueue.then(() => { if (active()) resolve(resultValue()); }).catch(reject);
           }
           return;
         }
@@ -111,10 +119,11 @@ export class CoolWearReadOnlySession {
         }
         if (metric && firmware && battery !== undefined && capabilities && !measurementSent) {
           try {
-            const start = coolWearMeasurementCommand(metric, true, 4, packet.role, capabilities);
+            const start = coolWearMeasurementCommand(metric, !stopOnly, stopOnly ? 5 : 4, packet.role, capabilities);
             measurementSent = true; sessionRole = packet.role;
-            clearTimeout(timer); timer = setTimeout(() => reject(new Error('本次测量超时，未取得已确认结果')), 70000);
-            progress('开始测量'); write(start).catch(reject);
+            stopSent = stopOnly;
+            clearTimeout(timer); timer = setTimeout(() => reject(new Error(stopOnly ? '停止测量未获确认' : '本次测量超时，未取得已确认结果')), stopOnly ? 5000 : 70000);
+            progress(stopOnly ? '停止戒指测量' : '开始测量'); write(start).catch(reject);
           } catch (error) { reject(error as Error); }
         }
         if (metric && packet.type === 21 && startAccepted && !stopSent && coolWearManualEnded(metric, packet.body)) {

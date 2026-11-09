@@ -47,9 +47,9 @@ function fixture(autoReply=true,mode='normal'){const clients=[],writes=[];
  const emit=(packet)=>queueMicrotask(()=>callbacks.BLECharacteristicChange({...notify,characteristicValue:new Uint8Array(packet).buffer}));
  const ack=header(bytes[5],[1],bytes[3]);ack[1]=101;ack[4]=4;
  if(bytes[10]===1){
-  if(mode!=='missing-start-ack')emit(ack);
+  if(mode!=='missing-start-ack'&&!mode.startsWith('cancel-'))emit(ack);
   const t=Buffer.alloc(4);t.writeUInt32LE(Math.floor(Date.now()/1000));const data=header(bytes[5]===24?7:20,bytes[5]===24?[0,0,0,...t,72]:[...t,97],9);data[1]=101;if(mode==='ended'){const end=header(21,[bytes[5]===24?0x10:0x30],10);end[1]=101;emit(end);}else if(mode!=='no-data')emit(data);
- }else if(mode!=='missing-stop-ack')emit(ack);
+ }else if(mode==='cancel-delayed-stop-ack')setTimeout(()=>emit(ack),120);else if(mode!=='missing-stop-ack')emit(ack);
 }},callbacks};clients.push(client);return client;
  }};
  return {session:makeSession(ble,{ProfileConnectionState:{STATE_CONNECTED:2,STATE_DISCONNECTED:0}},m.COOLWEAR_SERVICE,m.CoolWearReadDecoder,m.coolWearQuery,m.coolWearAck,m.coolWearFirmware,m.coolWearBattery,m.coolWearCapabilitiesQuery,m.coolWearCapabilities,controls.coolWearMeasurementCommand,controls.coolWearManualValue,controls.coolWearTimedManualValue,controls.coolWearManualEnded),clients,writes};
@@ -132,4 +132,29 @@ test('cancellation between a sample and its queued STOP still sends exactly one 
  await assert.rejects(f.session.read('exact-fixture-target',()=>true,message=>{if(message.includes('停止测量并确认'))f.session.cancel();},true,'heart'),/取消|变化/);
  assert.equal(f.writes.filter(b=>b[4]===1&&b[5]===24&&b[10]===0).length,1);
  assert.equal(f.clients[0].closed,true);
+});
+
+test('explicit stop-only recovery sends no START and requires matching device STOP acknowledgement',async()=>{
+ const f=fixture();const result=await f.session.read('exact-fixture-target',()=>true,()=>{},true,'oxygen',true);
+ assert.equal(result.stopped,true);assert.equal(result.reading,undefined);
+ assert.equal(f.writes.filter(b=>b[4]===1&&b[10]===1).length,0);
+ assert.equal(f.writes.filter(b=>b[4]===1&&b[5]===20&&b[10]===0).length,1);
+ assert.equal(f.clients[0].closed,true);
+});
+
+test('stop-only recovery without ACK never reports stopped or retries the physical command',async()=>{
+ const f=fixture(true,'missing-stop-ack');await assert.rejects(f.session.read('exact-fixture-target',()=>true,()=>{},true,'oxygen',true),/停止测量未获确认/);
+ assert.equal(f.writes.filter(b=>b[4]===1&&b[5]===20).length,1);assert.equal(f.clients[0].closed,true);
+});
+
+
+test('cancel cleanup retains the exact link until delayed STOP ACK while rejecting late measurement data',async()=>{
+ const f=fixture(true,'cancel-delayed-stop-ack');const pending=f.session.read('exact-fixture-target',()=>true,()=>{},true,'oxygen');
+ const rejected=assert.rejects(pending,/取消|变化/);
+ for(let i=0;i<45;i++)await Promise.resolve();
+ assert.ok(f.writes.some(b=>b[4]===1&&b[5]===20&&b[10]===1));
+ f.session.cancel();
+ await new Promise(done=>setTimeout(done,30));assert.equal(f.clients[0].closed,false);
+ await rejected;assert.equal(f.clients[0].closed,true);
+ assert.equal(f.writes.filter(b=>b[4]===1&&b[5]===20&&b[10]===0).length,1);
 });
