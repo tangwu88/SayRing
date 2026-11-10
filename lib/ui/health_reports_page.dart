@@ -1072,7 +1072,10 @@ class _EligibilityCard extends StatelessWidget {
               ),
             const SizedBox(height: 2),
             Text(
-              context.l10n.reportInsufficientDataHint,
+              devicePromptLabel(
+                context,
+                context.l10n.reportInsufficientDataHint,
+              ),
               style: TextStyle(fontSize: 13, color: SaydianColors.muted),
             ),
           ] else ...[

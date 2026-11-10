@@ -1392,6 +1392,14 @@ class AppController extends ChangeNotifier {
   bool _wearableNeedsDisconnect = false;
   bool _wearableRecoverySuspended = false;
   DeviceInfo? rememberedDevice;
+  // 提示语跟随当前连接；断开时继续使用已保存目标。它不参与识别、绑定或数据路由。
+  bool get usesDevicePrompts =>
+      (connectedDevice ?? rememberedDevice)?.sdkSource ==
+      WearableSdkSource.urion;
+
+  String _deviceStatusCopy(String value) =>
+      appStatusCopy(value, genericDevice: usesDevicePrompts);
+
   bool _rememberedDeviceAllowsAutomaticRecovery = true;
   bool get _canRecoverRememberedDevice =>
       rememberedDevice != null && _rememberedDeviceAllowsAutomaticRecovery;
@@ -1405,7 +1413,7 @@ class AppController extends ChangeNotifier {
   String? _wearableRecoveryMessage;
   String? get wearableRecoveryMessage => _wearableRecoveryMessage == null
       ? null
-      : appStatusCopy(_wearableRecoveryMessage!);
+      : _deviceStatusCopy(_wearableRecoveryMessage!);
   set wearableRecoveryMessage(String? value) =>
       _wearableRecoveryMessage = value;
   String _activeHealthOwner = 'anonymous';
@@ -1455,13 +1463,27 @@ class AppController extends ChangeNotifier {
   Session? session;
   int selectedTab = 0;
   String? _errorMessage;
-  String? get errorMessage =>
-      _errorMessage == null ? null : appStatusCopy(_errorMessage!);
-  set errorMessage(String? value) => _errorMessage = value;
+  bool? _errorUsesDeviceTerms;
+  String? get errorMessage => _errorMessage == null
+      ? null
+      : appStatusCopy(
+          _errorMessage!,
+          genericDevice: _errorUsesDeviceTerms ?? usesDevicePrompts,
+        );
+  set errorMessage(String? value) {
+    _errorUsesDeviceTerms = null;
+    _errorMessage = value;
+  }
+
+  void _setDiscoveryError(String message) {
+    errorMessage = message;
+    _errorUsesDeviceTerms = true;
+  }
+
   String? _measurementErrorMessage;
   String? get measurementErrorMessage => _measurementErrorMessage == null
       ? null
-      : appStatusCopy(_measurementErrorMessage!);
+      : _deviceStatusCopy(_measurementErrorMessage!);
   set measurementErrorMessage(String? value) =>
       _measurementErrorMessage = value;
   HealthRecord? _measurementResult;
@@ -1479,10 +1501,10 @@ class AppController extends ChangeNotifier {
   String get storageStatus => appStatusCopy(_storageStatus);
   set storageStatus(String value) => _storageStatus = value;
   String _sdkStatus = '等待连接';
-  String get sdkStatus => appStatusCopy(_sdkStatus);
+  String get sdkStatus => _deviceStatusCopy(_sdkStatus);
   set sdkStatus(String value) => _sdkStatus = value;
   String _syncStatus = '尚未同步';
-  String get syncStatus => appStatusCopy(_syncStatus);
+  String get syncStatus => _deviceStatusCopy(_syncStatus);
   set syncStatus(String value) => _syncStatus = value;
   int deviceSyncReceivedRecords = 0;
   String _cloudSyncStatus = '尚未上传';
@@ -1608,7 +1630,7 @@ class AppController extends ChangeNotifier {
   int heartRateWarning = 120;
   bool heartRateWarningSupported = false;
   String _deviceSettingsStatus = '连接戒指后可读取';
-  String get deviceSettingsStatus => appStatusCopy(_deviceSettingsStatus);
+  String get deviceSettingsStatus => _deviceStatusCopy(_deviceSettingsStatus);
   set deviceSettingsStatus(String value) => _deviceSettingsStatus = value;
   HealthWarningSettings healthWarningSettings = const HealthWarningSettings();
   List<HealthWarningAlert> healthWarningAlerts = const [];
@@ -2895,7 +2917,7 @@ class AppController extends ChangeNotifier {
       if (!current()) return;
       if (!granted) {
         deviceScanIssue = DeviceScanIssue.permissionsRequired;
-        errorMessage = '允许相关权限后使用';
+        _setDiscoveryError('允许相关权限后使用');
         notifyListeners();
         return;
       }
@@ -2918,7 +2940,7 @@ class AppController extends ChangeNotifier {
     } on WearableSdkNotConfigured catch (_) {
       if (!current()) return;
       sdkStatus = '设备连接服务暂时不可用';
-      errorMessage = '此功能暂时无法使用，请稍后再试';
+      _setDiscoveryError('此功能暂时无法使用，请稍后再试');
       deviceMachine.transition(DeviceConnectionState.error);
     } on PlatformException catch (error) {
       if (!current()) return;
@@ -2929,11 +2951,11 @@ class AppController extends ChangeNotifier {
         'BLUETOOTH_PERMISSION_REQUIRED' => DeviceScanIssue.permissionsRequired,
         _ => null,
       };
-      errorMessage = _wearableErrorMessage(error, fallback: '暂时无法查找戒指');
+      _setDiscoveryError(_wearableErrorMessage(error, fallback: '暂时无法查找戒指'));
       deviceMachine.transition(DeviceConnectionState.error);
     } catch (_) {
       if (!current()) return;
-      errorMessage = '暂时无法查找戒指，请稍后重试';
+      _setDiscoveryError('暂时无法查找戒指，请稍后重试');
       deviceMachine.transition(DeviceConnectionState.error);
     }
     notifyListeners();
@@ -2955,7 +2977,7 @@ class AppController extends ChangeNotifier {
       if (!current()) return 0;
       if (!granted) {
         deviceScanIssue = DeviceScanIssue.permissionsRequired;
-        errorMessage = '允许相关权限后使用';
+        _setDiscoveryError('允许相关权限后使用');
         notifyListeners();
         return 0;
       }
@@ -2971,14 +2993,14 @@ class AppController extends ChangeNotifier {
       }
       sdkStatus = '设备连接服务可用';
       if (bonded.isEmpty && scannedDevices.isEmpty) {
-        errorMessage = '没有找到可恢复的戒指';
+        _setDiscoveryError('没有找到可恢复的戒指');
       }
       notifyListeners();
       return bonded.length;
     } on WearableSdkNotConfigured catch (_) {
       if (!current()) return 0;
       sdkStatus = '设备连接服务暂时不可用';
-      errorMessage = '此手机暂不支持读取可恢复的戒指';
+      _setDiscoveryError('此手机暂不支持读取可恢复的戒指');
     } on PlatformException catch (error) {
       if (!current()) return 0;
       deviceScanIssue = switch (error.code) {
@@ -2987,10 +3009,12 @@ class AppController extends ChangeNotifier {
         'BLUETOOTH_PERMISSION_REQUIRED' => DeviceScanIssue.permissionsRequired,
         _ => null,
       };
-      errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取可恢复的戒指');
+      _setDiscoveryError(
+        _wearableErrorMessage(error, fallback: '暂时无法读取可恢复的戒指'),
+      );
     } catch (_) {
       if (!current()) return 0;
-      errorMessage = '暂时无法读取可恢复的戒指，请稍后重试';
+      _setDiscoveryError('暂时无法读取可恢复的戒指，请稍后重试');
     }
     notifyListeners();
     return 0;
@@ -3053,6 +3077,7 @@ class AppController extends ChangeNotifier {
         workout.$1 == _sessionGeneration &&
         workout.$2 != device.id.toLowerCase()) {
       errorMessage = '请先结束当前运动，再连接其他戒指';
+      _errorUsesDeviceTerms = device.sdkSource == WearableSdkSource.urion;
       notifyListeners();
       return;
     }
@@ -3226,6 +3251,9 @@ class AppController extends ChangeNotifier {
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = '连接失败，请将戒指靠近手机后重试';
       deviceMachine.transition(DeviceConnectionState.error);
+    }
+    if (_errorMessage != null) {
+      _errorUsesDeviceTerms = device.sdkSource == WearableSdkSource.urion;
     }
     notifyListeners();
   }

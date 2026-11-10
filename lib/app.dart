@@ -566,7 +566,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                     controller.dismissHealthWarningAlert();
                   }
 
-                  return Stack(
+                  final content = Stack(
                     children: [
                       child ?? const SizedBox.shrink(),
                       if (alert != null &&
@@ -739,6 +739,10 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                           ),
                         ),
                     ],
+                  );
+                  return DevicePromptScope(
+                    generic: controller.usesDevicePrompts,
+                    child: content,
                   );
                 },
               ),

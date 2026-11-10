@@ -114,7 +114,12 @@ class HealthPage extends StatelessWidget {
                           ],
                         ),
                       ),
-                      subtitle: Text(context.l10n.calibrateOnWatchHint),
+                      subtitle: Text(
+                        devicePromptLabel(
+                          context,
+                          context.l10n.calibrateOnWatchHint,
+                        ),
+                      ),
                       trailing: const Icon(Icons.chevron_right_rounded),
                     ),
                   ],

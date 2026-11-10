@@ -15,7 +15,13 @@ import '../services/wearable_bridge.dart';
 import 'app_theme.dart';
 
 String _copy(BuildContext context, String zh, String en) =>
-    Localizations.localeOf(context).languageCode == 'zh' ? zh : en;
+    zh.contains('戒指') && DevicePromptScope.usesDevice(context)
+    ? genericDevicePrompt(
+        Localizations.localeOf(context).languageCode == 'zh' ? zh : en,
+      )
+    : Localizations.localeOf(context).languageCode == 'zh'
+    ? zh
+    : en;
 
 IconData _icon(HealthReminderKind kind) => switch (kind) {
   HealthReminderKind.lowBloodOxygen => Icons.water_drop_outlined,

@@ -310,7 +310,10 @@ class DashboardPage extends StatelessWidget {
                         message: hasEligibleCards && !controller.isWellnessOnly
                             ? uiCopy(context, "首页暂无卡片，点击编辑添加")
                             : disconnected
-                            ? context.l10n.connectWatchForData
+                            ? devicePromptLabel(
+                                context,
+                                context.l10n.connectWatchForData,
+                              )
                             : context.l10n.noHealthData,
                         icon: Icons.watch_outlined,
                         color: SaydianColors.blue,

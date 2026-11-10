@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+export 'device_prompt_wording.dart';
+
+import 'device_prompt_wording.dart';
 import 'generated/app_localizations.dart';
 import 'legacy_ui_copy.dart';
 import '../services/safe_secure_storage.dart';
@@ -205,6 +208,12 @@ String uiCopy(
   var copy = tag.startsWith('zh')
       ? template
       : legacyUiEnglish[template] ?? template;
+  if (context is BuildContext &&
+      template.contains('戒指') &&
+      legacyUiEnglish.containsKey(template) &&
+      DevicePromptScope.usesDevice(context)) {
+    copy = genericDevicePrompt(copy);
+  }
   // 一次性替换模板占位符，参数中的花括号不再解释，防止用户文本被二次替换。
   copy = copy.replaceAllMapped(RegExp(r'\{p(\d+)\}'), (m) {
     final index = int.parse(m[1]!);
@@ -227,9 +236,19 @@ final _statusTemplates = legacyUiEnglish.entries
       return (RegExp('^$pattern\$'), e.value, keys);
     })
     .toList();
-String appStatusCopy(String value) {
-  if (!GlobalLocaleController.instance._hasApplicationHost ||
-      GlobalLocaleController.instance.locale.languageCode == 'zh') {
+String appStatusCopy(String value, {bool genericDevice = false}) {
+  final english =
+      GlobalLocaleController.instance._hasApplicationHost &&
+      GlobalLocaleController.instance.locale.languageCode != 'zh';
+  if (genericDevice) {
+    final status = localizeGenericDeviceStatus(value, english: english);
+    if (status != null) return status;
+    final appTemplate = legacyUiEnglish[value];
+    if (appTemplate != null && value.contains('戒指')) {
+      return genericDevicePrompt(english ? appTemplate : value);
+    }
+  }
+  if (!english) {
     return value;
   }
   final direct = legacyUiEnglish[value];

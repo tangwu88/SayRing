@@ -1,5 +1,7 @@
 // 仅限应用自有界面文案；不得用于用户记录、文章、历史报告或协议字段。
 const legacyUiEnglish = <String, String>{
+  "缓存连接未成功，正在重新搜索设备": "Could not reconnect. Searching for devices again.",
+
   "手表已测完，正在获取结果": "Reading finished. Retrieving the result.",
   "手表已测完，暂未取回结果，请同步数据重试":
       "Reading finished, but the result could not be retrieved. Try syncing data.",

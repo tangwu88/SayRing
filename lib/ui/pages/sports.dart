@@ -974,7 +974,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
                         : '--',
                   ),
                   _SportLiveMetric(
-                    label: context.l10n.watchSteps,
+                    label: devicePromptLabel(context, context.l10n.watchSteps),
                     value: liveData['steps'] == null
                         ? '--'
                         : context.l10n.stepCount(liveData['steps']!.toInt()),
@@ -1001,7 +1001,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
                               : uiCopy(context, "正在恢复戒指连接，运动计时继续记录"))
                         : uiCopy(context, "戒指已连接，正在恢复运动数据"))
                   : widget.controller.connectedDevice == null
-                  ? context.l10n.connectForWorkout
+                  ? devicePromptLabel(context, context.l10n.connectForWorkout)
                   : uiCopy(
                       context,
                       "已连接 {p0}。{p1}",
@@ -1216,7 +1216,10 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
                     if (!loading && !connected) ...[
                       const SizedBox(height: 6),
                       Text(
-                        context.l10n.connectWatchToUse,
+                        devicePromptLabel(
+                          context,
+                          context.l10n.connectWatchToUse,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -1385,7 +1388,10 @@ class SportRecordDetailPage extends StatelessWidget {
             )
           else
             InlineNotice(
-              message: context.l10n.workoutRouteMissing,
+              message: devicePromptLabel(
+                context,
+                context.l10n.workoutRouteMissing,
+              ),
               icon: Icons.route_outlined,
               color: SaydianColors.orange,
             ),
@@ -1404,7 +1410,7 @@ class SportRecordDetailPage extends StatelessWidget {
                   title: Text(context.l10n.distance),
                   trailing: Text(
                     record.missingMetrics.contains('distanceKm')
-                        ? '未收到戒指距离或定位轨迹'
+                        ? uiCopy(context, "未收到戒指距离或定位轨迹")
                         : '${distance.toStringAsFixed(2)} $unit',
                   ),
                 ),
@@ -1423,7 +1429,12 @@ class SportRecordDetailPage extends StatelessWidget {
                     record.heartRate > 0) ...[
                   const Divider(indent: 16),
                   ListTile(
-                    title: Text(context.l10n.workoutWatchHeartRate),
+                    title: Text(
+                      devicePromptLabel(
+                        context,
+                        context.l10n.workoutWatchHeartRate,
+                      ),
+                    ),
                     trailing: Text('${record.heartRate} bpm'),
                   ),
                 ],

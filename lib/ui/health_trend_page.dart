@@ -569,7 +569,10 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           ? Center(
               child: Text(
                 widget.dataSource is SavedRingActivitySource
-                    ? context.l10n.activitySourceChanged
+                    ? devicePromptLabel(
+                        context,
+                        context.l10n.activitySourceChanged,
+                      )
                     : context.l10n.carePermissionDenied,
               ),
             )
@@ -954,7 +957,10 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           : Center(
               child: Text(
                 source is SavedRingActivitySource
-                    ? context.l10n.activitySourceChanged
+                    ? devicePromptLabel(
+                        context,
+                        context.l10n.activitySourceChanged,
+                      )
                     : context.l10n.carePermissionDenied,
               ),
             ),
@@ -1659,7 +1665,10 @@ class _RecordTile extends StatelessWidget {
                             body: Center(
                               child: Text(
                                 dataSource is SavedRingActivitySource
-                                    ? context.l10n.activitySourceChanged
+                                    ? devicePromptLabel(
+                                        context,
+                                        context.l10n.activitySourceChanged,
+                                      )
                                     : context.l10n.carePermissionDenied,
                               ),
                             ),
