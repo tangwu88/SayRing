@@ -53,6 +53,7 @@ void main() {
       expect(calls.last.arguments, {
         'owner': owner,
         'eventId': 'reminder-fixture',
+        'locale': 'en',
       });
       await service.setOwner(null);
       expect(calls.last.arguments, {'owner': null});

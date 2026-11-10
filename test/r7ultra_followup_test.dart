@@ -107,7 +107,10 @@ void main() {
     await _pump(tester, view());
     await tester.pumpAndSettle();
     expect(controller.mapRequests, hasLength(1));
-    expect(find.textContaining('地图暂不可用，已显示轨迹'), findsOneWidget);
+    expect(
+      find.textContaining('Map unavailable. Showing the recorded route.'),
+      findsOneWidget,
+    );
     expect(find.textContaining('Web 服务 Key'), findsNothing);
     points.add(_point(.02));
     await _pump(tester, view());
@@ -121,7 +124,10 @@ void main() {
     controller.failMap = true;
     await tester.tap(find.byKey(const Key('sport-route-map-retry')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('地图暂不可用，已显示轨迹'), findsOneWidget);
+    expect(
+      find.textContaining('Map unavailable. Showing the recorded route.'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 }

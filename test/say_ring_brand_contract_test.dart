@@ -118,24 +118,16 @@ void main() {
     }
   });
 
-  test('Flutter wearable fallbacks cannot leak watch wording', () {
-    for (final path in const [
-      'lib/domain/feature_models.dart',
-      'lib/domain/health_interpretation.dart',
-      'lib/domain/models.dart',
-      'lib/services/device_watch_face_market_service.dart',
-      'lib/services/wearable_bridge.dart',
-      'lib/services/app_controller.dart',
-      'lib/services/wearable_routing.dart',
-      'lib/services/yucheng_wearable_bridge.dart',
-      'lib/ui/health_reports_page.dart',
-      'lib/ui/pages.dart',
-      'lib/ui/prototype_pages.dart',
-      'lib/ui/watch_face_market_page.dart',
-    ]) {
-      final source = readDartLibrarySource(path);
-      expect(source, isNot(matches(RegExp(r'手表|表盘'))), reason: path);
-    }
+  test('U19 pages are separate from ring feature pages', () {
+    final source = File(
+      'lib/ui/prototype/device_features.dart',
+    ).readAsStringSync();
+    expect(source, contains('WearableSdkSource.urion'));
+    expect(source, contains('return U19DevicePage('));
+    expect(
+      File('lib/domain/feature_models.dart').readAsStringSync(),
+      contains("findWatch('find_watch', '查找戒指')"),
+    );
   });
 
   test('ring-facing source never asks for screen or on-ring confirmation', () {

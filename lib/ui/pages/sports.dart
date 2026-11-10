@@ -129,7 +129,7 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     key: const Key('sport-overview-page'),
-    appBar: AppBar(title: const Text('运动')),
+    appBar: AppBar(title: Text(uiCopy(context, "运动"))),
     body: ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) => RefreshIndicator(
@@ -140,7 +140,7 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
             if (_loading) const LinearProgressIndicator(),
             if (_loadFailed)
               InlineNotice(
-                message: '今日活动读取失败，请下拉重试',
+                message: uiCopy(context, "今日活动读取失败，请下拉重试"),
                 icon: Icons.refresh_rounded,
                 color: SaydianColors.orange,
                 onTap: _loadActivity,
@@ -196,7 +196,9 @@ class _SportEntryPanel extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                controller.isDeviceSyncing ? '正在同步活动记录' : '同步未完成，请保持连接后重试',
+                controller.isDeviceSyncing
+                    ? uiCopy(context, "正在同步活动记录")
+                    : uiCopy(context, "同步未完成，请保持连接后重试"),
                 style: const TextStyle(color: SaydianColors.muted),
               ),
             ),
@@ -321,8 +323,12 @@ class _SportEntryPanel extends StatelessWidget {
               ),
               subtitle: Text(
                 controller.connectedDevice == null
-                    ? '连接戒指后读取运动记录'
-                    : '已读取 ${controller.sportRecords.length} 条记录',
+                    ? uiCopy(context, "连接戒指后读取运动记录")
+                    : uiCopy(
+                        context,
+                        "已读取 {p0} 条记录",
+                        parameters: [controller.sportRecords.length],
+                      ),
                 style: const TextStyle(
                   color: SaydianColors.muted,
                   fontSize: 13,
@@ -540,7 +546,14 @@ String _sportPaceLabel(int durationSeconds, double distanceKm) {
   if (durationSeconds <= 0 || distanceKm <= 0) return '--';
   final seconds = (durationSeconds / distanceKm).round();
   if (seconds <= 0 || seconds > 3599) return '--';
-  return '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')} /公里';
+  return uiCopy(
+    null,
+    "{p0}:{p1} /公里",
+    parameters: [
+      (seconds ~/ 60).toString().padLeft(2, '0'),
+      (seconds % 60).toString().padLeft(2, '0'),
+    ],
+  );
 }
 
 class _SportSessionPageState extends State<SportSessionPage> {
@@ -627,7 +640,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
     _heartRateSamples.clear();
     _routeDistanceKm = 0;
     _hadConnectionGap = false;
-    _locationStatus = _usesPhoneRoute ? '正在准备前台户外轨迹' : '本运动由戒指记录，不启用手机轨迹';
+    _locationStatus = _usesPhoneRoute
+        ? uiCopy(null, "正在准备前台户外轨迹")
+        : uiCopy(null, "本运动由戒指记录，不启用手机轨迹");
     final trackingGeneration = ++_trackingGeneration;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted &&
@@ -654,7 +669,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
     var recordSaved = false;
     if (mounted) {
       setState(() {
-        _locationStatus = requestDeviceStop ? '正在结束运动并保存记录' : '戒指已结束运动，正在保存记录';
+        _locationStatus = requestDeviceStop
+            ? uiCopy(context, "正在结束运动并保存记录")
+            : uiCopy(context, "戒指已结束运动，正在保存记录");
       });
     }
     try {
@@ -730,9 +747,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
       _startedAt = null;
       _locationStatus = recordSaved
           ? requestDeviceStop
-                ? '本次运动已结束，记录已保存'
-                : '戒指已结束本次运动，记录已保存'
-          : '本次运动已结束';
+                ? uiCopy(null, "本次运动已结束，记录已保存")
+                : uiCopy(null, "戒指已结束本次运动，记录已保存")
+          : uiCopy(null, "本次运动已结束");
     } finally {
       _finalizingSport = false;
       if (mounted) setState(() {});
@@ -788,7 +805,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
         position.accuracy < 0 ||
         position.accuracy > 80) {
       if (_routePoints.isEmpty) {
-        setState(() => _locationStatus = '定位信号较弱，请在开阔处继续运动');
+        setState(() => _locationStatus = uiCopy(context, "定位信号较弱，请在开阔处继续运动"));
       }
       return;
     }
@@ -812,14 +829,14 @@ class _SportSessionPageState extends State<SportSessionPage> {
     }
     setState(() {
       _routePoints.add(point);
-      _locationStatus = '正在记录前台户外轨迹';
+      _locationStatus = uiCopy(context, "正在记录前台户外轨迹");
     });
   }
 
   Future<void> _startLocationTracking(int generation) async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       if (_isCurrentTrackingGeneration(generation)) {
-        setState(() => _locationStatus = '定位服务未开启，仍会记录戒指运动数据');
+        setState(() => _locationStatus = uiCopy(context, "定位服务未开启，仍会记录戒指运动数据"));
       }
       return;
     }
@@ -831,10 +848,10 @@ class _SportSessionPageState extends State<SportSessionPage> {
     if (!_isCurrentTrackingGeneration(generation)) return;
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
-      setState(() => _locationStatus = '未允许位置权限，仍会记录戒指运动数据');
+      setState(() => _locationStatus = uiCopy(context, "未允许位置权限，仍会记录戒指运动数据"));
       return;
     }
-    setState(() => _locationStatus = '正在记录前台户外轨迹');
+    setState(() => _locationStatus = uiCopy(context, "正在记录前台户外轨迹"));
     _positionSubscription =
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
@@ -845,7 +862,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
           (position) => _recordPosition(position, generation),
           onError: (_) {
             if (_isCurrentTrackingGeneration(generation)) {
-              setState(() => _locationStatus = '轨迹读取中断，戒指运动仍在继续');
+              setState(
+                () => _locationStatus = uiCopy(context, "轨迹读取中断，戒指运动仍在继续"),
+              );
             }
           },
         );
@@ -859,7 +878,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
       _recordPosition(first, generation);
     } catch (_) {
       if (_isCurrentTrackingGeneration(generation) && _routePoints.isEmpty) {
-        setState(() => _locationStatus = '正在获取位置，请在开阔处继续运动');
+        setState(() => _locationStatus = uiCopy(context, "正在获取位置，请在开阔处继续运动"));
       }
     }
   }
@@ -949,13 +968,13 @@ class _SportSessionPageState extends State<SportSessionPage> {
                 runSpacing: 10,
                 children: [
                   _SportLiveMetric(
-                    label: '运动距离',
+                    label: uiCopy(context, "运动距离"),
                     value: liveDistanceKm > 0
                         ? '${liveDistanceKm.toStringAsFixed(2)} km'
                         : '--',
                   ),
                   _SportLiveMetric(
-                    label: context.l10n.watchSteps,
+                    label: devicePromptLabel(context, context.l10n.watchSteps),
                     value: liveData['steps'] == null
                         ? '--'
                         : context.l10n.stepCount(liveData['steps']!.toInt()),
@@ -969,7 +988,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
                           ? '${widget.controller.liveSportHeartRate} bpm'
                           : '等待读数',
                     ),
-                  _SportLiveMetric(label: '平均配速', value: pace),
+                  _SportLiveMetric(label: uiCopy(context, "平均配速"), value: pace),
                 ],
               ),
             ],
@@ -978,12 +997,19 @@ class _SportSessionPageState extends State<SportSessionPage> {
               message: active && widget.controller.sportConnectionInterrupted
                   ? (widget.controller.connectedDevice == null
                         ? (_usesPhoneRoute
-                              ? '正在恢复戒指连接，运动计时和轨迹继续记录'
-                              : '正在恢复戒指连接，运动计时继续记录')
-                        : '戒指已连接，正在恢复运动数据')
+                              ? uiCopy(context, "正在恢复戒指连接，运动计时和轨迹继续记录")
+                              : uiCopy(context, "正在恢复戒指连接，运动计时继续记录"))
+                        : uiCopy(context, "戒指已连接，正在恢复运动数据"))
                   : widget.controller.connectedDevice == null
-                  ? context.l10n.connectForWorkout
-                  : '已连接 ${widget.controller.connectedDevice!.displayName}。$_locationStatus',
+                  ? devicePromptLabel(context, context.l10n.connectForWorkout)
+                  : uiCopy(
+                      context,
+                      "已连接 {p0}。{p1}",
+                      parameters: [
+                        widget.controller.connectedDevice!.displayName,
+                        uiCopy(context, _locationStatus),
+                      ],
+                    ),
               icon: Icons.watch_rounded,
               color: SaydianColors.blue,
             ),
@@ -1190,7 +1216,10 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
                     if (!loading && !connected) ...[
                       const SizedBox(height: 6),
                       Text(
-                        context.l10n.connectWatchToUse,
+                        devicePromptLabel(
+                          context,
+                          context.l10n.connectWatchToUse,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -1267,15 +1296,30 @@ class _SportRecordTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final duration = Duration(seconds: record.durationSeconds);
     final durationText = duration.inHours > 0
-        ? '${duration.inHours}小时${duration.inMinutes.remainder(60)}分钟'
+        ? uiCopy(
+            context,
+            "{p0}小时{p1}分钟",
+            parameters: [duration.inHours, duration.inMinutes.remainder(60)],
+          )
         : duration.inMinutes > 0
-        ? '${duration.inMinutes}分钟${duration.inSeconds.remainder(60) > 0 ? '${duration.inSeconds.remainder(60)}秒' : ''}'
-        : '${duration.inSeconds}秒';
+        ? uiCopy(
+            context,
+            "{p0}分钟{p1}",
+            parameters: [
+              duration.inMinutes,
+              duration.inSeconds.remainder(60) > 0
+                  ? '${duration.inSeconds.remainder(60)}秒'
+                  : '',
+            ],
+          )
+        : uiCopy(context, "{p0}秒", parameters: [duration.inSeconds]);
     final usesMiles = controller.distanceUnit == '英里';
     final distance = usesMiles
         ? record.distanceKm * 0.621371
         : record.distanceKm;
-    final distanceUnit = usesMiles ? '英里' : '公里';
+    final distanceUnit = usesMiles
+        ? uiCopy(context, "英里")
+        : uiCopy(context, "公里");
     return Card(
       child: ListTile(
         onTap: () => Navigator.of(context).push(
@@ -1324,7 +1368,9 @@ class SportRecordDetailPage extends StatelessWidget {
     final distance = controller.distanceUnit == '英里'
         ? record.distanceKm * 0.621371
         : record.distanceKm;
-    final unit = controller.distanceUnit == '英里' ? '英里' : '公里';
+    final unit = controller.distanceUnit == '英里'
+        ? uiCopy(context, "英里")
+        : uiCopy(context, "公里");
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -1342,7 +1388,10 @@ class SportRecordDetailPage extends StatelessWidget {
             )
           else
             InlineNotice(
-              message: context.l10n.workoutRouteMissing,
+              message: devicePromptLabel(
+                context,
+                context.l10n.workoutRouteMissing,
+              ),
               icon: Icons.route_outlined,
               color: SaydianColors.orange,
             ),
@@ -1361,7 +1410,7 @@ class SportRecordDetailPage extends StatelessWidget {
                   title: Text(context.l10n.distance),
                   trailing: Text(
                     record.missingMetrics.contains('distanceKm')
-                        ? '未收到戒指距离或定位轨迹'
+                        ? uiCopy(context, "未收到戒指距离或定位轨迹")
                         : '${distance.toStringAsFixed(2)} $unit',
                   ),
                 ),
@@ -1369,7 +1418,9 @@ class SportRecordDetailPage extends StatelessWidget {
                   const Divider(indent: 16),
                   ListTile(
                     title: Text(context.l10n.steps),
-                    trailing: Text('${record.steps} 步'),
+                    trailing: Text(
+                      uiCopy(context, "{p0} 步", parameters: [record.steps]),
+                    ),
                   ),
                 ],
                 if (controller.isMetricAvailableInRelease(
@@ -1378,14 +1429,19 @@ class SportRecordDetailPage extends StatelessWidget {
                     record.heartRate > 0) ...[
                   const Divider(indent: 16),
                   ListTile(
-                    title: Text(context.l10n.workoutWatchHeartRate),
+                    title: Text(
+                      devicePromptLabel(
+                        context,
+                        context.l10n.workoutWatchHeartRate,
+                      ),
+                    ),
                     trailing: Text('${record.heartRate} bpm'),
                   ),
                 ],
                 if (record.paceSecondsPerKm != null) ...[
                   const Divider(indent: 16),
                   ListTile(
-                    title: const Text('平均配速'),
+                    title: Text(uiCopy(context, "平均配速")),
                     trailing: Text(
                       _sportPaceLabel(
                         record.durationSeconds,
@@ -1400,7 +1456,7 @@ class SportRecordDetailPage extends StatelessWidget {
                     record.heartRateSamples.isNotEmpty) ...[
                   const Divider(indent: 16),
                   ListTile(
-                    title: const Text('心率记录'),
+                    title: Text(uiCopy(context, "心率记录")),
                     subtitle: Text(
                       record.heartRateSamples
                           .map(
@@ -1499,20 +1555,20 @@ class _SportRoutePreviewState extends State<SportRoutePreview> {
 
   @override
   Widget build(BuildContext context) => _map == null
-      ? _content(null, '运动轨迹示意')
+      ? _content(null, uiCopy(context, "运动轨迹示意"))
       : FutureBuilder<Uint8List?>(
           future: _map,
           builder: (context, snapshot) => _content(
             snapshot.data,
             snapshot.connectionState != ConnectionState.done
-                ? '正在加载地图'
+                ? uiCopy(context, "正在加载地图")
                 : snapshot.hasError || snapshot.data == null
                 ? (widget.points.isEmpty
-                      ? '正在获取运动位置'
+                      ? uiCopy(context, "正在获取运动位置")
                       : widget.points.length >= 2
-                      ? '地图暂不可用，已显示轨迹'
-                      : '地图暂不可用，请稍后重试')
-                : '地图来源：高德地图',
+                      ? uiCopy(context, "地图暂不可用，已显示轨迹")
+                      : uiCopy(context, "地图暂不可用，请稍后重试"))
+                : uiCopy(context, "地图来源：高德地图"),
           ),
         );
 
@@ -1534,8 +1590,15 @@ class _SportRoutePreviewState extends State<SportRoutePreview> {
         Padding(
           padding: const EdgeInsets.all(13),
           child: Text(
-            '${widget.points.length} 个定位点 · ${widget.distanceKm.toStringAsFixed(2)} 公里\n'
-            '$status',
+            uiCopy(
+              context,
+              "{p0} 个定位点 · {p1} 公里\n{p2}",
+              parameters: [
+                widget.points.length,
+                widget.distanceKm.toStringAsFixed(2),
+                status,
+              ],
+            ),
             style: const TextStyle(
               color: SaydianColors.muted,
               fontSize: 12,
@@ -1548,7 +1611,7 @@ class _SportRoutePreviewState extends State<SportRoutePreview> {
             key: const Key('sport-route-map-retry'),
             onPressed: () => setState(_loadMap),
             icon: const Icon(Icons.refresh),
-            label: const Text('重新加载地图'),
+            label: Text(uiCopy(context, "重新加载地图")),
           ),
       ],
     ),

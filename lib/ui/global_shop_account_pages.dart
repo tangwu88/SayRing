@@ -1408,7 +1408,7 @@ class _GlobalShopOrderDetailPageState extends State<GlobalShopOrderDetailPage> {
                         if (mounted) await _load();
                       },
                 icon: const Icon(Icons.payment_outlined),
-                label: const Text('去支付'),
+                label: Text(uiCopy(context, "去支付")),
               ),
             if (_can('CANCEL'))
               OutlinedButton(

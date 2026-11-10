@@ -85,6 +85,48 @@ Future<void> _reveal(WidgetTester tester, String pageKey, Finder target) async {
 }
 
 void main() {
+  testWidgets(
+    'U19 device page exposes basic settings and pulse history without ring-only actions',
+    (tester) async {
+      final c = _controller()
+        ..connectedDevice = const DeviceInfo(
+          id: 'urion:synthetic-watch',
+          name: 'U19S',
+        )
+        ..capabilities = const DeviceCapabilities(
+          metrics: {HealthMetric.steps, HealthMetric.sleep},
+          features: {
+            DeviceFeature.basicSettings,
+            DeviceFeature.u19Pulse,
+            DeviceFeature.findWatch,
+          },
+          integratedFeatures: {
+            DeviceFeature.basicSettings,
+            DeviceFeature.u19Pulse,
+            DeviceFeature.findWatch,
+          },
+        );
+      addTearDown(c.dispose);
+      await _pump(tester, DevicePage(controller: c), width: 320, textScale: 2);
+      for (final feature in [
+        DeviceFeature.basicSettings,
+        DeviceFeature.u19Pulse,
+        DeviceFeature.findWatch,
+      ]) {
+        await _reveal(
+          tester,
+          'device-page',
+          find.byKey(Key('device-feature-${feature.wireName}')),
+        );
+      }
+      expect(find.text('查找手表'), findsOneWidget);
+      expect(
+        find.byKey(const Key('device-feature-gesture_control')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets('battery graphic preserves original level units', (tester) async {
     final controller = _controller(
       battery: const DeviceBatteryInfo(

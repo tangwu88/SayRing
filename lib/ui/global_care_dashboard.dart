@@ -109,7 +109,9 @@ class _GlobalCareDashboardState extends State<GlobalCareDashboard> {
     final l = context.l10n;
     return Scaffold(
       key: const Key('global-care-dashboard'),
-      appBar: AppBar(title: Text('${_source.label} · 健康')),
+      appBar: AppBar(
+        title: Text(uiCopy(context, "{p0} · 健康", parameters: [_source.label])),
+      ),
       body: !_source.valid
           ? Center(child: Text(l.carePermissionDenied))
           : RefreshIndicator(
@@ -141,7 +143,10 @@ class _GlobalCareDashboardState extends State<GlobalCareDashboard> {
                   ),
                   if (_loading) const LinearProgressIndicator(),
                   if (_failed)
-                    TextButton(onPressed: _load, child: const Text('加载失败，重试')),
+                    TextButton(
+                      onPressed: _load,
+                      child: Text(uiCopy(context, "加载失败，重试")),
+                    ),
                   if (!_loading && !_failed && _records.isEmpty)
                     Text(l.carePermissionDenied),
                   for (final entry in _records.entries) ...[

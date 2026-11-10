@@ -401,7 +401,7 @@ void main() {
       await tester.scrollUntilVisible(more, 450);
       await tester.tap(more);
       await tester.pumpAndSettle();
-      expect(find.text('加载失败，重试'), findsOneWidget);
+      expect(find.text('Could not load. Retry.'), findsOneWidget);
       controller.failNext = false;
       await tester.tap(more);
       await tester.pumpAndSettle();

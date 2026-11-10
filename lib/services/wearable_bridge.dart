@@ -684,3 +684,12 @@ class MethodChannelWearableBridge
   Future<T?> _invokeSync<T>(String method, [Map<String, Object?>? arguments]) =>
       _invoke<T>(method, arguments).timeout(syncTimeout);
 }
+
+/// U19 独立短期许可；不得混入既有戒指 readOnlyHealth/手动命令目录。
+abstract interface class WearableU19HealthPolicyBridge {
+  Future<void> configureU19HealthMetrics(
+    Set<HealthMetric> read,
+    Set<HealthMetric> manual, {
+    required Duration validity,
+  });
+}

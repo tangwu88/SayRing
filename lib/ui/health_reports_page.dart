@@ -211,10 +211,10 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                 if (global)
                   SelectableText(reviewedText!)
                 else ...[
-                  const Text('分析近 30 天的健康汇总，生成日常参考报告。'),
+                  Text(uiCopy(context, "分析近 30 天的健康汇总，生成日常参考报告。")),
                   const SizedBox(height: 12),
-                  const Text(
-                    '分析服务会接收去除姓名、手机号及设备地址的汇总。可在本页撤回授权。',
+                  Text(
+                    uiCopy(context, "分析服务会接收去除姓名、手机号及设备地址的汇总。可在本页撤回授权。"),
                     style: TextStyle(fontSize: 13, color: SaydianColors.muted),
                   ),
                 ],
@@ -309,7 +309,9 @@ class _HealthProfilePageState extends State<HealthProfilePage>
       if (!mounted) return;
       if (report.needsPayment) return;
       _showMessage(
-        report.status == HealthReportStatus.ready ? '报告已准备好' : '报告正在生成，完成后会通知你',
+        report.status == HealthReportStatus.ready
+            ? uiCopy(context, "报告已准备好")
+            : uiCopy(context, "报告正在生成，完成后会通知你"),
       );
       await _load(quiet: true);
     });
@@ -326,7 +328,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
       if (!mounted) return;
       _showMessage(
         retried.status == HealthReportStatus.queued
-            ? '已重新开始生成，完成后会通知你'
+            ? uiCopy(context, "已重新开始生成，完成后会通知你")
             : retried.status.label,
       );
       await _load(quiet: true);
@@ -337,7 +339,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
     if (!await _ensureGlobalAnalysisConsent()) return;
     final dashboard = _dashboard;
     if (dashboard == null || !dashboard.eligibility.eligible) {
-      _showMessage('当前数据还不足，暂不能购买报告');
+      _showMessage(uiCopy(null, "当前数据还不足，暂不能购买报告"));
       return;
     }
     final choice = await _selectPurchase(dashboard.offers);
@@ -368,7 +370,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
     List<HealthReportOffer> offers,
   ) async {
     if (offers.isEmpty) {
-      _showMessage('购买方案暂时不可用，请稍后刷新');
+      _showMessage(uiCopy(context, "购买方案暂时不可用，请稍后刷新"));
       return null;
     }
     var selected = offers.first;
@@ -448,7 +450,13 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                     sheetContext,
                     _PurchaseChoice(selected, isIos ? null : provider),
                   ),
-                  child: Text('确认支付 ${_price(selected)}'),
+                  child: Text(
+                    uiCopy(
+                      context,
+                      "确认支付 {p0}",
+                      parameters: [_price(selected)],
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -477,7 +485,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
         _pendingPayment = null;
         await widget.controller.createHealthReport();
         if (!mounted) return;
-        _showMessage('支付已确认，报告正在生成');
+        _showMessage(uiCopy(context, "支付已确认，报告正在生成"));
         await _load(quiet: true);
       } else if (!quiet) {
         _showMessage(_paymentStatusMessage(refreshed.status));
@@ -500,7 +508,11 @@ class _HealthProfilePageState extends State<HealthProfilePage>
         }
       }
       if (!mounted) return;
-      _showMessage(restored > 0 ? '已恢复 $restored 笔购买' : '没有找到可恢复的购买');
+      _showMessage(
+        restored > 0
+            ? uiCopy(context, "已恢复 {p0} 笔购买", parameters: [restored])
+            : uiCopy(context, "没有找到可恢复的购买"),
+      );
       await _load(quiet: true);
     });
   }
@@ -535,7 +547,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
         title: Text(context.l10n.healthProfile),
         actions: [
           IconButton(
-            tooltip: '刷新',
+            tooltip: uiCopy(context, "刷新"),
             onPressed: _working ? null : _load,
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -713,7 +725,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
       );
       if (!mounted) return;
       if (result.status == ShareResultStatus.unavailable) {
-        _showMessage('当前设备暂时无法分享文件');
+        _showMessage(uiCopy(context, "当前设备暂时无法分享文件"));
       }
     } catch (error) {
       if (mounted) {
@@ -745,7 +757,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
         actions: [
           IconButton(
             key: const Key('health-report-share'),
-            tooltip: '导出或分享',
+            tooltip: uiCopy(context, "导出或分享"),
             onPressed: _loading || _sharing ? null : _sharePdf,
             icon: _sharing
                 ? const SizedBox.square(
@@ -766,17 +778,17 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
               children: [
                 ReportVisualSummary(visuals: _map(_payload?['visuals'])),
                 _DetailSection(
-                  title: '报告概览',
+                  title: uiCopy(context, "报告概览"),
                   icon: Icons.summarize_outlined,
                   child: Text(
-                    '${content['overview'] ?? '暂未获取报告概览'}',
+                    '${content['overview'] ?? uiCopy(context, "暂未获取报告概览")}',
                     style: const TextStyle(height: 1.65),
                   ),
                 ),
                 if (trends.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   _DetailSection(
-                    title: '趋势整理',
+                    title: uiCopy(context, "趋势整理"),
                     icon: Icons.show_chart_rounded,
                     child: Column(
                       children: [
@@ -792,7 +804,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
                 if (suggestions.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   _DetailSection(
-                    title: '日常健康建议',
+                    title: uiCopy(context, "日常健康建议"),
                     icon: Icons.lightbulb_outline_rounded,
                     child: ReportAdviceList(items: suggestions),
                   ),
@@ -800,7 +812,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
                 if (limitations.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   _DetailSection(
-                    title: '数据局限',
+                    title: uiCopy(context, "数据局限"),
                     icon: Icons.info_outline_rounded,
                     child: _BulletList(items: limitations),
                   ),
@@ -808,7 +820,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
                 const SizedBox(height: 12),
                 _SafetyNotice(
                   message:
-                      '${content['safetyNotice'] ?? '本报告不用于诊断或治疗；如有明显不适，请及时就医。'}',
+                      '${content['safetyNotice'] ?? uiCopy(context, "本报告不用于诊断或治疗；如有明显不适，请及时就医。")}',
                 ),
               ],
             ),
@@ -828,12 +840,12 @@ class _ProfileOverview extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(Icons.health_and_safety_outlined),
               SizedBox(width: 8),
               Text(
-                '近30天健康档案',
+                uiCopy(context, "近30天健康档案"),
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
               ),
             ],
@@ -844,25 +856,25 @@ class _ProfileOverview extends StatelessWidget {
               Expanded(
                 child: _ProfileNumber(
                   value: '${profile.distinctDays}',
-                  label: '有效天数',
+                  label: uiCopy(context, "有效天数"),
                 ),
               ),
               Expanded(
                 child: _ProfileNumber(
                   value: '${profile.validRecordCount}',
-                  label: '有效记录',
+                  label: uiCopy(context, "有效记录"),
                 ),
               ),
               Expanded(
                 child: _ProfileNumber(
                   value: '${profile.metricCount}',
-                  label: '数据类型',
+                  label: uiCopy(context, "数据类型"),
                 ),
               ),
               Expanded(
                 child: _ProfileNumber(
                   value: '${profile.activeWarningCount}',
-                  label: '提醒记录',
+                  label: uiCopy(context, "提醒记录"),
                   warning: profile.activeWarningCount > 0,
                 ),
               ),
@@ -878,7 +890,14 @@ class _ProfileOverview extends StatelessWidget {
                   Chip(
                     avatar: const Icon(Icons.check_circle_outline, size: 17),
                     label: Text(
-                      '${_metricLabel(metric.metric)} ${metric.recordCount}条',
+                      uiCopy(
+                        context,
+                        "{p0} {p1}条",
+                        parameters: [
+                          _metricLabel(metric.metric),
+                          metric.recordCount,
+                        ],
+                      ),
                     ),
                   ),
               ],
@@ -897,8 +916,22 @@ class _ProfileOverview extends StatelessWidget {
               Expanded(
                 child: Text(
                   profile.devices.isEmpty
-                      ? '暂未绑定戒指，已保存的有效记录仍会保留'
-                      : '已绑定 ${profile.devices.length} 台设备：${profile.devices.map((device) => device.displayName.isEmpty ? device.model : device.displayName).where((name) => name.isNotEmpty).join('、')}',
+                      ? uiCopy(context, "暂未绑定戒指，已保存的有效记录仍会保留")
+                      : uiCopy(
+                          context,
+                          "已绑定 {p0} 台设备：{p1}",
+                          parameters: [
+                            profile.devices.length,
+                            profile.devices
+                                .map(
+                                  (device) => device.displayName.isEmpty
+                                      ? device.model
+                                      : device.displayName,
+                                )
+                                .where((name) => name.isNotEmpty)
+                                .join('、'),
+                          ],
+                        ),
                   style: const TextStyle(
                     color: SaydianColors.muted,
                     fontSize: 13,
@@ -958,11 +991,24 @@ class _EntitlementCard extends StatelessWidget {
         backgroundColor: Colors.white,
         child: Icon(Icons.workspace_premium_outlined),
       ),
-      title: Text('可用详细报告 ${entitlements.availableReportCredits} 次'),
+      title: Text(
+        uiCopy(
+          context,
+          "可用详细报告 {p0} 次",
+          parameters: [entitlements.availableReportCredits],
+        ),
+      ),
       subtitle: Text(
         entitlements.hasActiveMembership
-            ? '健康会员有效至 ${_date(entitlements.membershipExpiresAt)}，会员剩余 ${entitlements.membershipRemainingCredits} 次'
-            : '可单次购买，或选择30天健康会员（含4份报告）',
+            ? uiCopy(
+                context,
+                "健康会员有效至 {p0}，会员剩余 {p1} 次",
+                parameters: [
+                  _date(entitlements.membershipExpiresAt),
+                  entitlements.membershipRemainingCredits,
+                ],
+              )
+            : uiCopy(context, "可单次购买，或选择30天健康会员（含4份报告）"),
       ),
     ),
   );
@@ -989,12 +1035,22 @@ class _EligibilityCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            eligibility.eligible ? '数据已满足报告条件' : '再积累一些数据即可生成',
+            eligibility.eligible
+                ? uiCopy(context, "数据已满足报告条件")
+                : uiCopy(context, "再积累一些数据即可生成"),
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 6),
           Text(
-            '当前有 ${eligibility.distinctDays} 天、${eligibility.validRecordCount} 条有效记录；报告至少需要 ${eligibility.minimumDistinctDays} 个不同日期的数据。',
+            uiCopy(
+              context,
+              "当前有 {p0} 天、{p1} 条有效记录；报告至少需要 {p2} 个不同日期的数据。",
+              parameters: [
+                eligibility.distinctDays,
+                eligibility.validRecordCount,
+                eligibility.minimumDistinctDays,
+              ],
+            ),
             style: const TextStyle(color: SaydianColors.muted),
           ),
           if (!eligibility.eligible) ...[
@@ -1016,7 +1072,10 @@ class _EligibilityCard extends StatelessWidget {
               ),
             const SizedBox(height: 2),
             Text(
-              context.l10n.reportInsufficientDataHint,
+              devicePromptLabel(
+                context,
+                context.l10n.reportInsufficientDataHint,
+              ),
               style: TextStyle(fontSize: 13, color: SaydianColors.muted),
             ),
           ] else ...[
@@ -1027,10 +1086,10 @@ class _EligibilityCard extends StatelessWidget {
               icon: const Icon(Icons.auto_awesome_rounded),
               label: Text(
                 eligibility.availableCredits > 0
-                    ? '使用1次权益生成报告'
+                    ? uiCopy(context, "使用1次权益生成报告")
                     : eligibility.consentRequired
-                    ? '阅读说明并生成报告'
-                    : '生成详细报告',
+                    ? uiCopy(context, "阅读说明并生成报告")
+                    : uiCopy(context, "生成详细报告"),
               ),
             ),
           ],
@@ -1139,14 +1198,14 @@ class _ReportCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final action = switch (report.status) {
-      HealthReportStatus.ready => ('查看报告', onOpen),
+      HealthReportStatus.ready => (uiCopy(context, "查看报告"), onOpen),
       HealthReportStatus.awaitingPayment when canPurchase => (
-        '选择方案',
+        uiCopy(context, "选择方案"),
         onPurchase,
       ),
-      HealthReportStatus.failed => ('重新生成', onRetry),
+      HealthReportStatus.failed => (uiCopy(context, "重新生成"), onRetry),
       HealthReportStatus.queued ||
-      HealthReportStatus.generating => ('刷新状态', onRefresh),
+      HealthReportStatus.generating => (uiCopy(context, "刷新状态"), onRefresh),
       _ => null,
     };
     return Card(
@@ -1171,7 +1230,16 @@ class _ReportCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              '${_date(report.periodFrom)} 至 ${_date(report.periodTo)} · ${report.distinctDays}天 · ${report.validRecordCount}条有效记录',
+              uiCopy(
+                context,
+                "{p0} 至 {p1} · {p2}天 · {p3}条有效记录",
+                parameters: [
+                  _date(report.periodFrom),
+                  _date(report.periodTo),
+                  report.distinctDays,
+                  report.validRecordCount,
+                ],
+              ),
               style: const TextStyle(fontSize: 13, color: SaydianColors.muted),
             ),
             const SizedBox(height: 9),
@@ -1354,7 +1422,10 @@ class _TrendRow extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.w800),
       ),
       const SizedBox(height: 4),
-      Text('${trend['text'] ?? '未获取'}', style: const TextStyle(height: 1.55)),
+      Text(
+        '${trend['text'] ?? uiCopy(context, "未获取")}',
+        style: const TextStyle(height: 1.55),
+      ),
     ],
   );
 }
@@ -1392,15 +1463,17 @@ class _SafetyNotice extends StatelessWidget {
   final String message;
 
   @override
-  Widget build(BuildContext context) =>
-      UsageInfoButton(title: '报告说明', message: '报告由 AI 根据健康汇总生成。\n$message');
+  Widget build(BuildContext context) => UsageInfoButton(
+    title: uiCopy(context, "报告说明"),
+    message: uiCopy(context, "报告由 AI 根据健康汇总生成。\n{p0}", parameters: [message]),
+  );
 }
 
 class _EmptyReports extends StatelessWidget {
   const _EmptyReports();
 
   @override
-  Widget build(BuildContext context) => const Card(
+  Widget build(BuildContext context) => Card(
     child: Padding(
       padding: EdgeInsets.symmetric(horizontal: 20, vertical: 30),
       child: Column(
@@ -1411,10 +1484,13 @@ class _EmptyReports extends StatelessWidget {
             color: SaydianColors.muted,
           ),
           SizedBox(height: 10),
-          Text('暂无详细报告', style: TextStyle(fontWeight: FontWeight.w800)),
+          Text(
+            uiCopy(context, "暂无详细报告"),
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
           SizedBox(height: 4),
           Text(
-            '满足数据条件后，可以在上方生成第一份报告。',
+            uiCopy(context, "满足数据条件后，可以在上方生成第一份报告。"),
             textAlign: TextAlign.center,
             style: TextStyle(color: SaydianColors.muted),
           ),
@@ -1458,33 +1534,35 @@ class _PurchaseChoice {
 String _price(HealthReportOffer offer) =>
     '¥${(offer.priceCents / 100).toStringAsFixed(2)}';
 
-String _date(DateTime? value) =>
-    value == null ? '未获取' : DateFormat('yyyy年M月d日').format(value.toLocal());
+String _date(DateTime? value) => value == null
+    ? uiCopy(null, "未获取")
+    : DateFormat(uiCopy(null, "yyyy年M月d日")).format(value.toLocal());
 
 String _paymentStatusMessage(HealthPaymentStatus status) => switch (status) {
-  HealthPaymentStatus.succeeded => '支付已确认',
-  HealthPaymentStatus.failed || HealthPaymentStatus.closed => '支付未完成，可重新选择方案',
+  HealthPaymentStatus.succeeded => uiCopy(null, "支付已确认"),
+  HealthPaymentStatus.failed ||
+  HealthPaymentStatus.closed => uiCopy(null, "支付未完成，可重新选择方案"),
   HealthPaymentStatus.refunding ||
   HealthPaymentStatus.partialRefunded ||
-  HealthPaymentStatus.refunded => '该笔支付正在退款或已退款',
-  _ => '支付结果仍在确认，请稍后刷新',
+  HealthPaymentStatus.refunded => uiCopy(null, "该笔支付正在退款或已退款"),
+  _ => uiCopy(null, "支付结果仍在确认，请稍后刷新"),
 };
 
 String _metricLabel(String metric) => switch (metric.trim().toLowerCase()) {
-  'sleep' => '睡眠',
-  'steps' => '步数',
-  'distance' => '距离',
-  'calories' => '热量',
-  'heart_rate' || 'heartrate' => '心率',
-  'blood_oxygen' || 'bloodoxygen' => '血氧',
-  'blood_pressure' || 'bloodpressure' => '血压',
-  'blood_glucose' || 'bloodglucose' => '血糖',
+  'sleep' => uiCopy(null, "睡眠"),
+  'steps' => uiCopy(null, "步数"),
+  'distance' => uiCopy(null, "距离"),
+  'calories' => uiCopy(null, "热量"),
+  'heart_rate' || 'heartrate' => uiCopy(null, "心率"),
+  'blood_oxygen' || 'bloodoxygen' => uiCopy(null, "血氧"),
+  'blood_pressure' || 'bloodpressure' => uiCopy(null, "血压"),
+  'blood_glucose' || 'bloodglucose' => uiCopy(null, "血糖"),
   'body_temperature' || 'bodytemperature' => HealthMetric.bodyTemperature.label,
   'hrv' => HealthMetric.hrv.label,
   'ecg' => 'ECG',
-  'body_composition' => '身体成分',
-  'blood_composition' => '血液成分',
-  _ => metric.trim().isEmpty ? '健康数据' : metric,
+  'body_composition' => uiCopy(null, "身体成分"),
+  'blood_composition' => uiCopy(null, "血液成分"),
+  _ => metric.trim().isEmpty ? uiCopy(null, "健康数据") : metric,
 };
 
 Map<String, Object?> _map(Object? value) => value is Map

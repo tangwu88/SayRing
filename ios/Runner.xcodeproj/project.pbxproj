@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E19000000000000000000001 /* UrionGattTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19000000000000000000002 /* UrionGattTransport.swift */; };
 		C30000000000000000000001 /* CoolWearWearableBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000011 /* CoolWearWearableBridge.m */; };
 		C30000000000000000000002 /* BluetoothLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C30000000000000000000012 /* BluetoothLibrary.framework */; };
 		C30000000000000000000003 /* BluetoothLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C30000000000000000000012 /* BluetoothLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -59,6 +60,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E19000000000000000000002 /* UrionGattTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UrionGattTransport.swift; sourceTree = "<group>"; };
 		C30000000000000000000010 /* CoolWearWearableBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CoolWearWearableBridge.h; sourceTree = "<group>"; };
 		C30000000000000000000011 /* CoolWearWearableBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CoolWearWearableBridge.m; sourceTree = "<group>"; };
 		C30000000000000000000012 /* BluetoothLibrary.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = BluetoothLibrary.framework; sourceTree = "<group>"; };
@@ -181,6 +183,7 @@
 			children = (
 				C30000000000000000000010 /* CoolWearWearableBridge.h */,
 				C30000000000000000000011 /* CoolWearWearableBridge.m */,
+				E19000000000000000000002 /* UrionGattTransport.swift */,
 				C30000000000000000000013 /* CoolWearPolicy.h */,
 				F00000000000000000000020 /* Vendor */,
 				A13000012608130000000003 /* Runner.entitlements */,
@@ -507,6 +510,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C30000000000000000000001 /* CoolWearWearableBridge.m in Sources */,
+				E19000000000000000000001 /* UrionGattTransport.swift in Sources */,
 				Q90000000000000000000002 /* QCCentralManager.m in Sources */,
 				Q90000000000000000000003 /* QRingWearableBridge.m in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,

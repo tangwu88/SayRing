@@ -123,15 +123,26 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   'entity_id': event.entityId,
                   'is_read': event.isRead,
                   'title': switch (event.type) {
-                    NotificationEventType.careInvitation => '关爱邀请',
-                    NotificationEventType.healthWarning => '健康提醒',
-                    NotificationEventType.system => '系统消息',
+                    NotificationEventType.careInvitation => uiCopy(
+                      context,
+                      "关爱邀请",
+                    ),
+                    NotificationEventType.healthWarning => uiCopy(
+                      context,
+                      "健康提醒",
+                    ),
+                    NotificationEventType.system => uiCopy(context, "系统消息"),
                   },
                   'content': switch (event.type) {
-                    NotificationEventType.careInvitation =>
-                      '您有新的关爱请求，请点击查看最新状态。',
-                    NotificationEventType.healthWarning => '有新的健康提醒，请打开提醒记录查看。',
-                    NotificationEventType.system => '您有一条新消息。',
+                    NotificationEventType.careInvitation => uiCopy(
+                      context,
+                      "您有新的关爱请求，请点击查看最新状态。",
+                    ),
+                    NotificationEventType.healthWarning => uiCopy(
+                      context,
+                      "有新的健康提醒，请打开提醒记录查看。",
+                    ),
+                    NotificationEventType.system => uiCopy(context, "您有一条新消息。"),
                   },
                   'created_at': DateFormat(
                     'yyyy-MM-dd HH:mm',
@@ -179,9 +190,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
                           );
                         }
                       },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'request', child: Text('允许通知')),
-                        PopupMenuItem(value: 'settings', child: Text('系统设置')),
+                      itemBuilder: (_) => [
+                        PopupMenuItem(
+                          value: 'request',
+                          child: Text(uiCopy(context, "允许通知")),
+                        ),
+                        PopupMenuItem(
+                          value: 'settings',
+                          child: Text(uiCopy(context, "系统设置")),
+                        ),
                       ],
                     ),
                   ),
@@ -235,7 +252,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        '${item['title'] ?? item['name'] ?? '系统消息'}',
+                                        '${item['title'] ?? item['name'] ?? uiCopy(context, "系统消息")}',
                                         style: TextStyle(
                                           fontWeight: unread
                                               ? FontWeight.w900
@@ -326,7 +343,8 @@ class _NotificationDetailPageState extends State<NotificationDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final title = '${_value['title'] ?? _value['name'] ?? '消息详情'}';
+    final title =
+        '${_value['title'] ?? _value['name'] ?? uiCopy(context, "消息详情")}';
     final raw = '${_value['content'] ?? _value['description'] ?? ''}';
     final content = _resolveNotificationContent(_value, raw);
     final isHealthWarning = _value['kind'] == 'health_warning';
@@ -392,7 +410,7 @@ class _NotificationDetailPageState extends State<NotificationDetailPage> {
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: Text(
-                content.isEmpty ? '暂无消息正文' : content,
+                content.isEmpty ? uiCopy(context, "暂无消息正文") : content,
                 style: const TextStyle(fontSize: 16, height: 1.75),
               ),
             ),
@@ -418,7 +436,7 @@ String _notificationPreview(Map<String, Object?> value) {
 
 String _resolveNotificationContent(Map<String, Object?> value, String raw) {
   final orderNumber = _notificationOrderNumber(value);
-  final fallback = orderNumber ?? '订单号暂未返回';
+  final fallback = orderNumber ?? uiCopy(null, "订单号暂未返回");
   return plainTextFromHtml(raw).replaceAll('#order_sn#', fallback);
 }
 

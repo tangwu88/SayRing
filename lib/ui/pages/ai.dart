@@ -45,12 +45,12 @@ class AiPage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 15),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '健康问答',
+                            uiCopy(context, "健康问答"),
                             style: TextStyle(
                               color: Color(0xFF27479C),
                               fontSize: 20,
@@ -76,7 +76,7 @@ class AiPage extends StatelessWidget {
             child: InkWell(
               onTap: () => _openChat(context, app: 2),
               borderRadius: BorderRadius.circular(18),
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.all(18),
                 child: Row(
                   children: [
@@ -85,7 +85,7 @@ class AiPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '运动问答',
+                            uiCopy(context, "运动问答"),
                             style: TextStyle(
                               color: Color(0xFF27479C),
                               fontSize: 17,
@@ -122,11 +122,11 @@ class AiPage extends StatelessWidget {
                 child: Center(
                   child: switch (controller.aiStatus) {
                     '正在加载' => const CircularProgressIndicator(),
-                    '暂无百科内容' || '等待加载' => const Text('暂无文章'),
+                    '暂无百科内容' || '等待加载' => Text(uiCopy(context, "暂无文章")),
                     _ => TextButton.icon(
                       onPressed: controller.refreshAiArticles,
                       icon: const Icon(Icons.refresh),
-                      label: const Text('重新加载文章'),
+                      label: Text(uiCopy(context, "重新加载文章")),
                     ),
                   },
                 ),
@@ -244,12 +244,14 @@ class _AiChatPageState extends State<AiChatPage> {
   Widget _buildContent(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.app == 2 ? '运动问答' : '健康问答'),
-        actions: const [
+        title: Text(
+          widget.app == 2 ? uiCopy(context, "运动问答") : uiCopy(context, "健康问答"),
+        ),
+        actions: [
           UsageInfoButton(
             iconOnly: true,
-            title: '说明',
-            message: '回答由 AI 生成，供日常健康参考，不能代替医生诊疗。',
+            title: uiCopy(context, "说明"),
+            message: uiCopy(context, "回答由 AI 生成，供日常健康参考，不能代替医生诊疗。"),
           ),
         ],
       ),
@@ -266,12 +268,12 @@ class _AiChatPageState extends State<AiChatPage> {
                           constraints: BoxConstraints(
                             minHeight: constraints.maxHeight,
                           ),
-                          child: const Padding(
+                          child: Padding(
                             padding: EdgeInsets.all(28),
                             child: Center(
                               child: FeatureStateCard(
-                                message: '暂无对话',
-                                detail: '输入你想了解的问题',
+                                message: uiCopy(context, "暂无对话"),
+                                detail: uiCopy(context, "输入你想了解的问题"),
                                 icon: Icons.chat_bubble_outline_rounded,
                                 color: SaydianColors.brandRed,
                               ),
@@ -326,7 +328,7 @@ class _AiChatPageState extends State<AiChatPage> {
                             children: [
                               if (!mine)
                                 Text(
-                                  'AI 回答',
+                                  uiCopy(context, "AI 回答"),
                                   style: Theme.of(context).textTheme.labelSmall,
                                 ),
                               Text(
@@ -343,7 +345,7 @@ class _AiChatPageState extends State<AiChatPage> {
                                 Text(
                                   userFacingMessage(
                                     message['send_error']?.toString(),
-                                    fallback: '消息未发送，请重试',
+                                    fallback: uiCopy(context, "消息未发送，请重试"),
                                   ),
                                   style: TextStyle(
                                     color: Color(0xFFFFD7D7),

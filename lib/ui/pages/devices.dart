@@ -9,17 +9,17 @@ class DevicePage extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('解绑设备？'),
-        content: const Text('解绑后将停止自动连接此戒指。本机已保存的健康记录不会删除。'),
+        title: Text(uiCopy(context, "解绑设备？")),
+        content: Text(uiCopy(context, "解绑后将停止自动连接此设备。本机健康记录会保留。")),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
+            child: Text(uiCopy(context, "取消")),
           ),
           FilledButton(
             key: const Key('device-confirm-unbind'),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('确认解绑'),
+            child: Text(uiCopy(context, "确认解绑")),
           ),
         ],
       ),
@@ -64,7 +64,13 @@ class DevicePage extends StatelessWidget {
                         borderRadius: BorderRadius.circular(24),
                       ),
                       alignment: Alignment.center,
-                      child: const RingDeviceIllustration(size: 60),
+                      child: bound.sdkSource == WearableSdkSource.urion
+                          ? const Icon(
+                              Icons.watch_outlined,
+                              size: 44,
+                              color: SaydianColors.techBlue,
+                            )
+                          : const RingDeviceIllustration(size: 60),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -101,8 +107,14 @@ class DevicePage extends StatelessWidget {
                             Text(
                               controller.wearableRecoveryMessage ??
                                   (controller.isWearableRecovering
-                                      ? '正在重连'
-                                      : '等待戒指靠近'),
+                                      ? uiCopy(context, "正在重连")
+                                      : uiCopy(
+                                          context,
+                                          bound.sdkSource ==
+                                                  WearableSdkSource.urion
+                                              ? "等待手表靠近"
+                                              : "等待戒指靠近",
+                                        )),
                               key: const Key('device-recovery-status'),
                               style: const TextStyle(
                                 color: SaydianColors.techBlue,
@@ -154,8 +166,10 @@ class DevicePage extends StatelessWidget {
                                       ? context.l10n.syncComplete
                                       : userFacingMessage(
                                           controller.errorMessage,
-                                          fallback:
-                                              context.l10n.syncFailedTryAgain,
+                                          fallback: devicePromptLabel(
+                                            context,
+                                            context.l10n.syncFailedTryAgain,
+                                          ),
                                         );
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text(feedback)),
@@ -171,7 +185,7 @@ class DevicePage extends StatelessWidget {
                                 : SaydianColors.line,
                           ),
                           child: controller.isDeviceSyncPreparing
-                              ? const Row(
+                              ? Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     SizedBox.square(
@@ -181,7 +195,7 @@ class DevicePage extends StatelessWidget {
                                       ),
                                     ),
                                     SizedBox(width: 8),
-                                    Text('正在准备同步'),
+                                    Text(uiCopy(context, "正在准备同步")),
                                   ],
                                 )
                               : controller.isDeviceHistorySyncing
@@ -199,7 +213,7 @@ class DevicePage extends StatelessWidget {
                                     Flexible(
                                       child: Text(
                                         controller.isRingInitializationPending
-                                            ? '恢复同步'
+                                            ? uiCopy(context, "恢复同步")
                                             : context.l10n.syncData,
                                       ),
                                     ),
@@ -233,15 +247,15 @@ class DevicePage extends StatelessWidget {
                                 connected: false,
                                 connectionMessage:
                                     controller.isDeviceReconnecting
-                                    ? '正在重连'
-                                    : '正在寻找戒指',
+                                    ? uiCopy(context, "正在重连")
+                                    : uiCopy(context, "正在寻找戒指"),
                               )
-                            : const Row(
+                            : Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(Icons.bluetooth_searching_rounded),
                                   SizedBox(width: 8),
-                                  Text('重新连接'),
+                                  Text(uiCopy(context, "重新连接")),
                                 ],
                               ),
                       ),
@@ -259,7 +273,7 @@ class DevicePage extends StatelessWidget {
                               )
                             : null,
                         icon: const Icon(Icons.radar_rounded),
-                        label: const Text('重新搜索戒指'),
+                        label: Text(uiCopy(context, "重新搜索戒指")),
                       ),
                     const SizedBox(height: 4),
                     // 标题需要单独的无障碍节点，不能和上方设备名称、电量合并。
@@ -297,7 +311,7 @@ class DevicePage extends StatelessWidget {
                                 ? null
                                 : () => _confirmUnbind(context),
                             icon: const Icon(Icons.link_off_rounded, size: 18),
-                            label: const Text('解绑设备'),
+                            label: Text(uiCopy(context, "解绑设备")),
                             style: TextButton.styleFrom(
                               foregroundColor: SaydianColors.muted,
                             ),
@@ -340,7 +354,7 @@ class DevicePage extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    context.l10n.watchNearbyHint,
+                    genericDevicePrompt(context.l10n.watchNearbyHint),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: SaydianColors.muted,
@@ -377,8 +391,12 @@ class DevicePage extends StatelessWidget {
                 dimension: 22,
                 child: CircularProgressIndicator(strokeWidth: 2.2),
               ),
-              title: Text(context.l10n.readingCapabilities),
-              subtitle: Text(context.l10n.capabilitiesHint),
+              title: Text(
+                devicePromptLabel(context, context.l10n.readingCapabilities),
+              ),
+              subtitle: Text(
+                devicePromptLabel(context, context.l10n.capabilitiesHint),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -390,8 +408,12 @@ class DevicePage extends StatelessWidget {
             key: const Key('device-capabilities-unavailable'),
             child: ListTile(
               leading: const Icon(Icons.refresh_rounded),
-              title: Text(context.l10n.capabilitiesFailed),
-              subtitle: Text(context.l10n.keepWatchNear),
+              title: Text(
+                devicePromptLabel(context, context.l10n.capabilitiesFailed),
+              ),
+              subtitle: Text(
+                devicePromptLabel(context, context.l10n.keepWatchNear),
+              ),
               trailing: TextButton(
                 key: const Key('device-capabilities-retry'),
                 onPressed: controller.refreshDeviceCapabilities,
@@ -465,7 +487,7 @@ class DevicePage extends StatelessWidget {
           if (watchFaceFeatures.isEmpty && primaryFeatures.isEmpty) ...[
             InlineNotice(
               key: const Key('device-no-integrated-features'),
-              message: context.l10n.useWatch,
+              message: devicePromptLabel(context, context.l10n.useWatch),
               icon: Icons.circle_outlined,
               color: SaydianColors.blue,
               compact: true,
@@ -498,8 +520,8 @@ class DevicePage extends StatelessWidget {
                     builder: (context) => _InfoPage(
                       title: context.l10n.connectionHelp,
                       message:
-                          '${context.l10n.connectionInstructions}\n\n'
-                          '${defaultTargetPlatform == TargetPlatform.iOS ? context.l10n.deviceSearchHelpRebindIos : context.l10n.deviceSearchHelpRebindAndroid}',
+                          '${devicePromptLabel(context, context.l10n.connectionInstructions)}\n\n'
+                          '${defaultTargetPlatform == TargetPlatform.iOS ? devicePromptLabel(context, context.l10n.deviceSearchHelpRebindIos) : devicePromptLabel(context, context.l10n.deviceSearchHelpRebindAndroid)}',
                     ),
                   ),
                 ),
@@ -512,7 +534,7 @@ class DevicePage extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         InlineNotice(
-          message: context.l10n.syncNearbyHint,
+          message: devicePromptLabel(context, context.l10n.syncNearbyHint),
           icon: Icons.info_outline_rounded,
           color: SaydianColors.blue,
           compact: true,
@@ -522,6 +544,8 @@ class DevicePage extends StatelessWidget {
   }
 
   static const _primaryFeatures = <DeviceFeature>[
+    DeviceFeature.basicSettings,
+    DeviceFeature.u19Pulse,
     DeviceFeature.findWatch,
     DeviceFeature.camera,
     DeviceFeature.gestureControl,
@@ -587,7 +611,11 @@ class DevicePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  context.l10n.deviceFeatureName(feature),
+                  feature == DeviceFeature.findWatch &&
+                          controller.connectedDevice?.sdkSource ==
+                              WearableSdkSource.urion
+                      ? uiCopy(context, '查找手表')
+                      : context.l10n.deviceFeatureName(feature),
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -622,7 +650,8 @@ class DevicePage extends StatelessWidget {
       );
       return;
     }
-    if (feature == DeviceFeature.healthMonitoring) {
+    if (feature == DeviceFeature.healthMonitoring &&
+        controller.connectedDevice?.sdkSource != WearableSdkSource.urion) {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           settings: const RouteSettings(name: 'device-health-monitoring'),
@@ -644,6 +673,8 @@ class DevicePage extends StatelessWidget {
   }
 
   IconData _featureIcon(DeviceFeature feature) => switch (feature) {
+    DeviceFeature.basicSettings => Icons.settings_outlined,
+    DeviceFeature.u19Pulse => Icons.favorite_border,
     DeviceFeature.watchFaces => Icons.watch_later_outlined,
     DeviceFeature.photoWatchFace => Icons.photo_outlined,
     DeviceFeature.findWatch => Icons.notifications_active_outlined,
@@ -722,10 +753,25 @@ class _BatteryBadge extends StatelessWidget {
       DeviceBatteryInfo(isPercent: true, value: <= 35) => SaydianColors.orange,
       _ => SaydianColors.green,
     };
-    final label = value?.displayLabel ?? '--';
+    final label = value == null
+        ? '--'
+        : value.isPercent
+        ? value.displayLabel
+        : uiCopy(
+            context,
+            "{p0}/{p1} 格",
+            parameters: [value.value, value.scale],
+          );
     final semantics = value == null
-        ? '戒指电量暂未读取'
-        : '戒指电量 $label，${value.chargeStateAt(DateTime.now()).label}';
+        ? uiCopy(context, "设备电量暂未读取")
+        : uiCopy(
+            context,
+            "设备电量 {p0}，{p1}",
+            parameters: [
+              label,
+              uiCopy(context, value.chargeStateAt(DateTime.now()).label),
+            ],
+          );
     final fraction = value != null && value.scale > 0
         ? (value.value / value.scale).clamp(0.0, 1.0)
         : null;
@@ -775,7 +821,7 @@ class _BatteryBadge extends StatelessWidget {
           runSpacing: 8,
           children: [
             Text(
-              context.l10n.watchBattery,
+              uiCopy(context, "设备电量"),
               style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
             ),
             Row(
@@ -981,17 +1027,20 @@ class _DeviceWatchFaceMarketStripState
         InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: _openMarket,
-          child: const Padding(
+          child: Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
-                    '显示样式市场',
+                    uiCopy(context, "显示样式市场"),
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
                   ),
                 ),
-                Text('查看更多', style: TextStyle(color: SaydianColors.muted)),
+                Text(
+                  uiCopy(context, "查看更多"),
+                  style: TextStyle(color: SaydianColors.muted),
+                ),
                 Icon(Icons.chevron_right_rounded, color: SaydianColors.muted),
               ],
             ),
@@ -1007,7 +1056,9 @@ class _DeviceWatchFaceMarketStripState
                   child: InkWell(
                     borderRadius: BorderRadius.circular(16),
                     onTap: _openMarket,
-                    child: const Center(child: Text('进入显示样式市场选择更多样式')),
+                    child: Center(
+                      child: Text(uiCopy(context, "进入显示样式市场选择更多样式")),
+                    ),
                   ),
                 )
               : ListView.separated(
@@ -1169,9 +1220,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (widget.controller.supportsBondedDeviceSelection &&
         device.rssi == null &&
         widget.controller.deviceState == DeviceConnectionState.error) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('缓存连接未成功，正在重新搜索戒指')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(uiCopy(context, "缓存连接未成功，正在重新搜索设备"))),
+      );
       await _startScan();
     }
   }
@@ -1210,62 +1261,79 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   Future<void> _showSearchHelp() => showDialog<void>(
     context: context,
-    builder: (context) => AlertDialog(
-      key: const Key('device-search-help-dialog'),
-      scrollable: true,
-      title: Text(context.l10n.deviceSearchHelpTitle),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final (icon, text) in [
-            (
-              Icons.battery_charging_full_rounded,
-              context.l10n.deviceSearchHelpPower,
-            ),
-            (Icons.bluetooth_rounded, context.l10n.deviceSearchHelpAccess),
-            (
-              Icons.phonelink_erase_rounded,
-              context.l10n.deviceSearchHelpOtherPhone,
-            ),
-            (
-              Icons.link_rounded,
-              defaultTargetPlatform == TargetPlatform.iOS
-                  ? context.l10n.deviceSearchHelpRebindIos
-                  : context.l10n.deviceSearchHelpRebindAndroid,
-            ),
-          ])
-            Padding(
-              padding: const EdgeInsets.only(bottom: 18),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ExcludeSemantics(
-                    child: Icon(icon, color: SaydianColors.blue, size: 25),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      text,
-                      style: const TextStyle(fontSize: 15, height: 1.5),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-      actions: [
-        FilledButton(
-          key: const Key('device-search-help-close'),
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(context.l10n.confirm),
-        ),
-      ],
+    builder: (_) => DevicePromptScope(
+      generic: true,
+      child: Builder(builder: _searchHelpDialog),
     ),
   );
 
+  Widget _searchHelpDialog(BuildContext context) => AlertDialog(
+    key: const Key('device-search-help-dialog'),
+    scrollable: true,
+    title: Text(devicePromptLabel(context, context.l10n.deviceSearchHelpTitle)),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (icon, text) in [
+          (
+            Icons.battery_charging_full_rounded,
+            devicePromptLabel(context, context.l10n.deviceSearchHelpPower),
+          ),
+          (
+            Icons.bluetooth_rounded,
+            devicePromptLabel(context, context.l10n.deviceSearchHelpAccess),
+          ),
+          (
+            Icons.phonelink_erase_rounded,
+            devicePromptLabel(context, context.l10n.deviceSearchHelpOtherPhone),
+          ),
+          (
+            Icons.link_rounded,
+            defaultTargetPlatform == TargetPlatform.iOS
+                ? devicePromptLabel(
+                    context,
+                    context.l10n.deviceSearchHelpRebindIos,
+                  )
+                : devicePromptLabel(
+                    context,
+                    context.l10n.deviceSearchHelpRebindAndroid,
+                  ),
+          ),
+        ])
+          Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ExcludeSemantics(
+                  child: Icon(icon, color: SaydianColors.blue, size: 25),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: const TextStyle(fontSize: 15, height: 1.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    ),
+    actions: [
+      FilledButton(
+        key: const Key('device-search-help-close'),
+        onPressed: () => Navigator.of(context).pop(),
+        child: Text(context.l10n.confirm),
+      ),
+    ],
+  );
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      DevicePromptScope(generic: true, child: Builder(builder: _searchBody));
+
+  Widget _searchBody(BuildContext context) {
     return ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
@@ -1319,7 +1387,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         Text(
                           scanning
                               ? context.l10n.searchingHint
-                              : context.l10n.selectWatch,
+                              : devicePromptLabel(
+                                  context,
+                                  context.l10n.selectWatch,
+                                ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: SaydianColors.muted,
@@ -1476,13 +1547,24 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                     ),
                                   )
                                 : const Icon(Icons.bluetooth_searching_rounded),
-                            label: Text(context.l10n.findSystemPairedRings),
+                            label: Text(
+                              devicePromptLabel(
+                                context,
+                                context.l10n.findSystemPairedRings,
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             defaultTargetPlatform == TargetPlatform.iOS
-                                ? '可查找本账号记住或 iPhone 当前已连接的戒指；选择后仍需验证数据连接。'
-                                : context.l10n.findSystemPairedRingsHint,
+                                ? uiCopy(
+                                    context,
+                                    "可查找本账号记住或 iPhone 当前已连接的戒指；选择后仍需验证数据连接。",
+                                  )
+                                : devicePromptLabel(
+                                    context,
+                                    context.l10n.findSystemPairedRingsHint,
+                                  ),
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               color: SaydianColors.muted,
@@ -1499,8 +1581,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                         DeviceConnectionState.connecting ||
                                     controller.deviceState ==
                                         DeviceConnectionState.authenticating
-                                ? '正在完成连接，请保持戒指靠近手机并等待 App 提示…'
-                                : '正在${_deviceStateLabel(controller.deviceState)}，请保持戒指靠近手机…',
+                                ? uiCopy(context, "正在完成连接，请保持戒指靠近手机并等待 App 提示…")
+                                : uiCopy(
+                                    context,
+                                    "正在{p0}，请保持戒指靠近手机…",
+                                    parameters: [
+                                      _deviceStateLabel(controller.deviceState),
+                                    ],
+                                  ),
                             icon: Icons.bluetooth_connected_rounded,
                             color: SaydianColors.blue,
                           ),
@@ -1520,7 +1608,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                       onPressed: busy ? null : _showSearchHelp,
                       icon: const Icon(Icons.help_outline_rounded),
                       label: Text(
-                        context.l10n.deviceSearchHelpTitle,
+                        devicePromptLabel(
+                          context,
+                          context.l10n.deviceSearchHelpTitle,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -1551,10 +1642,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   }
 
   String _deviceStateLabel(DeviceConnectionState state) => switch (state) {
-    DeviceConnectionState.connecting => '连接',
-    DeviceConnectionState.authenticating => '认证',
-    DeviceConnectionState.syncing => '同步数据',
-    _ => '连接设备',
+    DeviceConnectionState.connecting => uiCopy(context, "连接"),
+    DeviceConnectionState.authenticating => uiCopy(context, "认证"),
+    DeviceConnectionState.syncing => uiCopy(context, "同步数据"),
+    _ => uiCopy(context, "连接设备"),
   };
 }
 
@@ -1611,7 +1702,7 @@ class _DeviceSearchEmpty extends StatelessWidget {
         const SizedBox(height: 28),
         Text(
           scanning
-              ? context.l10n.searchingNearby
+              ? devicePromptLabel(context, context.l10n.searchingNearby)
               : switch (issue) {
                   DeviceScanIssue.locationServiceDisabled =>
                     context.l10n.scanLocationTitle,
@@ -1625,12 +1716,12 @@ class _DeviceSearchEmpty extends StatelessWidget {
         const SizedBox(height: 10),
         Text(
           scanning
-              ? context.l10n.activateWatch
+              ? devicePromptLabel(context, context.l10n.activateWatch)
               : issue != null
               ? _scanIssueHint(context, issue!)
               : (errorMessage?.trim().isNotEmpty ?? false)
               ? errorMessage!
-              : context.l10n.checkWatchConnection,
+              : devicePromptLabel(context, context.l10n.checkWatchConnection),
           textAlign: TextAlign.center,
           style: const TextStyle(color: SaydianColors.muted, height: 1.5),
         ),
@@ -1664,13 +1755,15 @@ class _DeviceSearchEmpty extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.bluetooth_searching_rounded),
-              label: Text(context.l10n.findSystemPairedRings),
+              label: Text(
+                devicePromptLabel(context, context.l10n.findSystemPairedRings),
+              ),
             ),
           ],
           if (issue == null) ...[
             const SizedBox(height: 20),
             InlineNotice(
-              message: context.l10n.searchRecovery,
+              message: devicePromptLabel(context, context.l10n.searchRecovery),
               icon: Icons.info_outline_rounded,
               color: SaydianColors.blue,
             ),
@@ -1683,8 +1776,14 @@ class _DeviceSearchEmpty extends StatelessWidget {
 
 String _scanIssueHint(BuildContext context, DeviceScanIssue issue) =>
     switch (issue) {
-      DeviceScanIssue.locationServiceDisabled => context.l10n.scanLocationHint,
-      DeviceScanIssue.permissionsRequired => context.l10n.scanPermissionHint,
+      DeviceScanIssue.locationServiceDisabled => devicePromptLabel(
+        context,
+        context.l10n.scanLocationHint,
+      ),
+      DeviceScanIssue.permissionsRequired => devicePromptLabel(
+        context,
+        context.l10n.scanPermissionHint,
+      ),
     };
 
 class DeviceInfoPage extends StatefulWidget {
@@ -1730,7 +1829,11 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     const Divider(indent: 16),
                     ListTile(
                       title: Text(context.l10n.connectionStatus),
-                      trailing: Text(device == null ? '未连接' : '已连接'),
+                      trailing: Text(
+                        device == null
+                            ? uiCopy(context, "未连接")
+                            : uiCopy(context, "已连接"),
+                      ),
                     ),
                     const Divider(indent: 16),
                     ListTile(
@@ -1741,7 +1844,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     ListTile(
                       key: const Key('device-firmware-upgrade'),
                       leading: const Icon(Icons.system_update_alt_rounded),
-                      title: const Text('固件升级'),
+                      title: Text(uiCopy(context, "固件升级")),
                       trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
@@ -1752,11 +1855,19 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     ),
                     const Divider(indent: 16),
                     ListTile(
-                      title: Text(context.l10n.watchBattery),
+                      title: Text(uiCopy(context, "设备电量")),
                       subtitle: battery?.updatedAt == null
                           ? null
                           : Text(
-                              '更新于 ${DateFormat('MM-dd HH:mm').format(battery!.updatedAt!.toLocal())}',
+                              uiCopy(
+                                context,
+                                "更新于 {p0}",
+                                parameters: [
+                                  DateFormat(
+                                    'MM-dd HH:mm',
+                                  ).format(battery!.updatedAt!.toLocal()),
+                                ],
+                              ),
                             ),
                       trailing: _BatteryBadge(battery: battery, compact: true),
                     ),
@@ -1773,10 +1884,10 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     ListTile(
                       title: Text(
                         device?.macAddress != null
-                            ? 'MAC 地址'
+                            ? uiCopy(context, "MAC 地址")
                             : defaultTargetPlatform == TargetPlatform.iOS
-                            ? 'iOS 设备标识'
-                            : '设备标识',
+                            ? uiCopy(context, "iOS 设备标识")
+                            : uiCopy(context, "设备标识"),
                       ),
                       subtitle: Text(
                         device?.macAddress ?? device?.nativeId ?? '--',
@@ -1823,7 +1934,7 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
     setState(() {
       _refreshing = false;
       if (!success && widget.controller.connectedDevice?.id == deviceId) {
-        _refreshError = '设备信息刷新失败，重试';
+        _refreshError = uiCopy(context, "设备信息刷新失败，重试");
         _refreshErrorDeviceId = deviceId;
       }
     });
@@ -1831,7 +1942,7 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('固件升级')),
+    appBar: AppBar(title: Text(uiCopy(context, "固件升级"))),
     body: ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
@@ -1848,18 +1959,18 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      device?.displayName ?? '未连接设备',
+                      device?.displayName ?? uiCopy(context, "未连接设备"),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
                     if (version?.isNotEmpty == true)
-                      Text('当前固件：$version')
+                      Text(uiCopy(context, "当前固件：{p0}", parameters: [version]))
                     else if (connected != null)
-                      const Text('未读到固件版本'),
+                      Text(uiCopy(context, "未读到固件版本")),
                     if (connected == null)
-                      const Text('连接戒指后可查看最新的固件信息。')
+                      Text(uiCopy(context, "连接戒指后可查看最新的固件信息。"))
                     else
-                      const Text('暂不支持在线升级。'),
+                      Text(uiCopy(context, "暂不支持在线升级。")),
                   ],
                 ),
               ),
@@ -1884,7 +1995,11 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.refresh_rounded),
-                label: Text(_refreshing ? '正在刷新' : '刷新设备信息'),
+                label: Text(
+                  _refreshing
+                      ? uiCopy(context, "正在刷新")
+                      : uiCopy(context, "刷新设备信息"),
+                ),
               ),
             ],
           ],

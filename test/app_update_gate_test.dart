@@ -49,7 +49,7 @@ void main() {
       final dialog = find.byType(AlertDialog);
       expect(dialog, findsOneWidget);
       final labels = AppLocalizations.of(tester.element(dialog))!;
-      expect(labels.localeName, 'de');
+      expect(labels.localeName, 'en'); // 未支持的系统语言统一回退英文。
       expect(find.text(labels.updateReady), findsOneWidget);
       expect(find.text('Optional localized release'), findsOneWidget);
       expect(store.writtenRequired, isNull);

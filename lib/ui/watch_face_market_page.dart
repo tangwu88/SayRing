@@ -108,7 +108,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       _pageCount = 1;
       _total = 0;
       _showingCache = false;
-      _error = '连接设备已变化，请返回显示样式页面重新读取规格';
+      _error = uiCopy(context, "连接设备已变化，请返回显示样式页面重新读取规格");
     });
   }
 
@@ -129,7 +129,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
   Future<void> _load({bool reset = false}) async {
     if (_loading && !reset) return;
     if (!widget.profile.matchesDevice(widget.controller.connectedDevice?.id)) {
-      setState(() => _error = '连接设备已变化，请返回显示样式页面重新读取规格');
+      setState(() => _error = uiCopy(context, "连接设备已变化，请返回显示样式页面重新读取规格"));
       return;
     }
     final generation = _loadGate.begin();
@@ -167,13 +167,13 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
         setState(
           () => _error = userFacingMessage(
             error.message,
-            fallback: '显示样式暂时无法加载，请重试',
+            fallback: uiCopy(context, "显示样式暂时无法加载，请重试"),
           ),
         );
       }
     } catch (_) {
       if (_isCurrentLoad(generation, requestedDeviceId, requestedFingerprint)) {
-        setState(() => _error = '显示样式商城加载失败，请稍后重试');
+        setState(() => _error = uiCopy(context, "显示样式商城加载失败，请稍后重试"));
       }
     } finally {
       if (_isCurrentLoad(generation, requestedDeviceId, requestedFingerprint)) {
@@ -246,7 +246,9 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       if (latestProfile.profileFingerprint !=
               widget.profile.profileFingerprint ||
           !latestProfile.matchesDevice(widget.controller.connectedDevice?.id)) {
-        throw const DeviceWatchFaceMarketException('连接设备或显示规格已变化，请返回后重新进入商城');
+        throw DeviceWatchFaceMarketException(
+          uiCopy(null, "连接设备或显示规格已变化，请返回后重新进入商城"),
+        );
       }
       late final String filePath;
       late final int fileLength;
@@ -255,14 +257,18 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
         if (!widget.controller.usesNativeWatchFaceMarket ||
             item.dialShape != latestProfile.dialShape ||
             item.binProtocol != latestProfile.binProtocol) {
-          throw const DeviceWatchFaceMarketException('连接设备或显示规格已变化，请重新进入商城');
+          throw DeviceWatchFaceMarketException(
+            uiCopy(null, "连接设备或显示规格已变化，请重新进入商城"),
+          );
         }
         final download = await widget.controller.downloadNativeWatchFace(
           nativeCatalogId,
         );
         if (download.catalogId != nativeCatalogId ||
             download.fileLength > latestProfile.maxFileLength) {
-          throw const DeviceWatchFaceMarketException('显示样式文件与当前戒指规格不匹配');
+          throw DeviceWatchFaceMarketException(
+            uiCopy(null, "显示样式文件与当前戒指规格不匹配"),
+          );
         }
         filePath = download.filePath;
         fileLength = download.fileLength;
@@ -298,8 +304,8 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
           });
       if (!mounted) return;
       final resultMessage = saved
-          ? '显示样式已传送并设置完成'
-          : widget.controller.errorMessage ?? '显示样式设置失败，请稍后重试';
+          ? uiCopy(context, "显示样式已传送并设置完成")
+          : widget.controller.errorMessage ?? uiCopy(context, "显示样式设置失败，请稍后重试");
       setState(() {
         _installError = saved ? null : resultMessage;
         _lastFailedInstall = saved ? null : item;
@@ -316,7 +322,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       if (mounted) {
         final message = userFacingMessage(
           error.message,
-          fallback: '显示样式设置失败，请重试',
+          fallback: uiCopy(context, "显示样式设置失败，请重试"),
         );
         setState(() {
           _installError = message;
@@ -328,14 +334,14 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       }
     } catch (_) {
       if (mounted) {
-        const message = '显示样式设置失败，请稍后重试';
+        final message = uiCopy(context, "显示样式设置失败，请稍后重试");
         setState(() {
           _installError = message;
           _lastFailedInstall = item;
         });
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text(message)));
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     } finally {
       if (mounted) setState(() => _installing = null);
@@ -360,8 +366,12 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                     Expanded(
                       child: Text(
                         widget.profile.deviceLabel.isEmpty
-                            ? '适配当前戒指'
-                            : '为 ${widget.profile.deviceLabel} 精选',
+                            ? uiCopy(context, "适配当前戒指")
+                            : uiCopy(
+                                context,
+                                "为 {p0} 精选",
+                                parameters: [widget.profile.deviceLabel],
+                              ),
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
@@ -370,7 +380,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                     ),
                     if (_total > 0)
                       Text(
-                        '共 $_total 款',
+                        uiCopy(context, "共 {p0} 款", parameters: [_total]),
                         style: const TextStyle(color: SaydianColors.muted),
                       ),
                   ],
@@ -378,11 +388,11 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
               ),
             ),
             if (_showingCache)
-              const SliverToBoxAdapter(
+              SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
                   child: Text(
-                    '显示上次保存的样式。',
+                    uiCopy(context, "显示上次保存的样式。"),
                     style: TextStyle(color: SaydianColors.orange),
                   ),
                 ),
@@ -449,7 +459,10 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                       children: [
                         const Icon(Icons.watch_outlined, size: 58),
                         const SizedBox(height: 14),
-                        Text(_error ?? '暂无可用显示样式', textAlign: TextAlign.center),
+                        Text(
+                          _error ?? uiCopy(context, "暂无可用显示样式"),
+                          textAlign: TextAlign.center,
+                        ),
                         const SizedBox(height: 14),
                         FilledButton(
                           onPressed: _loading ? null : () => _load(reset: true),
@@ -520,8 +533,8 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                                     const SizedBox(height: 5),
                                     Text(
                                       _downloadProgress < 1
-                                          ? '正在下载'
-                                          : '正在传送到戒指',
+                                          ? uiCopy(context, "正在下载")
+                                          : uiCopy(context, "正在传送到戒指"),
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(fontSize: 13),
                                     ),
@@ -549,11 +562,15 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                   child: _page < _pageCount
                       ? OutlinedButton(
                           onPressed: _loading ? null : _load,
-                          child: Text(_loading ? '加载中…' : '加载更多'),
-                        )
-                      : const Center(
                           child: Text(
-                            '已经到底了',
+                            _loading
+                                ? uiCopy(context, "加载中…")
+                                : uiCopy(context, "加载更多"),
+                          ),
+                        )
+                      : Center(
+                          child: Text(
+                            uiCopy(context, "已经到底了"),
                             style: TextStyle(color: SaydianColors.muted),
                           ),
                         ),
@@ -573,7 +590,9 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
         !RegExp(r'[\s\u4e00-\u9fff]').hasMatch(raw) &&
         RegExp(r'[A-Za-z]').hasMatch(raw) &&
         RegExp(r'\d').hasMatch(raw);
-    return raw.isEmpty || isProtocolCode ? '精选显示样式 ${index + 1}' : raw;
+    return raw.isEmpty || isProtocolCode
+        ? uiCopy(context, "精选显示样式 {p0}", parameters: [index + 1])
+        : raw;
   }
 }
 
@@ -660,11 +679,11 @@ class _WatchFaceMarketPreviewState extends State<_WatchFaceMarketPreview> {
   Widget build(BuildContext context) {
     if (_file case final file?) return Image.file(file, fit: BoxFit.cover);
     if (_loading) return const Center(child: CircularProgressIndicator());
-    return const ColoredBox(
+    return ColoredBox(
       color: SaydianColors.brandRedSoft,
       child: Center(
         child: Text(
-          '预览暂不可用',
+          uiCopy(context, "预览暂不可用"),
           textAlign: TextAlign.center,
           style: TextStyle(color: SaydianColors.muted),
         ),

@@ -64,6 +64,66 @@ Map<String, Object?> _rule(
 };
 
 void main() {
+  test(
+    'U19 blood pressure keeps the pair, pulse and watch provenance through upload and cloud read',
+    () async {
+      Map<String, Object?>? sent;
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault()..session = _session(),
+        client: MockClient((request) async {
+          if (request.method == 'POST') {
+            sent = Map<String, Object?>.from(
+              (jsonDecode(request.body)['records'] as List).single,
+            );
+            return _ok({
+              'acceptedIds': ['u19-bp'],
+              'rejected': [],
+              'nextCursor': null,
+            });
+          }
+          return _ok({
+            'items': [
+              {
+                ...sent!,
+                'source': {...(sent!['source'] as Map), 'deviceKey': 'a' * 64},
+              },
+            ],
+            'nextCursor': null,
+          });
+        }),
+      );
+      final original = HealthRecord(
+        id: 'u19-bp',
+        metric: HealthMetric.bloodPressure,
+        values: const {'systolic': 123, 'diastolic': 81, 'pulse': 69},
+        unit: 'mmHg',
+        measuredAt: DateTime.utc(2026, 11, 1),
+        timezone: '+08:00',
+        deviceId: 'urion:AA:BB:CC:DD:EE:01',
+        sourceVendor: 'urion',
+        sourceModel: 'U19S',
+        sourceDeviceCategory: 'watch',
+        firmwareVersion: 'fixture',
+        quality: 'unknown',
+        source: MeasurementSource.wearable,
+        origin: MeasurementOrigin.appMeasurement,
+        rawVersion: 1,
+      );
+      expect(
+        (await api.uploadHealthBatch(
+          SyncBatch(cursor: null, records: [original]),
+        )).acceptedIds,
+        {'u19-bp'},
+      );
+      expect((sent!['source'] as Map)['vendor'], 'urion');
+      expect((sent!['source'] as Map)['deviceCategory'], 'watch');
+      final page = await api.getCloudHealthRecords();
+      expect(page.records.single.values, original.values);
+      expect(page.records.single.sourceVendor, 'urion');
+      expect(page.records.single.deviceId, 'server:${'a' * 64}');
+    },
+  );
+
   setUp(() => debugDefaultTargetPlatformOverride = TargetPlatform.android);
   tearDown(() => debugDefaultTargetPlatformOverride = null);
 

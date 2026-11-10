@@ -17,6 +17,7 @@ import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/app_theme.dart';
+import 'package:saydian_app/ui/u19_device_page.dart';
 import 'package:saydian_app/ui/brand_assets.dart';
 import 'package:saydian_app/ui/health_trend_page.dart';
 import 'package:saydian_app/ui/pages.dart';
@@ -25,6 +26,111 @@ import 'package:saydian_app/ui/shop_pages.dart' show ShopHomePage;
 import 'package:saydian_app/ui/widgets/safe_network_image.dart';
 
 void main() {
+  for (final entry in const {
+    'R8': 'qring',
+    'R8 Pro': 'qring',
+    'R21': 'qring',
+    'R22': 'qring',
+    'R7C': 'qring',
+    'R7': 'coolwear',
+    'R7y': 'coolwear',
+    'R7 Pro': 'coolwear',
+    'R7 Ultra': 'coolwear',
+    'HR05': 'coolwear',
+    'U19S': 'urion',
+  }.entries) {
+    testWidgets('${entry.key} keeps its own device interface', (tester) async {
+      final app =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..connectedDevice = DeviceInfo(
+              id: '${entry.value}:test-device',
+              name: entry.key,
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.findWatch},
+              integratedFeatures: {DeviceFeature.findWatch},
+            );
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: app,
+            feature: DeviceFeature.findWatch,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(U19DevicePage),
+        entry.value == 'urion' ? findsOneWidget : findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  test(
+    'U19 completed BP stage and missing-result failure end only the owned wait',
+    () async {
+      final wearable = _EventMeasurementWearable();
+      final app = _measurementController(wearable);
+      addTearDown(app.dispose);
+      addTearDown(wearable.close);
+      await app.initialize();
+      app.connectedDevice = const DeviceInfo(
+        id: 'urion:test-watch',
+        name: 'U19S',
+      );
+      app.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.bloodPressure},
+        manualMetrics: {HealthMetric.bloodPressure},
+        stoppableManualMetrics: {},
+      );
+      expect(await app.startMeasurement(HealthMetric.bloodPressure), isTrue);
+      Map<String, Object?> data(String code, DateTime at) => {
+        'code': code,
+        'metric': 'blood_pressure',
+        'deviceId': 'urion:test-watch',
+        'measurementStartedAt': at.toIso8601String(),
+      };
+      wearable.emit(
+        WearableEvent(
+          type: 'measurementProgress',
+          payload: {
+            ...data('', DateTime.now()),
+            'deviceState': 'READING_RESULT',
+          },
+        ),
+      );
+      expect(app.measurementAwaitingResult, isTrue);
+      wearable.emit(
+        WearableEvent(
+          type: 'error',
+          payload: data(
+            'BLOOD_PRESSURE_RESULT_MISSING',
+            DateTime.now().subtract(const Duration(days: 1)),
+          ),
+        ),
+      );
+      expect(app.activeMeasurementMetric, HealthMetric.bloodPressure);
+      wearable.emit(
+        WearableEvent(
+          type: 'error',
+          payload: data('BLOOD_PRESSURE_RESULT_MISSING', DateTime.now()),
+        ),
+      );
+      expect(app.activeMeasurementMetric, isNull);
+      expect(app.measurementAwaitingResult, isFalse);
+      expect(app.measurementErrorMessage, contains('手表已测完'));
+      expect(app.healthRecords, isEmpty);
+      expect(wearable.stops, 0);
+    },
+  );
   // Legacy page hosts deliberately retain Chinese copy. DateFormat now uses
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));

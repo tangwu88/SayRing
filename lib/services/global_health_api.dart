@@ -131,6 +131,13 @@ mixin GlobalHealthApi on SaydianApiClient {
         'values': record.values,
         if (record.unit.isNotEmpty) 'unit': record.unit,
         'quality': quality,
+        if (record.sourceVendor == 'urion' &&
+            record.sourceDeviceCategory == 'watch' &&
+            record.provenance['timePrecision'] == 'day')
+          'aggregation': {
+            'kind': 'daily_summary',
+            'localDate': record.provenance['aggregationLocalDate'],
+          },
         'source': {
           'platform': platform,
           if (record.deviceId.isNotEmpty) 'deviceId': record.deviceId,
@@ -159,7 +166,9 @@ mixin GlobalHealthApi on SaydianApiClient {
           if (record.source == MeasurementSource.wearable && transport != null)
             'vendor': transport.name,
           if (record.source == MeasurementSource.wearable && transport != null)
-            'deviceCategory': 'ring',
+            'deviceCategory': transport == WearableTransport.urion
+                ? 'watch'
+                : 'ring',
           'origin': record.origin.wireName,
           'measurementSource': record.source.name,
           'rawVersion': record.rawVersion,
@@ -238,7 +247,10 @@ mixin GlobalHealthApi on SaydianApiClient {
     int limit = 200,
     String? before,
   }) async {
-    final policyGeneration = healthReadPolicy.readOnlyFeatures?.generation;
+    final policyGeneration = (
+      healthReadPolicy.readOnlyFeatures?.generation,
+      healthReadPolicy.u19Features?.generation,
+    );
     if (limit < 1 || limit > 200) {
       throw const ApiException(
         'Unable to read cloud health records.',
@@ -256,13 +268,20 @@ mixin GlobalHealthApi on SaydianApiClient {
             'limit': '$limit',
             if (healthReadPolicy.enabled) 'product': 'say-ring',
             if (healthReadPolicy.enabled) 'platform': 'ios',
+            if (healthReadPolicy.enabled &&
+                healthReadPolicy.u19Features != null)
+              'u19HealthVersion': '1',
             if (before != null && before.trim().isNotEmpty)
               'before': before.trim(),
           },
         ),
       ),
     );
-    if (policyGeneration != healthReadPolicy.readOnlyFeatures?.generation) {
+    if (policyGeneration !=
+        (
+          healthReadPolicy.readOnlyFeatures?.generation,
+          healthReadPolicy.u19Features?.generation,
+        )) {
       throw const ApiException('健康数据配置已更新，请刷新', code: 'HEALTH_POLICY_CHANGED');
     }
     final items = data['items'];
@@ -365,6 +384,7 @@ mixin GlobalHealthApi on SaydianApiClient {
               'moyoung',
               'coolwear',
               'qring',
+              'urion',
               'unknown',
             }.contains(vendor)) ||
         (category.isNotEmpty &&

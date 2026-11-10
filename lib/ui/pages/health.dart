@@ -58,8 +58,8 @@ class HealthPage extends StatelessWidget {
           if (visibleMetrics.isEmpty) ...[
             InlineNotice(
               message: controller.connectedDevice == null
-                  ? '连接戒指后可查看支持的健康数据'
-                  : '暂无可显示的健康数据',
+                  ? uiCopy(context, "连接戒指后可查看支持的健康数据")
+                  : uiCopy(context, "暂无可显示的健康数据"),
               icon: Icons.circle_outlined,
               color: SaydianColors.blue,
               compact: true,
@@ -106,9 +106,20 @@ class HealthPage extends StatelessWidget {
                       },
                       leading: const Icon(Icons.tune_rounded),
                       title: Text(
-                        '${calibrationMetrics[index] == HealthMetric.bloodPressure ? '血压' : '血糖'}校准',
+                        uiCopy(
+                          context,
+                          '{p0}校准',
+                          parameters: [
+                            context.l10n.metricName(calibrationMetrics[index]),
+                          ],
+                        ),
                       ),
-                      subtitle: Text(context.l10n.calibrateOnWatchHint),
+                      subtitle: Text(
+                        devicePromptLabel(
+                          context,
+                          context.l10n.calibrateOnWatchHint,
+                        ),
+                      ),
                       trailing: const Icon(Icons.chevron_right_rounded),
                     ),
                   ],
@@ -135,7 +146,7 @@ class AllHealthDataPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(title: Text(uiCopy(context, title))),
       body: ListenableBuilder(
         listenable: controller,
         builder: (context, _) => HealthPage(controller: controller),
@@ -144,18 +155,59 @@ class AllHealthDataPage extends StatelessWidget {
   }
 }
 
+Future<bool> _confirmU19Reading(
+  BuildContext context,
+  AppController controller,
+  HealthMetric metric,
+) async {
+  final zh = Localizations.localeOf(context).languageCode == 'zh';
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      key: const Key('u19-measurement-confirmation'),
+      scrollable: true,
+      title: Text(
+        context.l10n.metricMeasurement(context.l10n.metricName(metric)),
+      ),
+      content: Text(
+        zh
+            ? '请确认手表已结束上一次测量，正确佩戴并保持手臂静止。血压测量时手表会充气；不适时请在手表上结束测量。'
+            : 'End any previous reading on your watch. Wear it correctly and keep your arm still. Blood pressure readings inflate the band; stop on your watch if uncomfortable.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialog, false),
+          child: Text(context.l10n.cancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialog, true),
+          child: Text(zh ? '开始测量' : 'Start reading'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return false;
+  return await controller.confirmU19MeasurementIdle() && context.mounted;
+}
+
 Future<void> _showHealthMeasurementDialog(
   BuildContext context,
   AppController controller,
   HealthMetric metric,
-) => !controller.canMeasureHealthMetric(metric)
-    ? Future.value()
-    : showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) =>
-            _HealthMeasurementDialog(controller: controller, metric: metric),
-      );
+) async {
+  if (!controller.canMeasureHealthMetric(metric)) return;
+  if (controller.connectedDevice?.sdkSource == WearableSdkSource.urion &&
+      !await _confirmU19Reading(context, controller, metric)) {
+    return;
+  }
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) =>
+        _HealthMeasurementDialog(controller: controller, metric: metric),
+  );
+}
 
 class _HealthMeasurementDialog extends StatefulWidget {
   const _HealthMeasurementDialog({
@@ -223,7 +275,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
         _startFailure =
             widget.controller.measurementErrorMessage ??
             widget.controller.errorMessage ??
-            '本次测量未能开始，请稍后重试';
+            uiCopy(context, "本次测量未能开始，请稍后重试");
       });
     }
   }
@@ -260,6 +312,16 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
     }
     if (!mounted) return;
     setState(() => _stopping = false);
+    if (widget.controller.connectedDevice?.sdkSource ==
+        WearableSdkSource.urion) {
+      if (!await _confirmU19Reading(
+        context,
+        widget.controller,
+        widget.metric,
+      )) {
+        return;
+      }
+    }
     await _start();
   }
 
@@ -290,7 +352,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
             widget.metric,
           )) {
             return AlertDialog(
-              content: const Text('测量已停止'),
+              content: Text(uiCopy(context, "测量已停止")),
               actions: [
                 TextButton(onPressed: _finish, child: Text(context.l10n.close)),
               ],
@@ -312,24 +374,54 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
               (_ownsMeasurement
                   ? widget.controller.measurementErrorMessage
                   : null) ??
-              (interrupted ? '测量已停止，请重新开始' : null);
+              (interrupted ? uiCopy(context, "测量已停止，请重新开始") : null);
           final failed = !isNew && failure != null;
-          final waitingMessage = !widget.controller.measurementWearConfirmed
+          final isU19 =
+              widget.controller.connectedDevice?.sdkSource ==
+              WearableSdkSource.urion;
+          final waitingMessage = isU19
+              ? uiCopy(
+                  context,
+                  widget.controller.measurementAwaitingResult
+                      ? '手表已测完，正在获取结果'
+                      : '请戴好手表，保持手臂静止，等待测量完成',
+                )
+              : !widget.controller.measurementWearConfirmed
               ? switch (widget.metric) {
-                  HealthMetric.ecg => '未检测到电极接触，请正确佩戴戒指并将手指持续贴在心电电极上',
+                  HealthMetric.ecg => uiCopy(
+                    context,
+                    "未检测到电极接触，请正确佩戴戒指并将手指持续贴在心电电极上",
+                  ),
                   HealthMetric.bodyComposition ||
-                  HealthMetric.bloodComposition =>
-                    '未检测到正确接触，请确认戒指贴合手指并按页面指引调整接触位置',
-                  _ => '未检测到正确佩戴，请将戒指贴合手指后继续测量',
+                  HealthMetric.bloodComposition => uiCopy(
+                    context,
+                    "未检测到正确接触，请确认戒指贴合手指并按页面指引调整接触位置",
+                  ),
+                  _ => uiCopy(context, "未检测到正确佩戴，请将戒指贴合手指后继续测量"),
                 }
               : switch (widget.metric) {
-                  HealthMetric.bloodPressure => '正在测量血压，请保持戒指贴合手指、手臂静止并等待结果',
-                  HealthMetric.ecg => '请正确佩戴戒指，并将手指持续贴在心电电极上',
-                  HealthMetric.hrv => '请将戒指贴合手指并保持静止，等待 HRV 测量结果',
-                  HealthMetric.stress => '请将戒指贴合手指并保持静止，等待压力测量结果',
+                  HealthMetric.bloodPressure =>
+                    widget.controller.connectedDevice?.sdkSource ==
+                            WearableSdkSource.urion
+                        ? (Localizations.localeOf(context).languageCode == 'zh'
+                              ? '请保持手臂静止，等待手表测量完成'
+                              : 'Keep your arm still while your watch measures.')
+                        : uiCopy(context, "正在测量血压，请保持戒指贴合手指、手臂静止并等待结果"),
+                  HealthMetric.ecg => uiCopy(context, "请正确佩戴戒指，并将手指持续贴在心电电极上"),
+                  HealthMetric.hrv => uiCopy(
+                    context,
+                    "请将戒指贴合手指并保持静止，等待 HRV 测量结果",
+                  ),
+                  HealthMetric.stress => uiCopy(
+                    context,
+                    "请将戒指贴合手指并保持静止，等待压力测量结果",
+                  ),
                   HealthMetric.bodyComposition ||
-                  HealthMetric.bloodComposition => '请保持戒指正确贴合，测量完成前不要移动',
-                  _ => '请戴好戒指并保持静止\n等待戒指返回测量结果',
+                  HealthMetric.bloodComposition => uiCopy(
+                    context,
+                    "请保持戒指正确贴合，测量完成前不要移动",
+                  ),
+                  _ => uiCopy(context, "请戴好戒指并保持静止\n等待戒指返回测量结果"),
                 };
           return AlertDialog(
             title: Text(
@@ -359,7 +451,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                     isNew
                         ? '${_healthDisplayValue(record, widget.controller)} ${_healthDisplayUnit(widget.metric, record, widget.controller)}'
                         : failed
-                        ? failure
+                        ? (isU19 ? uiCopy(context, failure) : failure)
                         : waitingMessage,
                     textAlign: TextAlign.center,
                     style: TextStyle(
@@ -462,7 +554,14 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                           String clock(int seconds) =>
                               '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
                           return Text(
-                            '已等待 ${clock(elapsed)} · 最长 ${clock(limit.inSeconds)}',
+                            uiCopy(
+                              context,
+                              "已等待 {p0} · 最长 {p1}",
+                              parameters: [
+                                clock(elapsed),
+                                clock(limit.inSeconds),
+                              ],
+                            ),
                             style: const TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 13,
@@ -474,7 +573,11 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                     if (widget.controller.measurementProgress > 0) ...[
                       const SizedBox(height: 6),
                       Text(
-                        '测量进度 ${widget.controller.measurementProgress}%',
+                        uiCopy(
+                          context,
+                          "测量进度 {p0}%",
+                          parameters: [widget.controller.measurementProgress],
+                        ),
                         style: const TextStyle(
                           color: SaydianColors.muted,
                           fontSize: 14,
@@ -495,12 +598,14 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                 onPressed: _stopping ? null : _finish,
                 child: Text(
                   _stopping
-                      ? '正在停止'
+                      ? uiCopy(context, "正在停止")
                       : isNew
-                      ? '完成'
+                      ? uiCopy(context, "完成")
                       : failed
-                      ? '关闭'
-                      : '结束测量',
+                      ? uiCopy(context, "关闭")
+                      : isU19
+                      ? context.l10n.close
+                      : uiCopy(context, "结束测量"),
                 ),
               ),
             ],
@@ -563,12 +668,18 @@ class _HealthRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = record != null
-        ? '最近 ${DateFormat('MM-dd HH:mm').format(record!.measuredAt.toLocal())}'
+        ? uiCopy(
+            context,
+            "最近 {p0}",
+            parameters: [
+              DateFormat('MM-dd HH:mm').format(record!.measuredAt.toLocal()),
+            ],
+          )
         : !connected
-        ? '连接戒指后使用'
+        ? uiCopy(context, "连接戒指后使用")
         : supported == false
-        ? '当前戒指暂不支持在 App 中测量'
-        : '暂无测量记录';
+        ? uiCopy(context, "当前戒指暂不支持在 App 中测量")
+        : uiCopy(context, "暂无测量记录");
     final icon = switch (metric) {
       HealthMetric.heartRate => Icons.favorite_rounded,
       HealthMetric.bloodOxygen => Icons.water_drop_rounded,

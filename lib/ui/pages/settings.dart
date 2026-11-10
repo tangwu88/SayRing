@@ -38,11 +38,11 @@ class _UnitSettingsPageState extends State<UnitSettingsPage> {
               child: Column(
                 children: [
                   RadioListTile<String>(
-                    value: '公里',
+                    value: "公里",
                     title: Text(context.l10n.unitKmLabel),
                   ),
                   RadioListTile<String>(
-                    value: '英里',
+                    value: "英里",
                     title: Text(context.l10n.unitMilesLabel),
                   ),
                 ],
@@ -68,11 +68,11 @@ class _UnitSettingsPageState extends State<UnitSettingsPage> {
               child: Column(
                 children: [
                   RadioListTile<String>(
-                    value: '摄氏度（℃）',
+                    value: "摄氏度（℃）",
                     title: Text(context.l10n.unitCelsiusLabel),
                   ),
                   RadioListTile<String>(
-                    value: '华氏度（℉）',
+                    value: "华氏度（℉）",
                     title: Text(context.l10n.unitFahrenheitLabel),
                   ),
                 ],
@@ -120,7 +120,7 @@ class _GoalSettingsPageState extends State<GoalSettingsPage> {
     if (steps == null || distance == null || steps <= 0 || distance <= 0) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请输入有效的目标数值')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "请输入有效的目标数值"))));
       return;
     }
     final saved = await widget.controller.saveActivityGoals(
@@ -132,7 +132,9 @@ class _GoalSettingsPageState extends State<GoalSettingsPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          saved ? '目标已保存' : widget.controller.errorMessage ?? '保存失败',
+          saved
+              ? uiCopy(context, "目标已保存")
+              : widget.controller.errorMessage ?? uiCopy(context, "保存失败"),
         ),
       ),
     );
@@ -184,15 +186,20 @@ class AccountSettingsPage extends StatelessWidget {
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const Card(
+            Card(
               child: Padding(
                 padding: EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('本机使用', style: TextStyle(fontWeight: FontWeight.w800)),
+                    Text(
+                      uiCopy(context, "本机使用"),
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     SizedBox(height: 8),
-                    Text('戒指连接、测量和睡眠明细可在本机使用；账号同步、资料和关爱功能需登录后开启。'),
+                    Text(
+                      uiCopy(context, "戒指连接、测量和睡眠明细可在本机使用；账号同步、资料和关爱功能需登录后开启。"),
+                    ),
                   ],
                 ),
               ),
@@ -206,7 +213,7 @@ class AccountSettingsPage extends StatelessWidget {
                 ),
               ),
               icon: const Icon(Icons.login_rounded),
-              label: const Text('登录同步'),
+              label: Text(uiCopy(context, "登录同步")),
             ),
             const SizedBox(height: 12),
             ListTile(
@@ -245,7 +252,7 @@ class AccountSettingsPage extends StatelessWidget {
                   subtitle: Text(
                     controller.isGlobalEdition
                         ? context.l10n.emailOrPhone
-                        : '注册手机号和基础资料',
+                        : uiCopy(context, "注册手机号和基础资料"),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
@@ -282,7 +289,7 @@ class AccountSettingsPage extends StatelessWidget {
                   subtitle: Text(
                     controller.isGlobalEdition
                         ? context.l10n.emailOrPhone
-                        : '验证手机号后重新设置登录密码',
+                        : uiCopy(context, "验证手机号后重新设置登录密码"),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
@@ -297,7 +304,10 @@ class AccountSettingsPage extends StatelessWidget {
                             )
                           : ArticleDetailPage(
                               controller: controller,
-                              article: const {'id': 3, 'title': '隐私协议'},
+                              article: {
+                                'id': 3,
+                                'title': uiCopy(context, "隐私协议"),
+                              },
                               singleArticle: true,
                             ),
                     ),
@@ -320,7 +330,11 @@ class AccountSettingsPage extends StatelessWidget {
                       Navigator.of(context).popUntil((route) => route.isFirst);
                     }
                   },
-            child: Text(controller.isPreviewMode ? '退出体验' : '退出登录'),
+            child: Text(
+              controller.isPreviewMode
+                  ? uiCopy(context, "退出体验")
+                  : uiCopy(context, "退出登录"),
+            ),
           ),
           TextButton(
             onPressed: controller.session == null
@@ -365,7 +379,10 @@ class AccountSettingsPage extends StatelessWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          userFacingMessage(controller.errorMessage, fallback: '注销失败，请稍后重试'),
+          userFacingMessage(
+            controller.errorMessage,
+            fallback: uiCopy(context, "注销失败，请稍后重试"),
+          ),
         ),
       ),
     );
@@ -397,9 +414,9 @@ class _AddressPageState extends State<AddressPage> {
         builder: (context, _) {
           final addresses = widget.controller.addresses;
           if (addresses.isEmpty) {
-            return const Center(
+            return Center(
               child: Text(
-                '暂无收货地址',
+                uiCopy(context, "暂无收货地址"),
                 style: TextStyle(color: SaydianColors.muted),
               ),
             );
@@ -430,7 +447,7 @@ class _AddressPageState extends State<AddressPage> {
                       ),
                     ),
                     trailing: '${address['is_default']}' == '1'
-                        ? const Chip(label: Text('默认'))
+                        ? Chip(label: Text(uiCopy(context, "默认")))
                         : null,
                   ),
                 );
@@ -535,7 +552,8 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
       _isLoadingProfile = false;
       if (profile.isEmpty) {
         _profileLoadError =
-            widget.controller.memberProfileReadError ?? '暂未读取到个人资料，请重新读取';
+            widget.controller.memberProfileReadError ??
+            uiCopy(context, "暂未读取到个人资料，请重新读取");
         return;
       }
       _registeredMobile = _mobileFromProfile(profile);
@@ -559,7 +577,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     if (widget.controller.session == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('登录后可更换头像')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "登录后可更换头像"))));
       return;
     }
     setState(() => _isPickingAvatar = true);
@@ -574,9 +592,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
       final bytes = await image.readAsBytes();
       if (bytes.length > 6 * 1024 * 1024) {
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('图片过大，请选择较小的照片')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(uiCopy(context, "图片过大，请选择较小的照片"))),
+        );
         return;
       }
       if (!mounted) return;
@@ -586,9 +604,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('无法读取照片，请检查相册权限后重试')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(uiCopy(context, "无法读取照片，请检查相册权限后重试"))),
+      );
     } finally {
       if (mounted) setState(() => _isPickingAvatar = false);
     }
@@ -603,7 +621,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            saved ? '头像已保存' : widget.controller.errorMessage ?? '头像保存失败',
+            saved
+                ? uiCopy(context, "头像已保存")
+                : widget.controller.errorMessage ?? uiCopy(context, "头像保存失败"),
           ),
         ),
       );
@@ -613,7 +633,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     if (_gender != 1 && _gender != 2) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请选择性别')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "请选择性别"))));
       return;
     }
     final height = double.tryParse(_height.text);
@@ -627,7 +647,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         weight < 10 ||
         weight > 500) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请完整填写资料，身高 50~250 cm、体重 10~500 kg')),
+        SnackBar(
+          content: Text(uiCopy(context, "请完整填写资料，身高 50~250 cm、体重 10~500 kg")),
+        ),
       );
       return;
     }
@@ -643,7 +665,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          saved ? '个人资料已保存' : widget.controller.errorMessage ?? '保存失败',
+          saved
+              ? uiCopy(context, "个人资料已保存")
+              : widget.controller.errorMessage ?? uiCopy(context, "保存失败"),
         ),
       ),
     );
@@ -655,8 +679,14 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(isPreview ? '退出体验？' : '退出登录？'),
-        content: Text(isPreview ? '退出后将返回登录页面。' : '确认退出当前账号吗？'),
+        title: Text(
+          isPreview ? uiCopy(context, "退出体验？") : uiCopy(context, "退出登录？"),
+        ),
+        content: Text(
+          isPreview
+              ? uiCopy(context, "退出后将返回登录页面。")
+              : uiCopy(context, "确认退出当前账号吗？"),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -688,13 +718,16 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
               children: [
                 const Icon(Icons.lock_outline_rounded, size: 42),
                 const SizedBox(height: 14),
-                const Text(
-                  '本机使用不上传头像或个人资料。',
+                Text(
+                  uiCopy(context, "本机使用不上传头像或个人资料。"),
                   textAlign: TextAlign.center,
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 8),
-                const Text('登录后才可编辑和同步个人资料。', textAlign: TextAlign.center),
+                Text(
+                  uiCopy(context, "登录后才可编辑和同步个人资料。"),
+                  textAlign: TextAlign.center,
+                ),
                 const SizedBox(height: 18),
                 FilledButton(
                   onPressed: () => Navigator.of(context).pushReplacement(
@@ -703,7 +736,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
                           GlobalCodeLoginPage(controller: widget.controller),
                     ),
                   ),
-                  child: const Text('登录同步'),
+                  child: Text(uiCopy(context, "登录同步")),
                 ),
               ],
             ),
@@ -719,7 +752,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
           Center(
             child: Semantics(
               button: true,
-              label: '更换头像',
+              label: uiCopy(context, "更换头像"),
               child: GestureDetector(
                 key: const Key('profile-avatar-picker'),
                 onTap: _isPickingAvatar ? null : _pickAvatar,
@@ -735,7 +768,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
           ),
           const SizedBox(height: 10),
           Text(
-            _avatarFilePath == null ? '点击头像更换照片' : '已选择新头像，保存后生效',
+            _avatarFilePath == null
+                ? uiCopy(context, "点击头像更换照片")
+                : uiCopy(context, "已选择新头像，保存后生效"),
             textAlign: TextAlign.center,
             style: const TextStyle(color: SaydianColors.muted),
           ),
@@ -769,14 +804,18 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             label: widget.controller.isGlobalEdition
                 ? '${context.l10n.emailOrPhone}, ${_registeredMobile.isEmpty ? '—' : _registeredMobile}'
                 : _registeredMobile.isEmpty
-                ? '注册手机号，未获取'
-                : '注册手机号，$_registeredMobile',
+                ? uiCopy(context, "注册手机号，未获取")
+                : uiCopy(
+                    context,
+                    "注册手机号，{p0}",
+                    parameters: [_registeredMobile],
+                  ),
             child: InputDecorator(
               key: const Key('profile-registered-mobile'),
               decoration: InputDecoration(
                 labelText: widget.controller.isGlobalEdition
                     ? context.l10n.emailOrPhone
-                    : '注册手机号',
+                    : uiCopy(context, "注册手机号"),
                 suffixIcon: const Icon(Icons.lock_outline_rounded),
               ),
               child: Text(
@@ -800,10 +839,10 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             key: ValueKey('profile-gender-$_gender'),
             initialValue: _gender,
             decoration: InputDecoration(labelText: context.l10n.gender),
-            items: const [
-              DropdownMenuItem(value: 0, child: Text('未设置')),
-              DropdownMenuItem(value: 1, child: Text('男')),
-              DropdownMenuItem(value: 2, child: Text('女')),
+            items: [
+              DropdownMenuItem(value: 0, child: Text(uiCopy(context, "未设置"))),
+              DropdownMenuItem(value: 1, child: Text(uiCopy(context, "男"))),
+              DropdownMenuItem(value: 2, child: Text(uiCopy(context, "女"))),
             ],
             onChanged: _isLoadingProfile
                 ? null
@@ -857,7 +896,11 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
                     _isLoadingProfile
                 ? null
                 : _save,
-            child: Text(_isPickingAvatar ? '正在读取照片' : '保存资料'),
+            child: Text(
+              _isPickingAvatar
+                  ? uiCopy(context, "正在读取照片")
+                  : uiCopy(context, "保存资料"),
+            ),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
@@ -869,7 +912,11 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
               minimumSize: const Size.fromHeight(48),
             ),
             icon: const Icon(Icons.logout_rounded),
-            label: Text(widget.controller.isPreviewMode ? '退出体验' : '退出登录'),
+            label: Text(
+              widget.controller.isPreviewMode
+                  ? uiCopy(context, "退出体验")
+                  : uiCopy(context, "退出登录"),
+            ),
           ),
         ],
       ),
@@ -983,19 +1030,27 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
   }
 
   String _name(Permission permission) {
-    if (permission == Permission.bluetoothScan) return '附近设备扫描';
-    if (permission == Permission.bluetoothConnect) return '蓝牙设备连接';
-    if (permission == Permission.bluetooth) return '蓝牙';
-    if (permission == Permission.locationWhenInUse) return '位置（户外运动轨迹）';
-    if (permission == Permission.camera) return '相机（戒指遥控拍照）';
-    return '通知';
+    if (permission == Permission.bluetoothScan) {
+      return uiCopy(context, "附近设备扫描");
+    }
+    if (permission == Permission.bluetoothConnect) {
+      return uiCopy(context, "蓝牙设备连接");
+    }
+    if (permission == Permission.bluetooth) return uiCopy(context, "蓝牙");
+    if (permission == Permission.locationWhenInUse) {
+      return uiCopy(context, "位置（户外运动轨迹）");
+    }
+    if (permission == Permission.camera) return uiCopy(context, "相机（戒指遥控拍照）");
+    return uiCopy(context, "通知");
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.healthOnly ? '健康监测' : '权限管理'),
+        title: Text(
+          widget.healthOnly ? uiCopy(context, "健康监测") : uiCopy(context, "权限管理"),
+        ),
         actions: [
           if (widget.healthOnly)
             ListenableBuilder(
@@ -1009,7 +1064,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                 );
                 return Tooltip(
                   message: availability.isReady
-                      ? '查找已连接的戒指'
+                      ? uiCopy(context, "查找已连接的戒指")
                       : availability.message,
                   child: TextButton(
                     key: const ValueKey('health-monitoring-find-device'),
@@ -1027,8 +1082,11 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                           )
                         : null,
                     child: MediaQuery.textScalerOf(context).scale(16) > 22
-                        ? const Icon(Icons.radar_rounded, semanticLabel: '查找设备')
-                        : const Text('查找设备'),
+                        ? Icon(
+                            Icons.radar_rounded,
+                            semanticLabel: uiCopy(context, "查找设备"),
+                          )
+                        : Text(uiCopy(context, "查找设备")),
                   ),
                 );
               },
@@ -1070,12 +1128,14 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                             title: Text(_name(permission)),
                             subtitle: Text(
                               status == PermissionStatus.limited
-                                  ? '已允许访问部分照片'
+                                  ? uiCopy(context, "已允许访问部分照片")
                                   : status == PermissionStatus.granted
-                                  ? '已允许'
+                                  ? uiCopy(context, "已允许")
                                   : status == null
-                                  ? (_statusesLoaded ? '状态暂不可读取' : '正在读取状态')
-                                  : '未允许',
+                                  ? (_statusesLoaded
+                                        ? uiCopy(context, "状态暂不可读取")
+                                        : uiCopy(context, "正在读取状态"))
+                                  : uiCopy(context, "未允许"),
                             ),
                             trailing: TextButton(
                               onPressed: () => _request(permission),
@@ -1116,7 +1176,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
           key: ValueKey('device-health-auto-$type'),
           secondary: Icon(icon, color: SaydianColors.pink),
           title: Text(title),
-          subtitle: Text(enabled ? '已开启' : '已关闭'),
+          subtitle: Text(
+            enabled ? uiCopy(context, "已开启") : uiCopy(context, "已关闭"),
+          ),
           value: enabled,
           onChanged:
               widget.controller.connectedDevice == null ||
@@ -1152,7 +1214,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
         children: [
           Expanded(
             child: Text(
-              '监测间隔',
+              uiCopy(context, "监测间隔"),
               style: const TextStyle(color: SaydianColors.muted),
             ),
           ),
@@ -1167,7 +1229,12 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
               hint: Text(context.l10n.choose),
               items: [
                 for (final minutes in interval.choices)
-                  DropdownMenuItem(value: minutes, child: Text('$minutes 分钟')),
+                  DropdownMenuItem(
+                    value: minutes,
+                    child: Text(
+                      uiCopy(context, "{p0} 分钟", parameters: [minutes]),
+                    ),
+                  ),
               ],
               onChanged:
                   !enabled ||
@@ -1188,7 +1255,13 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
             )
           else
             Text(
-              interval.minutes > 0 ? '每 ${interval.minutes} 分钟（戒指固定）' : '戒指固定',
+              interval.minutes > 0
+                  ? uiCopy(
+                      context,
+                      "每 {p0} 分钟（戒指固定）",
+                      parameters: [interval.minutes],
+                    )
+                  : uiCopy(context, "戒指固定"),
               style: const TextStyle(color: SaydianColors.muted),
             ),
         ],
@@ -1212,29 +1285,45 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
     final sharedType =
         sharedTypes.where((type) => settings[type] == true).firstOrNull ??
         sharedTypes.firstOrNull;
-    const specs = <({String type, String title, IconData icon})>[
+    final specs = <({String type, String title, IconData icon})>[
       (
         type: 'heartRate',
-        title: '心率自动检测',
+        title: uiCopy(context, "心率自动检测"),
         icon: Icons.favorite_outline_rounded,
       ),
-      (type: 'bloodOxygen', title: '血氧自动检测', icon: Icons.water_drop_outlined),
+      (
+        type: 'bloodOxygen',
+        title: uiCopy(context, "血氧自动检测"),
+        icon: Icons.water_drop_outlined,
+      ),
       (
         type: 'heartRate24h',
-        title: '24 小时心率',
+        title: uiCopy(context, "24 小时心率"),
         icon: Icons.monitor_heart_outlined,
       ),
       (
         type: 'hrv',
-        title: '心率变异性（HRV）自动检测',
+        title: uiCopy(context, "心率变异性（HRV）自动检测"),
         icon: Icons.monitor_heart_outlined,
       ),
-      (type: 'stress', title: '压力自动检测', icon: Icons.self_improvement_rounded),
-      (type: 'bloodPressure', title: '血压自动检测', icon: Icons.speed_rounded),
-      (type: 'bloodGlucose', title: '血糖自动检测', icon: Icons.water_drop_outlined),
+      (
+        type: 'stress',
+        title: uiCopy(context, "压力自动检测"),
+        icon: Icons.self_improvement_rounded,
+      ),
+      (
+        type: 'bloodPressure',
+        title: uiCopy(context, "血压自动检测"),
+        icon: Icons.speed_rounded,
+      ),
+      (
+        type: 'bloodGlucose',
+        title: uiCopy(context, "血糖自动检测"),
+        icon: Icons.water_drop_outlined,
+      ),
       (
         type: 'bodyTemperature',
-        title: '皮肤温度自动检测',
+        title: uiCopy(context, "皮肤温度自动检测"),
         icon: Icons.thermostat_rounded,
       ),
     ];
@@ -1262,9 +1351,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
     return [
       Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
-              '戒指健康检测',
+              uiCopy(context, "戒指健康检测"),
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
           ),
@@ -1275,7 +1364,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                     controller.isDeviceSettingsWriting
                 ? null
                 : controller.refreshDeviceSettings,
-            tooltip: '从戒指刷新',
+            tooltip: uiCopy(context, "从戒指刷新"),
             icon: controller.isDeviceSettingsLoading
                 ? const SizedBox.square(
                     dimension: 20,
@@ -1293,8 +1382,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       const SizedBox(height: 8),
       if (controller.connectedDevice == null)
         FeatureStateCard(
-          message: context.l10n.connectWatchToUse,
-          detail: context.l10n.monitoringHint,
+          message: devicePromptLabel(context, context.l10n.connectWatchToUse),
+          detail: devicePromptLabel(context, context.l10n.monitoringHint),
           icon: Icons.watch_outlined,
         )
       else if (tiles.isEmpty && controller.isDeviceSettingsLoading)
@@ -1305,13 +1394,13 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       else if (tiles.isEmpty)
         FeatureStateCard(
           message: controller.deviceSettingsStatus,
-          detail: '没有读取到可设置项目，可重新读取戒指设置。',
+          detail: uiCopy(context, "没有读取到可设置项目，可重新读取戒指设置。"),
           icon: Icons.monitor_heart_outlined,
           actionLabel:
               controller.isDeviceSettingsLoading ||
                   controller.isDeviceSettingsWriting
               ? null
-              : '重新读取',
+              : uiCopy(context, "重新读取"),
           onAction:
               controller.isDeviceSettingsLoading ||
                   controller.isDeviceSettingsWriting
@@ -1327,24 +1416,24 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const ListTile(
+                ListTile(
                   leading: Icon(Icons.schedule_rounded),
-                  title: Text('共同监测间隔'),
-                  subtitle: Text('心率与血氧共用此间隔，分别通过上方开关开启或关闭。'),
+                  title: Text(uiCopy(context, "共同监测间隔")),
+                  subtitle: Text(uiCopy(context, "心率与血氧共用此间隔，分别通过上方开关开启或关闭。")),
                 ),
                 _deviceAutoInterval(sharedType, shared: true),
                 if (!sharedTypes.any((type) => settings[type] == true))
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.fromLTRB(18, 0, 18, 12),
-                    child: Text('请先开启心率或血氧自动检测，再设置间隔。'),
+                    child: Text(uiCopy(context, "请先开启心率或血氧自动检测，再设置间隔。")),
                   ),
               ],
             ),
           ),
         ],
         const SizedBox(height: 12),
-        const Text(
-          '监测频率越高，耗电越快。仅显示戒指实际支持的项目；未提供间隔的项目由固件管理，当前无法调整。',
+        Text(
+          uiCopy(context, "监测频率越高，耗电越快。仅显示戒指实际支持的项目；未提供间隔的项目由固件管理，当前无法调整。"),
           style: TextStyle(color: SaydianColors.muted, fontSize: 14),
         ),
       ],
@@ -1358,12 +1447,15 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       color: SaydianColors.orange,
     ),
     title: Text(context.l10n.watchHighHeartRate),
-    subtitle: Text(context.l10n.watchThresholdHint),
+    subtitle: Text(devicePromptLabel(context, context.l10n.watchThresholdHint)),
     trailing: DropdownButton<int>(
       value: widget.controller.heartRateWarning,
       items: [
         for (var value = 70; value < 190; value += 5)
-          DropdownMenuItem(value: value, child: Text('$value 次/分')),
+          DropdownMenuItem(
+            value: value,
+            child: Text(uiCopy(context, "{p0} 次/分", parameters: [value])),
+          ),
       ],
       onChanged:
           widget.controller.connectedDevice == null ||

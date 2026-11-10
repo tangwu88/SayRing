@@ -18,7 +18,13 @@ import 'reading_reminder_widgets.dart';
 import 'prototype_pages.dart' show DeviceFeaturePage, RingReminderView;
 
 String _copy(BuildContext context, String zh, String en) =>
-    Localizations.localeOf(context).languageCode == 'zh' ? zh : en;
+    zh.contains('戒指') && DevicePromptScope.usesDevice(context)
+    ? genericDevicePrompt(
+        Localizations.localeOf(context).languageCode == 'zh' ? zh : en,
+      )
+    : Localizations.localeOf(context).languageCode == 'zh'
+    ? zh
+    : en;
 String _time(DateTime? value) => value == null
     ? '—'
     : DateFormat('yyyy-MM-dd HH:mm:ss').format(value.toLocal());
@@ -889,7 +895,7 @@ class _HealthReminderDetailPageState extends State<HealthReminderDetailPage> {
                             _copy(
                               context,
                               '来源：${event.reminder!.deviceName ?? event.origin.label}',
-                              'Source: ${event.reminder!.deviceName ?? event.origin.label}',
+                              'Source: ${event.reminder!.deviceName ?? uiCopy(context, event.origin.label)}',
                             ),
                           ),
                         ],

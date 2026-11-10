@@ -32,7 +32,7 @@ class SecurityCenterPage extends StatelessWidget {
                   subtitle: Text(
                     controller.isGlobalEdition
                         ? context.l10n.verifyContactToReset
-                        : '验证手机号后重新设置',
+                        : uiCopy(context, "验证手机号后重新设置"),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
@@ -58,11 +58,11 @@ class ShoppingCartPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.cart)),
-      body: const Padding(
+      body: Padding(
         padding: EdgeInsets.all(16),
         child: FeatureStateCard(
-          message: '购物车暂时无法使用',
-          detail: '你可以从商品详情页直接选择规格并购买。',
+          message: uiCopy(context, "购物车暂时无法使用"),
+          detail: uiCopy(context, "你可以从商品详情页直接选择规格并购买。"),
           icon: Icons.shopping_cart_outlined,
         ),
       ),
@@ -82,10 +82,14 @@ class AfterSalesPage extends StatelessWidget {
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: FeatureStateCard(
-          message: '此功能暂时无法使用，请稍后再试',
+          message: uiCopy(context, "此功能暂时无法使用，请稍后再试"),
           detail: orderNumber == null
-              ? '售后服务开通后，可从订单详情提交申请。'
-              : '订单 $orderNumber 的售后服务开通后，可在这里提交申请。',
+              ? uiCopy(context, "售后服务开通后，可从订单详情提交申请。")
+              : uiCopy(
+                  context,
+                  "订单 {p0} 的售后服务开通后，可在这里提交申请。",
+                  parameters: [orderNumber],
+                ),
           icon: Icons.support_agent_rounded,
         ),
       ),

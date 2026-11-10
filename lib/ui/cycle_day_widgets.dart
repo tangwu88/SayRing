@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../domain/cycle_tracking.dart';
@@ -5,10 +6,18 @@ import '../domain/cycle_tracking.dart';
 const cycleRose = Color(0xffa74668);
 const cyclePlum = Color(0xff68578d);
 const _ink = Color(0xff332b40);
-const _week = ['一', '二', '三', '四', '五', '六', '日'];
+final _week = [
+  uiCopy(null, "一"),
+  uiCopy(null, "二"),
+  uiCopy(null, "三"),
+  uiCopy(null, "四"),
+  uiCopy(null, "五"),
+  uiCopy(null, "六"),
+  uiCopy(null, "日"),
+];
 String cycleShort(String day) {
   final d = parseCycleDate(day);
-  return '${d.month}月${d.day}日';
+  return uiCopy(null, "{p0}月{p1}日", parameters: [d.month, d.day]);
 }
 
 class CycleDateCell extends StatelessWidget {
@@ -39,7 +48,7 @@ class CycleDateCell extends StatelessWidget {
       selected: selected,
       label:
           '${day.date}${today ? '，今天' : ''}${actual
-              ? '，实际经期'
+              ? uiCopy(context, "，实际经期")
               : estimated
               ? '，经期参考范围'
               : ''}',
@@ -53,7 +62,7 @@ class CycleDateCell extends StatelessWidget {
             children: [
               if (weekday != null)
                 Text(
-                  today ? '今' : weekday!,
+                  today ? uiCopy(context, "今") : weekday!,
                   style: TextStyle(
                     fontSize: 12,
                     color: today ? cyclePlum : Colors.black54,
@@ -139,7 +148,10 @@ class CycleDateLegend extends StatelessWidget {
     spacing: 12,
     runSpacing: 4,
     children: [
-      for (final pair in [(true, '实际经期'), (false, '经期参考')])
+      for (final pair in [
+        (true, uiCopy(context, "实际经期")),
+        (false, uiCopy(context, "经期参考")),
+      ])
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -190,7 +202,7 @@ class _CycleWeekState extends State<CycleWeek> {
         Row(
           children: [
             IconButton(
-              tooltip: '上一周',
+              tooltip: uiCopy(context, "上一周"),
               onPressed: () =>
                   widget.select(shiftCycleDate(widget.selected, -7)),
               icon: const Icon(Icons.chevron_left),
@@ -208,10 +220,10 @@ class _CycleWeekState extends State<CycleWeek> {
             if (widget.selected != widget.today)
               TextButton(
                 onPressed: () => widget.select(widget.today),
-                child: const Text('今天'),
+                child: Text(uiCopy(context, "今天")),
               ),
             IconButton(
-              tooltip: '下一周',
+              tooltip: uiCopy(context, "下一周"),
               onPressed: () =>
                   widget.select(shiftCycleDate(widget.selected, 7)),
               icon: const Icon(Icons.chevron_right),
@@ -284,13 +296,17 @@ class _CycleMonthSheetState extends State<CycleMonthSheet> {
             Row(
               children: [
                 IconButton(
-                  tooltip: '上个月',
+                  tooltip: uiCopy(context, "上个月"),
                   icon: const Icon(Icons.chevron_left),
                   onPressed: () => move(-1),
                 ),
                 Expanded(
                   child: Text(
-                    '${month.year}年${month.month}月',
+                    uiCopy(
+                      context,
+                      "{p0}年{p1}月",
+                      parameters: [month.year, month.month],
+                    ),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
@@ -299,7 +315,7 @@ class _CycleMonthSheetState extends State<CycleMonthSheet> {
                   ),
                 ),
                 IconButton(
-                  tooltip: '下个月',
+                  tooltip: uiCopy(context, "下个月"),
                   icon: const Icon(Icons.chevron_right),
                   onPressed: () => move(1),
                 ),
@@ -339,7 +355,7 @@ class _CycleMonthSheetState extends State<CycleMonthSheet> {
             TextButton.icon(
               onPressed: () => Navigator.pop(context, widget.today),
               icon: const Icon(Icons.today_outlined),
-              label: const Text('回到今天'),
+              label: Text(uiCopy(context, "回到今天")),
             ),
           ],
         ),

@@ -883,7 +883,7 @@ private final class RingCycleNotificationBridge {
         guard parts.count==3 else{accepted=false;continue}
         var components=DateComponents();components.year=parts[0];components.month=parts[1];components.day=parts[2];components.hour=hour;components.minute=minute
         guard let at=Calendar.current.date(from:components),at>Date() else{continue}
-        let content=UNMutableNotificationContent();content.title="记录提醒";content.body="您有一条记录提醒，请打开查看。";content.sound = .default;content.userInfo=["cycle-owner":owner,"cycle-plan":id]
+        let content=UNMutableNotificationContent();content.title=(args["locale"] as? String)?.hasPrefix("zh") == true ? "记录提醒" : "Tracking reminder";content.body=(args["locale"] as? String)?.hasPrefix("zh") == true ? "您有一条记录提醒，请打开查看。" : "You have a tracking reminder. Open the app to view it.";content.sound = .default;content.userInfo=["cycle-owner":owner,"cycle-plan":id]
         // 带代次的标识确保迟到add回调只撤销自己，不能误撤销后续同一天的新计划。
         let request=UNNotificationRequest(identifier:Self.prefix+owner+"."+String(revision)+"."+id,content:content,trigger:UNCalendarNotificationTrigger(dateMatching:components,repeats:false))
         group.enter();center.add(request){error in DispatchQueue.main.async{if error != nil{accepted=false};if owner != self.owner || revision != self.revision{center.removePendingNotificationRequests(withIdentifiers:[request.identifier]);accepted=false};group.leave()}}
@@ -954,8 +954,8 @@ private final class RingHealthReminderNotificationBridge {
                   settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
             else { result(false); return }
             let content = UNMutableNotificationContent()
-            content.title = "健康提醒"
-            content.body = "有一条健康提醒，请打开查看测量时间与详情。"
+            content.title = (args["locale"] as? String)?.hasPrefix("zh") == true ? "健康提醒" : "Health reminder"
+            content.body = (args["locale"] as? String)?.hasPrefix("zh") == true ? "有一条健康提醒，请打开查看测量时间与详情。" : "You have a health reminder. Open the app for its time and details."
             content.sound = .default
             content.userInfo = ["reminder-owner": owner, "reminder-event": event]
             let id = Self.prefix + owner + "." + event
@@ -1123,6 +1123,9 @@ private final class RingHealthReminderSoundBridge: NSObject, AVAudioPlayerDelega
   private var wearableAdapter: WearableAdapter?
   private var methodChannel: FlutterMethodChannel?
   private var eventChannel: FlutterEventChannel?
+  private let urionTransport = UrionGattTransport()
+  private var urionMethods: FlutterMethodChannel?
+  private var urionEvents: FlutterEventChannel?
   #if !targetEnvironment(simulator)
   private var qringWearableBridge: QRingWearableBridge?
   private var coolwearWearableBridge: CoolWearWearableBridge?
@@ -1228,6 +1231,22 @@ private final class RingHealthReminderSoundBridge: NSObject, AVAudioPlayerDelega
     )
     events.setStreamHandler(wearableStreamHandler)
     eventChannel = events
+
+    let urionMethods = FlutterMethodChannel(
+      name: "cc.saidian/urion_methods", binaryMessenger: registrar.messenger()
+    )
+    urionMethods.setMethodCallHandler { [weak self] call, result in
+      DispatchQueue.main.async {
+        self?.urionTransport.handle(call, result: result)
+      }
+    }
+    self.urionMethods = urionMethods
+    let urionEvents = FlutterEventChannel(
+      name: "cc.saidian/urion_events", binaryMessenger: registrar.messenger()
+    )
+    urionEvents.setStreamHandler(urionTransport)
+    self.urionEvents = urionEvents
+
 
     #if !targetEnvironment(simulator)
     qringWearableBridge = QRingWearableBridge(messenger: registrar.messenger())

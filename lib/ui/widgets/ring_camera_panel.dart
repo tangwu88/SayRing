@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
@@ -36,7 +37,9 @@ class RingCameraPanel extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              remoteReady ? '戒指遥控已就绪' : '手机相机',
+              remoteReady
+                  ? uiCopy(context, "戒指遥控已就绪")
+                  : uiCopy(context, "手机相机"),
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
@@ -46,15 +49,17 @@ class RingCameraPanel extends StatelessWidget {
             color: SaydianColors.muted,
           ),
           const SizedBox(width: 5),
-          const Text(
-            '自动存相册',
+          Text(
+            uiCopy(context, "自动存相册"),
             style: TextStyle(fontSize: 12, color: SaydianColors.muted),
           ),
         ],
       ),
       const SizedBox(height: 14),
       Text(
-        remoteReady ? '使用戒指支持的拍照动作，或轻点下方快门' : '轻点下方快门拍照',
+        remoteReady
+            ? uiCopy(context, "使用戒指支持的拍照动作，或轻点下方快门")
+            : uiCopy(context, "轻点下方快门拍照"),
         style: const TextStyle(fontSize: 12, color: SaydianColors.muted),
       ),
       const SizedBox(height: 10),
@@ -94,7 +99,7 @@ class RingCameraPanel extends StatelessWidget {
                   ),
           ),
           Semantics(
-            label: '拍照并保存到手机相册',
+            label: uiCopy(context, "拍照并保存到手机相册"),
             button: true,
             child: SizedBox.square(
               dimension: 76,
@@ -147,8 +152,8 @@ class RingCameraPanel extends StatelessWidget {
         ],
       ),
       const SizedBox(height: 16),
-      const Text(
-        '轻触快门，或使用戒指支持的拍照动作',
+      Text(
+        uiCopy(context, "轻触快门，或使用戒指支持的拍照动作"),
         textAlign: TextAlign.center,
         style: TextStyle(color: SaydianColors.muted, fontSize: 12),
       ),
@@ -157,21 +162,21 @@ class RingCameraPanel extends StatelessWidget {
           key: const Key('camera-retry-save-button'),
           onPressed: takingPhoto ? null : onRetrySave,
           icon: const Icon(Icons.save_alt_rounded),
-          label: const Text('重试保存这张照片'),
+          label: Text(uiCopy(context, "重试保存这张照片")),
         ),
       if (onPhotoSettings != null)
         TextButton.icon(
           key: const ValueKey('camera-photo-settings-button'),
           onPressed: onPhotoSettings,
           icon: const Icon(Icons.settings_outlined),
-          label: const Text('允许保存照片'),
+          label: Text(uiCopy(context, "允许保存照片")),
         ),
       if (onReconnect != null)
         TextButton.icon(
           key: const ValueKey('camera-reconnect-button'),
           onPressed: onReconnect,
           icon: const Icon(Icons.bluetooth_searching_rounded),
-          label: const Text('重新连接戒指'),
+          label: Text(uiCopy(context, "重新连接戒指")),
         ),
       if (onRetryCamera != null && onReconnect == null)
         TextButton.icon(
@@ -182,7 +187,11 @@ class RingCameraPanel extends StatelessWidget {
                 ? Icons.settings_outlined
                 : Icons.refresh_rounded,
           ),
-          label: Text(cameraSettingsRequired ? '前往设置开启相机' : '重新打开相机'),
+          label: Text(
+            cameraSettingsRequired
+                ? uiCopy(context, "前往设置开启相机")
+                : uiCopy(context, "重新打开相机"),
+          ),
         ),
     ],
   );

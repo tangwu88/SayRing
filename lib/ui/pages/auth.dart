@@ -26,9 +26,9 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _submit() async {
     if (!_accepted) {
       widget.controller.clearError();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请先阅读并同意用户协议与隐私政策')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(uiCopy(context, "请先阅读并同意用户协议与隐私政策"))),
+      );
       return;
     }
     setState(() => _loginError = null);
@@ -50,7 +50,7 @@ class _LoginPageState extends State<LoginPage> {
     if (!_accepted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先同意用户协议与隐私政策')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "请先同意用户协议与隐私政策"))));
       return;
     }
     FocusScope.of(context).unfocus();
@@ -89,7 +89,7 @@ class _LoginPageState extends State<LoginPage> {
                       keyboardType: TextInputType.phone,
                       autofillHints: const [AutofillHints.username],
                       decoration: InputDecoration(
-                        hintText: '手机号 / 账号',
+                        hintText: uiCopy(context, "手机号 / 账号"),
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -109,7 +109,7 @@ class _LoginPageState extends State<LoginPage> {
                       obscureText: _obscure,
                       autofillHints: const [AutofillHints.password],
                       decoration: InputDecoration(
-                        hintText: '密码',
+                        hintText: uiCopy(context, "密码"),
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -206,7 +206,7 @@ class _LoginPageState extends State<LoginPage> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      child: const Text('注册账户'),
+                      child: Text(uiCopy(context, "注册账户")),
                     ),
                     if (!kIsWeb &&
                         defaultTargetPlatform == TargetPlatform.android) ...[
@@ -242,9 +242,9 @@ class _LoginPageState extends State<LoginPage> {
                                   child: Text(
                                     controller.isWechatLoginInProgress
                                         ? controller.canCancelWechatLogin
-                                              ? '取消微信登录'
-                                              : '正在登录'
-                                        : '微信授权登录',
+                                              ? uiCopy(context, "取消微信登录")
+                                              : uiCopy(context, "正在登录")
+                                        : uiCopy(context, "微信授权登录"),
                                     textAlign: TextAlign.center,
                                   ),
                                 ),
@@ -266,7 +266,7 @@ class _LoginPageState extends State<LoginPage> {
                             size: 16,
                           ),
                         ),
-                        label: const Text('快速体验'),
+                        label: Text(uiCopy(context, "快速体验")),
                       ),
                     ],
                   ],
@@ -334,13 +334,15 @@ class _AgreementRow extends StatelessWidget {
             children: [
               Text(context.l10n.agreeToTerms, style: TextStyle(fontSize: 14)),
               TextButton(
-                onPressed: () => onOpenAgreement(id: 2, title: '用户协议'),
+                onPressed: () =>
+                    onOpenAgreement(id: 2, title: uiCopy(context, "用户协议")),
                 style: linkStyle,
                 child: Text(context.l10n.termsOfService),
               ),
-              const Text('和', style: TextStyle(fontSize: 14)),
+              Text(uiCopy(context, "和"), style: TextStyle(fontSize: 14)),
               TextButton(
-                onPressed: () => onOpenAgreement(id: 3, title: '隐私政策'),
+                onPressed: () =>
+                    onOpenAgreement(id: 3, title: uiCopy(context, "隐私政策")),
                 style: linkStyle,
                 child: Text(context.l10n.privacyPolicy),
               ),

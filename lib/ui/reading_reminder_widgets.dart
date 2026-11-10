@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -14,7 +15,13 @@ import '../services/wearable_bridge.dart';
 import 'app_theme.dart';
 
 String _copy(BuildContext context, String zh, String en) =>
-    Localizations.localeOf(context).languageCode == 'zh' ? zh : en;
+    zh.contains('戒指') && DevicePromptScope.usesDevice(context)
+    ? genericDevicePrompt(
+        Localizations.localeOf(context).languageCode == 'zh' ? zh : en,
+      )
+    : Localizations.localeOf(context).languageCode == 'zh'
+    ? zh
+    : en;
 
 IconData _icon(HealthReminderKind kind) => switch (kind) {
   HealthReminderKind.lowBloodOxygen => Icons.water_drop_outlined,
@@ -342,7 +349,16 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                         const SizedBox(height: 12),
                         if (widget.measuredAt != null)
                           Text(
-                            '${_copy(context, '测量于', 'Measured')} ${DateFormat('MM-dd HH:mm').format(widget.measuredAt!.toLocal())}',
+                            uiCopy(
+                              context,
+                              "{p0} {p1}",
+                              parameters: [
+                                _copy(context, '测量于', 'Measured'),
+                                DateFormat(
+                                  'MM-dd HH:mm',
+                                ).format(widget.measuredAt!.toLocal()),
+                              ],
+                            ),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 13,
@@ -381,8 +397,27 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: Text(
-                              '${_copy(context, widget.preview ? '预览参考' : '个人参考', widget.preview ? 'Preview reference' : 'Personal reference')} '
-                              '${widget.baselineValue!.toStringAsFixed(widget.kind == HealthReminderKind.highSkinTemperature ? 1 : 0)} ${_unit(widget.kind)}',
+                              uiCopy(
+                                context,
+                                "{p0} {p1} {p2}",
+                                parameters: [
+                                  _copy(
+                                    context,
+                                    widget.preview ? '预览参考' : '个人参考',
+                                    widget.preview
+                                        ? 'Preview reference'
+                                        : 'Personal reference',
+                                  ),
+                                  widget.baselineValue!.toStringAsFixed(
+                                    widget.kind ==
+                                            HealthReminderKind
+                                                .highSkinTemperature
+                                        ? 1
+                                        : 0,
+                                  ),
+                                  _unit(widget.kind),
+                                ],
+                              ),
                               textAlign: TextAlign.center,
                               style: const TextStyle(
                                 color: Colors.white,
@@ -674,7 +709,7 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
     if (!saved && context.mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('设置未保存，请稍后重试')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "设置未保存，请稍后重试"))));
     }
   }
 
@@ -1175,7 +1210,15 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
               TextButton(
                 onPressed: () => update(() => value = _reference(kind)),
                 child: Text(
-                  '${_copy(context, '参考', 'Reference')} ${_reference(kind)} ${_unit(kind)}',
+                  uiCopy(
+                    context,
+                    "{p0} {p1} {p2}",
+                    parameters: [
+                      _copy(context, '参考', 'Reference'),
+                      _reference(kind),
+                      _unit(kind),
+                    ],
+                  ),
                 ),
               ),
               Text(
@@ -1213,7 +1256,9 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
                           } else if (sheet.mounted) {
                             update(() => saving = false);
                             ScaffoldMessenger.of(sheet).showSnackBar(
-                              const SnackBar(content: Text('设置未保存，请重试')),
+                              SnackBar(
+                                content: Text(uiCopy(context, "设置未保存，请重试")),
+                              ),
                             );
                           }
                         },
@@ -1283,7 +1328,7 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
         if (kinds.isNotEmpty)
           _sectionTitle(
             context,
-            '指标提醒',
+            uiCopy(context, "指标提醒"),
             'Reading reminders',
             Icons.monitor_heart_outlined,
           ),
@@ -1320,7 +1365,7 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
             notificationControl != null)
           _sectionTitle(
             context,
-            '提醒方式',
+            uiCopy(context, "提醒方式"),
             'Delivery',
             Icons.notifications_active_outlined,
           ),
@@ -1421,7 +1466,7 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
         if (dailyReminders != null) ...[
           _sectionTitle(
             context,
-            '日常提醒',
+            uiCopy(context, "日常提醒"),
             'Daily reminders',
             Icons.event_available_outlined,
           ),

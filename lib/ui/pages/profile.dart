@@ -44,7 +44,7 @@ class SettingsPage extends StatelessWidget {
                 context,
                 GlobalCodeLoginPage(controller: controller),
               ),
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                 child: Row(
                   children: [
@@ -58,12 +58,12 @@ class SettingsPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '当前为本机使用',
+                            uiCopy(context, "当前为本机使用"),
                             style: TextStyle(fontWeight: FontWeight.w800),
                           ),
                           SizedBox(height: 2),
                           Text(
-                            '戒指数据只保存在本机；登录后可使用账号同步服务。',
+                            uiCopy(context, "戒指数据只保存在本机；登录后可使用账号同步服务。"),
                             style: TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 15,
@@ -73,7 +73,7 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '登录同步',
+                      uiCopy(context, "登录同步"),
                       style: TextStyle(
                         color: SaydianColors.techBlue,
                         fontWeight: FontWeight.w800,
@@ -112,14 +112,14 @@ class SettingsPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '当前为体验模式',
+                            uiCopy(context, "当前为体验模式"),
                             style: TextStyle(fontWeight: FontWeight.w800),
                           ),
                           SizedBox(height: 2),
                           Text(
                             controller.commerceEnabled
-                                ? '登录后可保存健康数据、设备和订单信息'
-                                : '登录后可保存健康数据和设备信息',
+                                ? uiCopy(context, "登录后可保存健康数据、设备和订单信息")
+                                : uiCopy(context, "登录后可保存健康数据和设备信息"),
                             style: TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 15,
@@ -129,7 +129,7 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '立即登录',
+                      uiCopy(context, "立即登录"),
                       style: TextStyle(
                         color: SaydianColors.techBlue,
                         fontWeight: FontWeight.w800,
@@ -288,7 +288,10 @@ class SettingsPage extends StatelessWidget {
                 _MyQuickEntry(
                   key: const Key('my-add-device'),
                   title: context.l10n.addDevice,
-                  subtitle: context.l10n.searchNearbyWatch,
+                  subtitle: devicePromptLabel(
+                    context,
+                    context.l10n.searchNearbyWatch,
+                  ),
                   icon: Icons.watch_outlined,
                   color: SaydianColors.techBlue,
                   onTap: () => _openPage(
@@ -505,8 +508,10 @@ String _memberDisplayName(BuildContext context, AppController controller) {
   if (nickname.isNotEmpty) return nickname;
   final sessionName = controller.session?.displayName.trim() ?? '';
   if (sessionName.isNotEmpty) return sessionName;
-  if (controller.isLocalMode) return '本机使用';
-  return controller.isPreviewMode ? '体验用户' : context.l10n.defaultUser;
+  if (controller.isLocalMode) return uiCopy(context, "本机使用");
+  return controller.isPreviewMode
+      ? uiCopy(context, "体验用户")
+      : context.l10n.defaultUser;
 }
 
 class _MemberAvatar extends StatelessWidget {
@@ -621,7 +626,7 @@ class _ProfileStat extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     button: true,
     label: '$label，$value',
-    hint: '点击查看$label',
+    hint: uiCopy(context, "点击查看{p0}", parameters: [label]),
     child: Container(
       constraints: const BoxConstraints(minHeight: 118),
       decoration: BoxDecoration(
@@ -723,7 +728,7 @@ class _MyServicesGrid extends StatelessWidget {
         page: PermissionManagementPage(controller: controller),
       ),
       (
-        label: '帮助反馈',
+        label: uiCopy(context, "帮助反馈"),
         icon: Icons.help_outline_rounded,
         page: FeedbackPage(controller: controller),
       ),

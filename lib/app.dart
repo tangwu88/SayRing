@@ -187,6 +187,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     if (controller.isGlobalEdition || widget.localeController != null) {
       unawaited(_localeController.load());
     }
+    _localeController.addListener(_handleLocaleChanged);
     WidgetsBinding.instance.addObserver(this);
     controller.addListener(_handleControllerState);
     _updateService =
@@ -221,6 +222,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _localeController.refreshSystemLocale();
       unawaited(controller.handleAppResumed());
       unawaited(_checkUpdateIfDue());
     } else if (state == AppLifecycleState.inactive ||
@@ -229,6 +231,17 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         state == AppLifecycleState.detached) {
       controller.setAppForeground(false);
     }
+  }
+
+  @override
+  void didChangeLocales(List<Locale>? locales) {
+    _localeController.refreshSystemLocale();
+  }
+
+  void _handleLocaleChanged() {
+    unawaited(
+      controller.cycles.refreshNotificationLanguage().catchError((Object _) {}),
+    );
   }
 
   void _handleControllerState() {
@@ -503,6 +516,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     // polling must not outlive the app shell that owns the lifecycle observer.
     controller.setAppForeground(false);
     _updateGateController.detach(_manualUpdateCheck);
+    _localeController.removeListener(_handleLocaleChanged);
     if (_ownsLocaleController) _localeController.dispose();
     super.dispose();
   }
@@ -552,7 +566,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                     controller.dismissHealthWarningAlert();
                   }
 
-                  return Stack(
+                  final content = Stack(
                     children: [
                       child ?? const SizedBox.shrink(),
                       if (alert != null &&
@@ -725,6 +739,10 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                           ),
                         ),
                     ],
+                  );
+                  return DevicePromptScope(
+                    generic: controller.usesDevicePrompts,
+                    child: content,
                   );
                 },
               ),
