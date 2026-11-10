@@ -1225,10 +1225,16 @@ class _GoalProgressRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final unit = switch (metric) {
-      HealthMetric.distance => uiCopy(context, "公里"),
+      HealthMetric.distance =>
+        context.l10n.localeName.startsWith('zh') ? uiCopy(context, "公里") : 'km',
       HealthMetric.calories => uiCopy(context, "千卡"),
-      _ => metric.defaultUnit,
+      _ => uiCopy(context, metric.defaultUnit),
     };
+    // 目标值只本地化显示，不改目标存储或计量值；英文单位留空格并保持紧凑。
+    final chinese = context.l10n.localeName.startsWith('zh');
+    final targetLabel = metric == HealthMetric.steps && !chinese
+        ? context.l10n.stepCount(target.round())
+        : '${_format(target)}${chinese ? '' : ' '}$unit';
     return Semantics(
       button: true,
       child: InkWell(
@@ -1283,7 +1289,7 @@ class _GoalProgressRow extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '/${_format(target)}$unit',
+                          '/$targetLabel',
                           style: const TextStyle(
                             fontSize: 14,
                             color: SaydianColors.muted,
@@ -1887,7 +1893,8 @@ class _SectionTitle extends StatelessWidget {
         ),
       ],
     );
-    final heading = enlargedText
+    // 手机窄屏把日期说明放在标题下，避免英文标题与操作按钮相互挤压。
+    final heading = enlargedText || MediaQuery.sizeOf(context).width < 600
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
