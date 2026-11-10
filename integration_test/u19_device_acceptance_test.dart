@@ -334,7 +334,13 @@ void main() {
             }
             final cloudMatches =
                 remote != null &&
-                remote.values.toString() == result!.values.toString() &&
+                remote.metric == result!.metric &&
+                remote.deviceId == result.deviceId &&
+                remote.unit == result.unit &&
+                remote.values.length == result.values.length &&
+                result.values.entries.every(
+                  (entry) => remote!.values[entry.key] == entry.value,
+                ) &&
                 remote.measuredAt == result.measuredAt &&
                 remote.sourceVendor == 'urion' &&
                 remote.sourceDeviceCategory == 'watch';
