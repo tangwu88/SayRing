@@ -273,11 +273,15 @@ void main() {
           );
           proof['cloudReadbackChecks'] = checks;
           proof['cloudSyncStatus'] = app.cloudSyncStatus;
+          proof['controllerCloudReadCompleted'] = RegExp(
+            r'^(已上传 \d+ 条，读取 \d+ 条云端记录|Uploaded \d+ records and loaded \d+ cloud records\.)$',
+          ).hasMatch(app.cloudSyncStatus);
           proof['reusedPriorMeasurementWithoutRestart'] = true;
           await save();
           expect(checks.values.every((passed) => passed), true);
+          expect(proof['controllerCloudReadCompleted'], true);
           proof['status'] =
-              'prior fresh U19 heart-rate cloud readback passed; no new measurement requested';
+              'controller sync and prior U19 heart-rate cloud readback passed; no new measurement requested';
           await save();
           return;
         }

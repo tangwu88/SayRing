@@ -1327,7 +1327,6 @@ class AppController extends ChangeNotifier {
   Completer<void>? _measurementStartCancellation;
   Future<void>? _measurementStopInFlight;
   HealthMetric? _activeMeasurementMetric;
-  bool _syncing = false;
   bool _accountTransitioning = false;
   Future<void>? _logoutPending;
   Future<void>? _activeCloudSync;
@@ -4656,7 +4655,7 @@ class AppController extends ChangeNotifier {
     if (current == null) return false;
     if (bridge is! WearableDeviceDetailsBridge) return true;
     if (_deviceDetailsRefreshing) return true;
-    if (_syncing ||
+    if (_activeCloudSync != null ||
         _firstRingBindingPending ||
         isDeviceHistorySyncing ||
         _activeMeasurementMetric != null ||
@@ -6377,7 +6376,14 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> synchronizeCloud() async {
-    if (_syncing || _disposed || _accountTransitioning) return;
+    if (_disposed || _accountTransitioning) return;
+    // 自动补传与测量完成可能同时请求同步；后来的调用必须等待同一轮
+    // 真正结束，不能提前返回成功，也不能再启动一份上传任务。
+    final active = _activeCloudSync;
+    if (active != null) {
+      await active;
+      return;
+    }
     if (session == null) {
       cloudSyncStatus = '未登录，数据仅保存在本机';
       if (!_disposed) notifyListeners();
@@ -6387,19 +6393,38 @@ class AppController extends ChangeNotifier {
     final completion = Completer<void>();
     final activeFuture = completion.future;
     _activeCloudSync = activeFuture;
-    _syncing = true;
     try {
       final result = await _syncService.synchronizeNow(
         isCurrent: () =>
             !_accountTransitioning && _isCurrentSessionGeneration(generation),
       );
-      if (!_isCurrentSessionGeneration(generation)) return;
+      if (_accountTransitioning || !_isCurrentSessionGeneration(generation)) {
+        return;
+      }
       var downloaded = 0;
       final api = _api;
       if (api is CloudHealthRecordReader) {
         final reader = api as CloudHealthRecordReader;
         try {
-          downloaded = await _pullCloudHealthRecords(reader, generation);
+          try {
+            downloaded = await _pullCloudHealthRecords(reader, generation);
+          } on ApiException catch (error) {
+            // 启动时配置刷新可能撤销正在读取的旧许可。只按当前许可重新
+            // 读一次，不重传、不放宽授权；换号、退出或普通接口错误不重试。
+            if (error.code != 'HEALTH_POLICY_CHANGED' ||
+                _accountTransitioning ||
+                !_isCurrentSessionGeneration(generation)) {
+              rethrow;
+            }
+            // 戒指与U19许可依次加载。先等待整轮刷新及原生确认完成，
+            // 避免第二次读取又撞上后半轮配置变化；这不会写手表设置。
+            await refreshReadOnlyHealthFeatures();
+            if (_accountTransitioning ||
+                !_isCurrentSessionGeneration(generation)) {
+              return;
+            }
+            downloaded = await _pullCloudHealthRecords(reader, generation);
+          }
         } on ApiException catch (error) {
           if (!_isCurrentSessionGeneration(generation)) return;
           cloudSyncStatus = result.uploaded > 0
@@ -6414,7 +6439,6 @@ class AppController extends ChangeNotifier {
       if (!_isCurrentSessionGeneration(generation)) return;
       cloudSyncStatus = _apiErrorMessage(error, fallback: '数据上传失败，请稍后重试');
     } finally {
-      _syncing = false;
       if (!completion.isCompleted) completion.complete();
       if (identical(_activeCloudSync, activeFuture)) {
         _activeCloudSync = null;
@@ -6431,9 +6455,13 @@ class AppController extends ChangeNotifier {
     final cursors = <String>{};
     var received = 0;
     for (var pageNumber = 0; pageNumber < 100; pageNumber++) {
-      if (!_isCurrentSessionGeneration(generation)) return received;
+      if (_accountTransitioning || !_isCurrentSessionGeneration(generation)) {
+        return received;
+      }
       final page = await reader.getCloudHealthRecords(before: before);
-      if (!_isCurrentSessionGeneration(generation)) return received;
+      if (_accountTransitioning || !_isCurrentSessionGeneration(generation)) {
+        return received;
+      }
       final records = _releaseRecords(page.records).toList();
       await _healthStore.upsertSynced(records);
       if (!_isCurrentSessionGeneration(generation)) return received;
