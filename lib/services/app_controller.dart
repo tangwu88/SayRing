@@ -1327,6 +1327,7 @@ class AppController extends ChangeNotifier {
   Completer<void>? _measurementStartCancellation;
   Future<void>? _measurementStopInFlight;
   HealthMetric? _activeMeasurementMetric;
+  bool measurementAwaitingResult = false;
   bool _accountTransitioning = false;
   Future<void>? _logoutPending;
   Future<void>? _activeCloudSync;
@@ -4723,6 +4724,7 @@ class AppController extends ChangeNotifier {
   }
 
   void _cancelMeasurementWait() {
+    measurementAwaitingResult = false;
     _measurementTimeout?.cancel();
     _measurementTimeout = null;
     final cancellation = _measurementStartCancellation;
@@ -5132,12 +5134,19 @@ class AppController extends ChangeNotifier {
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
     _measurementTimeout = null;
-    measurementErrorMessage = '长时间未检测到有效结果，请确认戒指已贴合手指后重新测量';
+    measurementErrorMessage =
+        connectedDevice?.sdkSource == WearableSdkSource.urion
+        ? '未收到新的测量结果，请先确认手表已结束测量'
+        : '长时间未检测到有效结果，请确认戒指已贴合手指后重新测量';
     errorMessage = measurementErrorMessage;
     if (deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
     }
-    final stopping = _stopNativeMeasurement(metric);
+    final stopping =
+        connectedDevice?.sdkSource == WearableSdkSource.urion &&
+            capabilities?.supportsStopMeasurement(metric) == false
+        ? null
+        : _stopNativeMeasurement(metric);
     notifyListeners();
     try {
       await stopping;
@@ -8780,6 +8789,7 @@ class AppController extends ChangeNotifier {
       'BLOOD_PRESSURE_WEAR_CHECK_FAILED',
       'BLOOD_PRESSURE_LOW_BATTERY',
       'BLOOD_PRESSURE_DEVICE_BUSY',
+      'BLOOD_PRESSURE_RESULT_MISSING',
       'OXYGEN_UNSUPPORTED',
       'OXYGEN_NOT_WORN',
       'OXYGEN_DEVICE_BUSY',
@@ -8851,6 +8861,18 @@ class AppController extends ChangeNotifier {
       }
     }
     final eventDeviceId = payload['deviceId']?.toString();
+    // 同一手表的旧完成/失败回调也不能结束新一轮等待。
+    if (connectedDevice?.sdkSource == WearableSdkSource.urion &&
+        payload.containsKey('measurementStartedAt')) {
+      final started = DateTime.tryParse('${payload['measurementStartedAt']}');
+      final active = _measurementStartedAt;
+      if (started == null ||
+          active == null ||
+          started.isBefore(active.subtract(const Duration(seconds: 2))) ||
+          started.isAfter(DateTime.now().add(const Duration(seconds: 2)))) {
+        return false;
+      }
+    }
     String nativeId(String value) => value
         .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear|qring):'), '')
         .toLowerCase();
@@ -8878,6 +8900,7 @@ class AppController extends ChangeNotifier {
       'DEVICE_SETTINGS_NOT_CONFIGURED' ||
       'SPORT_NOT_CONFIGURED' => '当前戒指暂不支持由 App 发起此操作',
       'SDK_NOT_CONFIGURED' => '此功能暂时无法使用，请稍后再试',
+      'BLOOD_PRESSURE_RESULT_MISSING' => '手表已测完，暂未取回结果，请同步数据重试',
       'CONNECT_FAILED' || 'CONNECTION_DROPPED' => '连接失败，请确认戒指未连接其他手机后重试',
       'YUCHENG_SYNC_TIMEOUT' => '数据同步超时，可稍后重试',
       'NETWORK_ERROR' || 'NETWORK_UNAVAILABLE' => '网络不可用，请检查后重试',
@@ -9130,6 +9153,10 @@ class AppController extends ChangeNotifier {
         return;
       }
       if (_activeMeasurementMetric == metric) {
+        if (connectedDevice?.sdkSource == WearableSdkSource.urion &&
+            event.payload['deviceState'] == 'READING_RESULT') {
+          measurementAwaitingResult = true;
+        }
         measurementProgress =
             (event.payload['progress'] as num?)
                 ?.toInt()

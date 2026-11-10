@@ -2,6 +2,8 @@
 
 ## Say Ring boundary
 
+- 用户补充（2026-11-10）：R8/R8 Pro、R21/R22、R7系列及HR05必须保留原戒指通道、界面和功能；只有U19使用新增手表模块。U19扫描、实时事件、缓存及显式选择不得豁免已知戒指名称；附带U19字样不能覆盖原戒指规则。血压启动、物理测完、取得新读数、本机保存和云端读回分别确认，等待必须有终态，未确认手表空闲时不得自动再次充气。
+
 - Connection regression rule (1275, 2026-11-08): callbacks with an explicit device identity must match the current exact native target, even when both rings use the same transport. Validate the provider, target and payload before changing the router connection generation; a rejected stale event must not invalidate a current sync. Preserve identifier-free vendor events behind their existing native session checks. On iOS CoolWear, an ended notification queued before recovery may be ignored only when Bluetooth is currently on and the exact current link is fully handshaken; genuine SDK disconnect, power-off and cancellation barriers remain effective. Run the executable cross-model event tests and extracted production-method tests; none proves physical nearby/lock-screen stability.
 
 - Read-only device-detail requests must retain their starting connection generation, transport and exact target across awaits. An old request's null, data or error must never clear or replace a newer connection; current-session errors remain visible and current null snapshots retain the existing exact-recovery policy. Do not fix the event stream alone while leaving this polling path unguarded.

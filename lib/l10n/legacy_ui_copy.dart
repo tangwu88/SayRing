@@ -1,5 +1,12 @@
 // 仅限应用自有界面文案；不得用于用户记录、文章、历史报告或协议字段。
 const legacyUiEnglish = <String, String>{
+  "手表已测完，正在获取结果": "Reading finished. Retrieving the result.",
+  "手表已测完，暂未取回结果，请同步数据重试":
+      "Reading finished, but the result could not be retrieved. Try syncing data.",
+  "未收到新的血压结果，请先确认手表已结束测量":
+      "No new blood pressure result received. Check that your watch has finished.",
+  "未收到新的测量结果，请先确认手表已结束测量":
+      "No new result received. Check that your watch has finished.",
   "健康数据配置已更新，请刷新": "Health settings changed. Refresh to continue.",
   "本机数据已上传，云端记录暂时无法读取":
       "Your data was uploaded. Cloud history is temporarily unavailable.",

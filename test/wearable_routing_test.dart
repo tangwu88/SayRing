@@ -8,6 +8,93 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
+  for (final entry in const {
+    'R8': WearableTransport.qring,
+    'R8 Pro': WearableTransport.qring,
+    'R21': WearableTransport.qring,
+    'R22': WearableTransport.qring,
+    'R7C': WearableTransport.qring,
+    'R7': WearableTransport.coolwear,
+    'R7y': WearableTransport.coolwear,
+    'R7 Pro': WearableTransport.coolwear,
+    'R7 Ultra': WearableTransport.coolwear,
+    'HR05': WearableTransport.coolwear,
+  }.entries) {
+    test(
+      '${entry.key} remains on the original ring transport even when reported by U19 discovery',
+      () async {
+        final ring = DeviceInfo(id: 'ring-01', name: entry.key);
+        final original = _FakeWearableBridge(
+          scanned: [ring],
+          connectedDetails: ring,
+        );
+        final watch = _FakeWearableBridge(
+          scanned: [
+            ring,
+            const DeviceInfo(id: 'watch-01', name: 'U19S'),
+          ],
+        );
+        final bridge = RoutedWearableBridge(
+          qring: entry.value == WearableTransport.qring ? original : null,
+          coolwear: entry.value == WearableTransport.coolwear ? original : null,
+          urion: watch,
+        );
+        addTearDown(bridge.dispose);
+        final events = <WearableEvent>[];
+        final subscription = bridge.events.listen(events.add);
+        addTearDown(subscription.cancel);
+        watch.scanResult = Completer<List<DeviceInfo>>();
+        final scan = bridge.scanDevices();
+        await pumpEventQueue();
+        watch.emitScan(ring);
+        await pumpEventQueue();
+        expect(
+          events.where((e) => e.payload['id'] == 'urion:ring-01'),
+          isEmpty,
+        );
+        watch.scanResult!.complete(watch.scanned);
+        final found = await scan;
+        expect(found.map((d) => d.id), contains('${entry.value.name}:ring-01'));
+        expect(found.map((d) => d.id), isNot(contains('urion:ring-01')));
+        expect(found.map((d) => d.id), contains('urion:watch-01'));
+        await bridge.connect('${entry.value.name}:ring-01', profile: _profile);
+        await bridge.startMeasurement(HealthMetric.heartRate);
+        expect(original.measurementCalls, [HealthMetric.heartRate]);
+        expect(watch.connectCalls, isEmpty);
+        expect(watch.measurementCalls, isEmpty);
+        expect(
+          WearableDeviceClassifier.transportFor('${entry.key}_U19'),
+          entry.value,
+        );
+      },
+    );
+  }
+
+  for (final name in ['R8', 'R7 Ultra', 'HR05']) {
+    test('incorrect U19 cache for $name is not adopted or erased', () async {
+      final saved = SavedWearableBinding(
+        WearableTransport.urion,
+        'ring-01',
+        deviceName: name,
+        ownerKey: 'owner',
+      );
+      final preference = _MemoryBoundPreference(saved);
+      final native = _FakeWearableBridge(scanned: const []);
+      final bridge = RoutedWearableBridge(
+        urion: native,
+        preferenceStore: preference,
+        requireOwnerScopedBinding: true,
+        restoreOnlyBoundDevice: true,
+      );
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'owner', profile: _profile);
+      expect(await bridge.readRememberedDevice(), isNull);
+      expect(await bridge.canAutomaticallyRecoverRememberedDevice(), isFalse);
+      expect(native.connectCalls, isEmpty);
+      expect(preference.binding, same(saved));
+    });
+  }
+
   test(
     'U19 routing retains watch source, pressure pair and daily provenance',
     () async {

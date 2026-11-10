@@ -24,11 +24,25 @@ enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring, urion }
 // 戒指仍使用原有型号路由，不能把这项豁免扩大到其它通道。
 bool _providerAcceptsName(String name, WearableTransport transport) =>
     transport == WearableTransport.urion
-    ? name.trim().isNotEmpty
+    ? name.trim().isNotEmpty &&
+          (WearableDeviceClassifier.transportFor(name) == null ||
+              WearableDeviceClassifier.transportFor(name) ==
+                  WearableTransport.urion) &&
+          !WearableDeviceClassifier.hasRingMarker(name)
     : WearableDeviceClassifier.routesTo(name, transport);
 
 class WearableDeviceClassifier {
   const WearableDeviceClassifier._();
+
+  // 手表广播厂商前缀可能与其它设备重合。已知戒指名称绝不可被U19通道收养，
+  // 扫描、缓存恢复、手动选择都共用此边界；名称仍不能单独授予手表能力。
+  static bool hasRingMarker(String name) {
+    final normalized = name.trim().toUpperCase();
+    return _explicitQRing(normalized) ||
+        _qringMarker(normalized) ||
+        const ['R7', 'K80', 'HR01', 'HR05'].any(normalized.contains) ||
+        normalized.startsWith('R');
+  }
 
   static bool _explicitQRing(String name) =>
       name.startsWith('R1') || name.startsWith('R2') || name.contains('R7C');
@@ -56,12 +70,6 @@ class WearableDeviceClassifier {
 
   static WearableTransport? transportFor(String name) {
     final normalized = name.trim().toUpperCase();
-    // 名称只供缓存路由；新发现的 U19 必须来自专用 GATT 的广播验证。
-    if (RegExp(
-      r'(^|[^A-Z0-9])U19[A-Z0-9]*($|[^A-Z0-9])',
-    ).hasMatch(normalized)) {
-      return WearableTransport.urion;
-    }
     // Explicit prefix rules override inherited substring matches (R7C/R7).
     if (_explicitQRing(normalized)) return WearableTransport.qring;
     final qring = _qringMarker(normalized);
@@ -77,6 +85,12 @@ class WearableDeviceClassifier {
     if (qring) return WearableTransport.qring;
     if (luckring) return WearableTransport.coolwear;
     if (normalized.startsWith('R')) return WearableTransport.qring;
+    // 已有戒指规则优先；附带U19字符不能覆盖原戒指型号。
+    if (RegExp(
+      r'(^|[^A-Z0-9])U19[A-Z0-9]*($|[^A-Z0-9])',
+    ).hasMatch(normalized)) {
+      return WearableTransport.urion;
+    }
     if (normalized.startsWith('YC')) return WearableTransport.yucheng;
     if (normalized.startsWith('Q_') ||
         normalized.startsWith('O_') ||
@@ -649,8 +663,7 @@ class RoutedWearableBridge
     if (generation != _scanGeneration) return const [];
     for (final batch in batches) {
       for (final device in batch.value) {
-        if (batch.key != WearableTransport.urion &&
-            !_providerAcceptsName(device.name, batch.key)) {
+        if (!_providerAcceptsName(device.name, batch.key)) {
           continue;
         }
         final routed = RoutedDevice.fromDevice(batch.key, device);
@@ -700,7 +713,8 @@ class RoutedWearableBridge
       }
       if (!current() || remembered?.id != saved.nativeIdentifier) return;
       // Legacy bindings remain explicit manual choices; they never arm recovery.
-      if (saved.ownerKey != null &&
+      if ((saved.ownerKey != null ||
+              saved.transport == WearableTransport.urion) &&
           !_providerAcceptsName(remembered!.name, saved.transport)) {
         return;
       }
@@ -813,7 +827,8 @@ class RoutedWearableBridge
     }
     final isExplicitRememberedTarget = _manualRecoveryIds.contains(deviceId);
     _directRecoveryLease = null;
-    if (!isExplicitRememberedTarget &&
+    if ((!isExplicitRememberedTarget ||
+            device.transport == WearableTransport.urion) &&
         !_providerAcceptsName(device.display.name, device.transport)) {
       throw PlatformException(
         code: 'DEVICE_PROVIDER_MISMATCH',
@@ -1648,8 +1663,7 @@ class RoutedWearableBridge
     if (event.type == 'scanDevice') {
       if (!_acceptScanEvents) return;
       final device = DeviceInfo.fromMap(event.payload);
-      if (transport != WearableTransport.urion &&
-          !_providerAcceptsName(device.name, transport)) {
+      if (!_providerAcceptsName(device.name, transport)) {
         return;
       }
       final routed = RoutedDevice.fromDevice(transport, device);
