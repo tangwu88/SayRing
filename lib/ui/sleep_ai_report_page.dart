@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -169,23 +170,31 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
             Icons.auto_awesome_outlined,
             color: SaydianColors.techBlue,
           ),
-          title: const Text(
-            '睡眠报告',
+          title: Text(
+            uiCopy(context, "睡眠报告"),
             style: TextStyle(fontWeight: FontWeight.w800),
           ),
           subtitle: Text(
             _failed
                 ? _pausedPolling
-                      ? '报告未加载，点此重试'
-                      : '正在重新加载报告'
+                      ? uiCopy(context, "报告未加载，点此重试")
+                      : uiCopy(context, "正在重新加载报告")
                 : _report?.sleepScore != null
-                ? '${_report!.sleepScore} / 100 · 查看评分依据和建议'
+                ? uiCopy(
+                    context,
+                    "{p0} / 100 · 查看评分依据和建议",
+                    parameters: [_report!.sleepScore],
+                  )
                 : _report == null
-                ? '查看本次睡眠与建议'
+                ? uiCopy(context, "查看本次睡眠与建议")
                 : _report!.status == HealthReportStatus.ready
-                ? '查看报告'
+                ? uiCopy(context, "查看报告")
                 : _pausedPolling
-                ? '${_report!.progressLabel} · 点此刷新'
+                ? uiCopy(
+                    context,
+                    "{p0} · 点此刷新",
+                    parameters: [_report!.progressLabel],
+                  )
                 : _report!.progressLabel,
           ),
           trailing: const Icon(Icons.chevron_right_rounded),
@@ -367,7 +376,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     if (version.isEmpty ||
         metadata['version'] != version ||
         '${metadata['path'] ?? ''}'.isEmpty) {
-      throw const FormatException('Say Ring 睡眠 AI 分析说明暂不可用');
+      throw FormatException(uiCopy(context, "Say Ring 睡眠 AI 分析说明暂不可用"));
     }
     final document = await widget.controller.globalLegalDocument(
       '${metadata['path']}',
@@ -376,7 +385,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     if (document['version'] != version ||
         (metadata['locale'] != null &&
             document['locale'] != metadata['locale'])) {
-      throw const FormatException('分析说明已更新，请重新打开页面');
+      throw FormatException(uiCopy(context, "分析说明已更新，请重新打开页面"));
     }
     final parsed = html.parse(
       '${document['contentHtml'] ?? ''}'.replaceAll(
@@ -390,21 +399,24 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
       element.remove();
     }
     final text = parsed.documentElement?.text.trim() ?? '';
-    if (text.isEmpty) throw const FormatException('分析说明内容为空，不能上传');
+    if (text.isEmpty) throw FormatException(uiCopy(context, "分析说明内容为空，不能上传"));
     var accepted = false;
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('生成睡眠报告？'),
+          title: Text(uiCopy(context, "生成睡眠报告？")),
           content: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  '第三方 AI 将分析当天的睡眠时长、阶段汇总、夜睡和小睡的起止时间及已有评分。不提供姓名、联系方式、设备地址或分段明细。',
+                Text(
+                  uiCopy(
+                    context,
+                    "第三方 AI 将分析当天的睡眠时长、阶段汇总、夜睡和小睡的起止时间及已有评分。不提供姓名、联系方式、设备地址或分段明细。",
+                  ),
                 ),
                 const SizedBox(height: 12),
                 SelectableText(text),
@@ -414,7 +426,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                   contentPadding: EdgeInsets.zero,
                   value: accepted,
                   controlAffinity: ListTileControlAffinity.leading,
-                  title: const Text('我已阅读并同意上传本次睡眠汇总用于 AI 分析'),
+                  title: Text(uiCopy(context, "我已阅读并同意上传本次睡眠汇总用于 AI 分析")),
                   onChanged: (value) =>
                       setDialogState(() => accepted = value == true),
                 ),
@@ -424,14 +436,14 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('取消'),
+              child: Text(uiCopy(context, "取消")),
             ),
             FilledButton(
               key: const Key('sleep-ai-confirm-upload'),
               onPressed: accepted
                   ? () => Navigator.pop(dialogContext, true)
                   : null,
-              child: const Text('上传并分析'),
+              child: Text(uiCopy(context, "上传并分析")),
             ),
           ],
         ),
@@ -455,7 +467,9 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
           .loadSleepReportAvailability();
       if (!_current) return;
       if (availability['available'] != true) {
-        throw FormatException('${availability['reason'] ?? 'AI 分析服务暂不可用'}');
+        throw FormatException(
+          '${availability['reason'] ?? uiCopy(null, "AI 分析服务暂不可用")}',
+        );
       }
       if (!await _confirmUpload(availability)) return;
       final report = _report?.status == HealthReportStatus.failed
@@ -490,10 +504,13 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
         ).hasMatch(message) ||
         message.contains('未返回') ||
         message.contains('数据缺失')) {
-      return '睡眠分析暂时无法生成，请更新睡眠记录后重试';
+      return uiCopy(context, "睡眠分析暂时无法生成，请更新睡眠记录后重试");
     }
-    if (message.contains('说明尚未发布')) return '分析说明暂不可用，请稍后重试';
-    return userFacingMessage(message, fallback: '报告暂不可用，请稍后重试');
+    if (message.contains('说明尚未发布')) return uiCopy(context, "分析说明暂不可用，请稍后重试");
+    return userFacingMessage(
+      message,
+      fallback: uiCopy(context, "报告暂不可用，请稍后重试"),
+    );
   }
 
   Future<void> _withdraw() async {
@@ -501,16 +518,16 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('撤回睡眠 AI 分析授权'),
-        content: const Text('撤回后停止新的睡眠分析。已有报告和「健康」App 授权不变。'),
+        title: Text(uiCopy(context, "撤回睡眠 AI 分析授权")),
+        content: Text(uiCopy(context, "撤回后停止新的睡眠分析。已有报告和「健康」App 授权不变。")),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('取消'),
+            child: Text(uiCopy(context, "取消")),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('确认撤回'),
+            child: Text(uiCopy(context, "确认撤回")),
           ),
         ],
       ),
@@ -520,9 +537,9 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     try {
       await widget.controller.withdrawSleepAnalysisConsent();
       if (mounted && _current) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('已撤回睡眠 AI 分析授权')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(uiCopy(context, "已撤回睡眠 AI 分析授权"))),
+        );
       }
     } catch (error) {
       if (_current) setState(() => _error = _errorMessage(error));
@@ -541,7 +558,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     final score = _map(content['sleepScore']);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('睡眠报告'),
+        title: Text(uiCopy(context, "睡眠报告")),
         actions: [
           IconButton(
             key: const Key('sleep-ai-refresh'),
@@ -552,7 +569,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                     _readFailures = 0;
                     unawaited(_load());
                   },
-            tooltip: '刷新报告',
+            tooltip: uiCopy(context, "刷新报告"),
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -563,7 +580,11 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
               padding: const EdgeInsets.all(16),
               children: [
                 Text(
-                  '${sleepRecordSdkDate(widget.record)} · 本次睡眠',
+                  uiCopy(
+                    context,
+                    "{p0} · 本次睡眠",
+                    parameters: [sleepRecordSdkDate(widget.record)],
+                  ),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 12),
@@ -584,11 +605,11 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                     explanation: '${score['explanation'] ?? ''}',
                   ),
                   if (_visuals.isEmpty && _report?.sleepScore == null)
-                    _section('睡眠参考评分', [
-                      '证据不足，未评分',
+                    _section(uiCopy(context, "睡眠参考评分"), [
+                      uiCopy(context, "证据不足，未评分"),
                       '${score['explanation'] ?? ''}',
                     ]),
-                  _section('睡眠分析', [
+                  _section(uiCopy(context, "睡眠分析"), [
                     '${content['overview'] ?? ''}',
                     for (final row
                         in content['trends'] is List
@@ -596,10 +617,10 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                             : const [])
                       '${_map(row)['text'] ?? ''}',
                   ]),
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
                     child: Text(
-                      '睡眠改善建议',
+                      uiCopy(context, "睡眠改善建议"),
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 17,
@@ -607,22 +628,25 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                     ),
                   ),
                   ReportAdviceList(items: _strings(content['suggestions'])),
-                  _section('如何看这份报告', _strings(content['limitations'])),
+                  _section(
+                    uiCopy(context, "如何看这份报告"),
+                    _strings(content['limitations']),
+                  ),
                 ] else ...[
-                  _section('评分与建议', [
+                  _section(uiCopy(context, "评分与建议"), [
                     _readFailed
-                        ? '暂时无法加载报告'
+                        ? uiCopy(context, "暂时无法加载报告")
                         : _report == null
-                        ? '报告将保存在你的账号中。'
+                        ? uiCopy(context, "报告将保存在你的账号中。")
                         : _report!.status == HealthReportStatus.failed
-                        ? '报告未生成，请重试'
+                        ? uiCopy(context, "报告未生成，请重试")
                         : _report!.progressLabel,
                     if (_readFailed || _isPending(_report))
                       _pausedPolling
-                          ? '点右上角刷新'
+                          ? uiCopy(context, "点右上角刷新")
                           : _readFailed
-                          ? '正在重试'
-                          : '完成后自动刷新',
+                          ? uiCopy(context, "正在重试")
+                          : uiCopy(context, "完成后自动刷新"),
                   ]),
                   if (!_readFailed &&
                       (_report == null ||
@@ -638,20 +662,26 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                           : const Icon(Icons.auto_awesome),
                       label: Text(
                         _report?.status == HealthReportStatus.failed
-                            ? '重试睡眠分析'
-                            : '生成睡眠报告',
+                            ? uiCopy(context, "重试睡眠分析")
+                            : uiCopy(context, "生成睡眠报告"),
                       ),
                     ),
                 ],
                 UsageInfoButton(
-                  title: '报告说明',
-                  message:
-                      '报告由 AI 根据睡眠汇总生成。\n${content['safetyNotice'] ?? '供日常参考，不用于诊断或治疗。'}',
+                  title: uiCopy(context, "报告说明"),
+                  message: uiCopy(
+                    context,
+                    "报告由 AI 根据睡眠汇总生成。\n{p0}",
+                    parameters: [
+                      content['safetyNotice'] ??
+                          uiCopy(context, "供日常参考，不用于诊断或治疗。"),
+                    ],
+                  ),
                 ),
                 TextButton(
                   key: const Key('sleep-ai-withdraw-consent'),
                   onPressed: _working ? null : _withdraw,
-                  child: const Text('撤回睡眠 AI 分析授权'),
+                  child: Text(uiCopy(context, "撤回睡眠 AI 分析授权")),
                 ),
               ],
             ),

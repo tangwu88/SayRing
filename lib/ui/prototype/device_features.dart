@@ -98,6 +98,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     );
     widget.controller.addListener(_handleControllerEvent);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.controller.connectedDevice?.sdkSource ==
+          WearableSdkSource.urion) {
+        return;
+      }
       if (!mounted ||
           !_availableInRelease ||
           !widget.controller.availabilityFor(widget.feature).isReady) {
@@ -171,7 +175,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         _lastPhoto = null;
         _photoSaved = false;
         _galleryPermissionDenied = false;
-        unawaited(_suspendCamera(message: '连接已改变，请重新打开相机'));
+        unawaited(_suspendCamera(message: uiCopy(context, "连接已改变，请重新打开相机")));
         return;
       }
       if ((widget.feature == DeviceFeature.gestureControl ||
@@ -195,7 +199,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         _cameraShutterGate.disarm(
           currentSequence: widget.controller.cameraShutterSequence,
         );
-        setState(() => _cameraMessage = '遥控已停止，可点击手机快门');
+        setState(() => _cameraMessage = uiCopy(context, "遥控已停止，可点击手机快门"));
       }
       final availability = widget.controller.availabilityFor(widget.feature);
       if (!availability.isReady) {
@@ -203,7 +207,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           currentSequence: widget.controller.cameraShutterSequence,
         );
         if (_camera != null || _cameraRemoteStarted || _cameraInitializing) {
-          unawaited(_suspendCamera(message: '戒指已断开，请重新连接后使用'));
+          unawaited(_suspendCamera(message: uiCopy(context, "戒指已断开，请重新连接后使用")));
         }
         return;
       }
@@ -262,7 +266,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         setState(
           () => _featureData = {
             'requiresReconnect': true,
-            'errorMessage': '控制连接暂未准备好，可点击恢复控制重试',
+            'errorMessage': uiCopy(context, "控制连接暂未准备好，可点击恢复控制重试"),
           },
         );
       }
@@ -355,7 +359,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(saved ? '屏幕设置已保存' : '屏幕设置保存失败，请稍后重试')),
+      SnackBar(
+        content: Text(
+          saved
+              ? uiCopy(context, "屏幕设置已保存")
+              : uiCopy(context, "屏幕设置保存失败，请稍后重试"),
+        ),
+      ),
     );
   }
 
@@ -389,7 +399,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         content: Text(
           saved
               ? successMessage
-              : widget.controller.errorMessage ?? '保存失败，请稍后重试',
+              : widget.controller.errorMessage ?? uiCopy(context, "保存失败，请稍后重试"),
         ),
       ),
     );
@@ -427,14 +437,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         if (!status.isGranted) {
           setState(() {
             _cameraMessage = status.isPermanentlyDenied
-                ? '相机权限已关闭，请在系统设置中开启'
-                : '允许相机权限后使用';
+                ? uiCopy(context, "相机权限已关闭，请在系统设置中开启")
+                : uiCopy(context, "允许相机权限后使用");
           });
           return;
         }
       } on PlatformException {
         if (!mounted) return;
-        setState(() => _cameraMessage = '无法读取相机权限，请稍后重试');
+        setState(() => _cameraMessage = uiCopy(context, "无法读取相机权限，请稍后重试"));
         return;
       } finally {
         _cameraPermissionRequesting = false;
@@ -449,7 +459,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        if (mounted) setState(() => _cameraMessage = '手机没有可用的相机');
+        if (mounted) {
+          setState(() => _cameraMessage = uiCopy(context, "手机没有可用的相机"));
+        }
         return;
       }
       final selected = cameras.firstWhere(
@@ -486,15 +498,22 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         _cameraPermissionPermanentlyDenied =
             error.code == 'CameraAccessDeniedWithoutPrompt';
         _cameraMessage = switch (error.code) {
-          'CameraAccessDenied' => '允许相机权限后使用',
-          'CameraAccessDeniedWithoutPrompt' =>
-            '相机权限已关闭，请在系统设置中允许 Say Ring 使用相机',
-          'CameraAccessRestricted' => '相机受到系统限制，请检查屏幕使用时间或设备管理设置',
-          _ => '手机相机暂时无法使用，请稍后重试',
+          'CameraAccessDenied' => uiCopy(context, "允许相机权限后使用"),
+          'CameraAccessDeniedWithoutPrompt' => uiCopy(
+            context,
+            "相机权限已关闭，请在系统设置中允许 Say Ring 使用相机",
+          ),
+          'CameraAccessRestricted' => uiCopy(
+            context,
+            "相机受到系统限制，请检查屏幕使用时间或设备管理设置",
+          ),
+          _ => uiCopy(context, "手机相机暂时无法使用，请稍后重试"),
         };
       });
     } catch (_) {
-      if (mounted) setState(() => _cameraMessage = '手机相机暂时无法使用，请稍后重试');
+      if (mounted) {
+        setState(() => _cameraMessage = uiCopy(context, "手机相机暂时无法使用，请稍后重试"));
+      }
     } finally {
       if (generation == _cameraGeneration) _cameraInitializing = false;
     }
@@ -544,7 +563,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             ),
           );
         });
-        setState(() => _cameraMessage = '正在等待读取完成，可先使用手机快门');
+        setState(() => _cameraMessage = uiCopy(context, "正在等待读取完成，可先使用手机快门"));
         return;
       }
     }
@@ -552,8 +571,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     setState(() {
       _cameraRemoteStarted = started;
       _cameraMessage = started
-          ? '按戒指说明双击或晃动，即可拍照。'
-          : widget.controller.errorMessage ?? '戒指相机遥控暂时无法开启';
+          ? uiCopy(context, "按戒指说明双击或晃动，即可拍照。")
+          : widget.controller.errorMessage ?? uiCopy(context, "戒指相机遥控暂时无法开启");
     });
     if (started) {
       _cameraShutterGate.arm(
@@ -573,7 +592,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       return;
     }
     if (_camera != null && !_cameraRemoteStarted) {
-      await _suspendCamera(message: '正在重新开启相机遥控');
+      await _suspendCamera(message: uiCopy(context, "正在重新开启相机遥控"));
     }
     if (mounted) setState(() => _cameraMessage = null);
     await _initializeCamera();
@@ -631,7 +650,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       currentSequence: widget.controller.cameraShutterSequence,
     );
     if (!widget.controller.availabilityFor(widget.feature).isReady) {
-      if (mounted) setState(() => _cameraMessage = '戒指已断开，请重新连接后使用');
+      if (mounted) {
+        setState(() => _cameraMessage = uiCopy(context, "戒指已断开，请重新连接后使用"));
+      }
       return;
     }
     await _initializeCamera();
@@ -662,8 +683,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (!mounted || camera == null || !camera.value.hasError) return;
     final description = camera.value.errorDescription?.trim() ?? '';
     final message = description.toLowerCase().contains('disabled')
-        ? '相机已被系统策略停用，请在系统设置中开启相机后重试'
-        : '手机相机暂时无法使用，请检查相机权限或系统设置';
+        ? uiCopy(context, "相机已被系统策略停用，请在系统设置中开启相机后重试")
+        : uiCopy(context, "手机相机暂时无法使用，请检查相机权限或系统设置");
     if (_cameraMessage == message) return;
     _cancelCameraReadRetry();
     final shouldStopRemote = _cameraRemoteStarted;
@@ -710,25 +731,25 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           _lastPhoto = photo;
           _photoSaved = true;
           _galleryPermissionDenied = false;
-          _cameraMessage = '照片已保存到手机相册';
+          _cameraMessage = uiCopy(context, "照片已保存到手机相册");
         });
       }
     } on CameraException {
       if (isCurrent()) {
-        setState(() => _cameraMessage = '未能拍照，请重试');
+        setState(() => _cameraMessage = uiCopy(context, "未能拍照，请重试"));
       }
     } on PlatformException catch (error) {
       if (isCurrent()) {
         setState(() {
           _galleryPermissionDenied = error.code == 'PHOTO_PERMISSION_DENIED';
           _cameraMessage = _galleryPermissionDenied
-              ? '请在系统设置中允许添加照片'
-              : '照片未保存，请重试';
+              ? uiCopy(context, "请在系统设置中允许添加照片")
+              : uiCopy(context, "照片未保存，请重试");
         });
       }
     } catch (_) {
       if (isCurrent()) {
-        setState(() => _cameraMessage = '照片未保存，请重试保存这张照片');
+        setState(() => _cameraMessage = uiCopy(context, "照片未保存，请重试保存这张照片"));
       }
     } finally {
       if (mounted) setState(() => _takingPhoto = false);
@@ -757,12 +778,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         setState(() {
           _photoSaved = true;
           _galleryPermissionDenied = false;
-          _cameraMessage = '照片已保存到手机相册';
+          _cameraMessage = uiCopy(context, "照片已保存到手机相册");
         });
       }
     } catch (_) {
       if (isCurrent()) {
-        setState(() => _cameraMessage = '照片仍未保存，请检查相册权限或空间后重试');
+        setState(
+          () => _cameraMessage = uiCopy(context, "照片仍未保存，请检查相册权限或空间后重试"),
+        );
       }
     } finally {
       if (mounted) setState(() => _takingPhoto = false);
@@ -799,11 +822,15 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                       WearableSdkSource.coolwear,
                       WearableSdkSource.qring,
                     }.contains(source)
-                    ? (next ? '查找指令已发送' : '停止指令已发送')
+                    ? (next
+                          ? uiCopy(context, "查找指令已发送")
+                          : uiCopy(context, "停止指令已发送"))
                     : (isOneShot
-                          ? '已发送查找指令，请留意戒指振动'
-                          : (next ? '戒指正在响铃或振动' : '已停止查找')))
-              : widget.controller.errorMessage ?? '暂时无法查找戒指',
+                          ? uiCopy(context, "已发送查找指令，请留意戒指振动")
+                          : (next
+                                ? uiCopy(context, "戒指正在响铃或振动")
+                                : uiCopy(context, "已停止查找"))))
+              : widget.controller.errorMessage ?? uiCopy(context, "暂时无法查找戒指"),
         ),
       ),
     );
@@ -811,6 +838,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.connectedDevice?.sdkSource ==
+        WearableSdkSource.urion) {
+      return U19DevicePage(
+        controller: widget.controller,
+        feature: widget.feature,
+      );
+    }
     if (!_availableInRelease) return const WellnessReleaseUnavailablePage();
     return ListenableBuilder(
       listenable: widget.controller,
@@ -834,16 +868,20 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     } catch (_) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('请打开手机系统设置→蓝牙，暂时断开戒指')),
+                          SnackBar(
+                            content: Text(
+                              uiCopy(context, "请打开手机系统设置→蓝牙，暂时断开戒指"),
+                            ),
+                          ),
                         );
                       }
                     }
                   },
                   icon: const Icon(Icons.bluetooth_disabled_rounded),
-                  label: const Text('误触时打开蓝牙设置'),
+                  label: Text(uiCopy(context, "误触时打开蓝牙设置")),
                 ),
-                const Text(
-                  '连接中断不一定会停止手机控制。发生误触时，可先在系统蓝牙中断开戒指；无需解绑。',
+                Text(
+                  uiCopy(context, "连接中断不一定会停止手机控制。发生误触时，可先在系统蓝牙中断开戒指；无需解绑。"),
                   style: TextStyle(fontSize: 13, color: SaydianColors.muted),
                 ),
                 const SizedBox(height: 12),
@@ -859,9 +897,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 const SizedBox(height: 14),
               ],
               if (!availability.isReady && _gestureRecovering)
-                const FeatureStateCard(
-                  message: '正在准备手势控制',
-                  detail: '正在恢复当前戒指的控制连接，请保持戒指靠近手机。',
+                FeatureStateCard(
+                  message: uiCopy(context, "正在准备手势控制"),
+                  detail: uiCopy(context, "正在恢复当前戒指的控制连接，请保持戒指靠近手机。"),
                   icon: Icons.bluetooth_connected_rounded,
                 )
               else if (!availability.isReady)
@@ -923,7 +961,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     DeviceFeature.healthAssessment => _buildHealthAssessmentPanel(busy),
     DeviceFeature.healthMonitoring => _buildHealthMonitoringPanel(),
     _ => FeatureStateCard(
-      message: '当前戒指暂不支持在 App 中设置',
+      message: uiCopy(context, "当前戒指暂不支持在 App 中设置"),
       detail: _deviceFeatureDescription(widget.feature),
       icon: _deviceFeatureIcon(widget.feature),
     ),
@@ -971,8 +1009,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               !waitingForIdle &&
               !_gestureRecovering
           ? (widget.controller.isRingInitializationPending
-                ? '设备准备尚未完成，请回设备页查看状态'
-                : '请在设备页确认当前戒指后重试')
+                ? uiCopy(context, "设备准备尚未完成，请回设备页查看状态")
+                : uiCopy(context, "请在设备页确认当前戒指后重试"))
           : _featureData['errorMessage'] as String? ??
                 widget.controller.errorMessage,
       uncertainControl:
@@ -986,7 +1024,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               'mode': 0,
               'stopControl': true,
               if (_gestureStrength != null) 'strength': _gestureStrength,
-            }, '关闭指令已确认并读回')
+            }, uiCopy(context, "关闭指令已确认并读回"))
           : null,
       needsStrength:
           qring &&
@@ -1005,13 +1043,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         'mode': mode,
         if (qring) 'expectedMode': _featureData['rawMode'],
         if (qring && _gestureStrength != null) 'strength': _gestureStrength,
-      }, qring ? '手势模式已保存' : '戒指已收到设置'),
+      }, qring ? uiCopy(context, "手势模式已保存") : uiCopy(context, "戒指已收到设置")),
     );
   }
 
   Widget _buildRingReminderSwitch(bool busy, {required bool call}) {
     final key = call ? 'incomingCall' : 'enabled';
-    final title = call ? '来电提醒' : '消息提醒';
+    final title = call ? uiCopy(context, "来电提醒") : uiCopy(context, "消息提醒");
     final connectionOnly = _featureData['reminderStyle'] == 'connection';
     final known = _featureData[key] is bool;
     if (!known && !connectionOnly) return _loadingCard(busy, title);
@@ -1026,7 +1064,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text('当前提醒状态未知，请选择是否开启。'),
+                      Text(uiCopy(context, "当前提醒状态未知，请选择是否开启。")),
                       const SizedBox(height: 12),
                       for (final enabled in [true, false])
                         TextButton(
@@ -1034,33 +1072,43 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                               ? null
                               : () => _saveFeature({
                                   'enabled': enabled,
-                                }, '设备已确认提醒指令'),
-                          child: Text(enabled ? '开启提醒' : '关闭提醒'),
+                                }, uiCopy(context, "设备已确认提醒指令")),
+                          child: Text(
+                            enabled
+                                ? uiCopy(context, "开启提醒")
+                                : uiCopy(context, "关闭提醒"),
+                          ),
                         ),
                     ],
                   ),
                 )
               : SwitchListTile(
                   title: Text(title),
-                  subtitle: const Text('让戒指振动或亮灯'),
+                  subtitle: Text(uiCopy(context, "让戒指振动或亮灯")),
                   value: _featureData[key] == true,
                   onChanged: busy
                       ? null
-                      : (value) => _saveFeature({
-                          ..._featureData,
-                          key: value,
-                        }, connectionOnly ? '设备已确认提醒指令' : '设备提醒设置已确认'),
+                      : (value) => _saveFeature(
+                          {..._featureData, key: value},
+                          connectionOnly
+                              ? uiCopy(context, "设备已确认提醒指令")
+                              : uiCopy(context, "设备提醒设置已确认"),
+                        ),
                 ),
         ),
         const SizedBox(height: 12),
         if (connectionOnly) ...[
-          const Text('此设备未提供当前状态读取。仅显示本次连接内已确认的指令。'),
+          Text(uiCopy(context, "此设备未提供当前状态读取。仅显示本次连接内已确认的指令。")),
           const SizedBox(height: 8),
         ],
-        Text(authorized ? '系统蓝牙通知授权已允许' : '系统蓝牙通知授权尚未允许'),
+        Text(
+          authorized
+              ? uiCopy(context, "系统蓝牙通知授权已允许")
+              : uiCopy(context, "系统蓝牙通知授权尚未允许"),
+        ),
         const SizedBox(height: 8),
-        const Text(
-          '请在手机设置 → 蓝牙 → 当前设备中允许共享系统通知。实际提醒还受应用通知权限和勿扰设置影响。',
+        Text(
+          uiCopy(context, "请在手机设置 → 蓝牙 → 当前设备中允许共享系统通知。实际提醒还受应用通知权限和勿扰设置影响。"),
           style: TextStyle(color: SaydianColors.muted, fontSize: 14),
         ),
       ],
@@ -1071,26 +1119,28 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (_featureData['reminderStyle'] == 'phoneRelay') {
       return _buildNotificationsPanel(busy);
     }
-    if (_featureData.isEmpty) return _loadingCard(busy, '来电提醒');
+    if (_featureData.isEmpty) {
+      return _loadingCard(busy, uiCopy(context, "来电提醒"));
+    }
     return Card(
       child: Column(
         children: [
           _featureSwitch(
-            title: '来电提醒',
-            subtitle: '在戒指提醒手机来电',
+            title: uiCopy(context, "来电提醒"),
+            subtitle: uiCopy(context, "在戒指提醒手机来电"),
             keyName: 'incomingCall',
             busy: busy,
           ),
           ListTile(
             title: Text(
               _featureData['systemNotificationAuthorized'] == true
-                  ? '蓝牙通知已授权'
-                  : '蓝牙通知未授权',
+                  ? uiCopy(context, "蓝牙通知已授权")
+                  : uiCopy(context, "蓝牙通知未授权"),
             ),
-            subtitle: const Text('在 iPhone 设置 → 蓝牙 → 戒指中允许共享系统通知。'),
+            subtitle: Text(uiCopy(context, "在 iPhone 设置 → 蓝牙 → 戒指中允许共享系统通知。")),
             trailing: TextButton(
               onPressed: busy ? null : _loadFeature,
-              child: const Text('刷新'),
+              child: Text(uiCopy(context, "刷新")),
             ),
           ),
         ],
@@ -1108,16 +1158,18 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Widget _loadingCard(bool busy, String label) => FeatureStateCard(
-    message: busy ? '正在读取$label' : '暂时未读取到$label',
-    detail: '请保持戒指靠近手机后重试。',
+    message: busy
+        ? uiCopy(context, "正在读取{p0}", parameters: [label])
+        : uiCopy(context, "暂时未读取到{p0}", parameters: [label]),
+    detail: uiCopy(context, "请保持戒指靠近手机后重试。"),
     icon: _deviceFeatureIcon(widget.feature),
-    actionLabel: busy ? null : '重新读取',
+    actionLabel: busy ? null : uiCopy(context, "重新读取"),
     onAction: busy ? null : _loadFeature,
   );
 
   Widget _installedFaceTile(Map<String, Object?> face, bool busy) {
     final current = face['isCurrent'] == true;
-    final name = Text('${face['name'] ?? '戒指显示样式'}');
+    final name = Text('${face['name'] ?? uiCopy(context, "戒指显示样式")}');
     final status = Text(current ? '当前使用' : '${face['status'] ?? '戒指显示样式'}');
     final action = current
         ? const Icon(Icons.check_circle_rounded, color: SaydianColors.green)
@@ -1199,10 +1251,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           ),
           const SizedBox(height: 12),
         ],
-        const Align(
+        Align(
           alignment: Alignment.centerLeft,
           child: Text(
-            '戒指中的显示样式',
+            uiCopy(context, "戒指中的显示样式"),
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
           ),
         ),
@@ -1210,17 +1262,19 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         if (busy && progress != null && progress > 0) ...[
           LinearProgressIndicator(value: progress.clamp(0, 100) / 100),
           const SizedBox(height: 10),
-          Text('正在读取显示样式 $progress%'),
+          Text(uiCopy(context, "正在读取显示样式 {p0}%", parameters: [progress])),
           const SizedBox(height: 12),
         ],
         if (noLocalData)
-          _loadingCard(busy, '戒指中的显示样式')
+          _loadingCard(busy, uiCopy(context, "戒指中的显示样式"))
         else
           Card(
             child: faces.isEmpty
-                ? const Padding(
+                ? Padding(
                     padding: EdgeInsets.all(24),
-                    child: Center(child: Text('戒指中暂未读取到可切换的显示样式')),
+                    child: Center(
+                      child: Text(uiCopy(context, "戒指中暂未读取到可切换的显示样式")),
+                    ),
                   )
                 : Column(
                     children: [
@@ -1254,7 +1308,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       final profileData = await widget.controller.readWatchFaceProfile();
       final profile = DeviceWatchFaceMarketProfile.fromMap(profileData);
       if (!profile.matchesDevice(widget.controller.connectedDevice?.id)) {
-        throw const DeviceWatchFaceMarketException('连接设备已变化，请重新进入显示样式页面');
+        throw DeviceWatchFaceMarketException(
+          uiCopy(null, "连接设备已变化，请重新进入显示样式页面"),
+        );
       }
       if (!mounted) return;
       await Navigator.of(context).push(
@@ -1270,7 +1326,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              userFacingMessage(error.message, fallback: '暂时无法打开样式，请重试'),
+              userFacingMessage(
+                error.message,
+                fallback: uiCopy(context, "暂时无法打开样式，请重试"),
+              ),
             ),
           ),
         );
@@ -1286,7 +1345,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       'id': '${face['id'] ?? ''}',
       'type': '${face['type'] ?? ''}',
       'index': (face['index'] as num?)?.toInt() ?? 0,
-    }, '显示样式已切换');
+    }, uiCopy(context, "显示样式已切换"));
   }
 
   Widget _buildPhotoWatchFacePanel(bool busy) {
@@ -1315,7 +1374,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                           borderRadius: BorderRadius.circular(22),
                         ),
                         child: _dialPhoto == null
-                            ? const Column(
+                            ? Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(
@@ -1325,7 +1384,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                                   ),
                                   SizedBox(height: 8),
                                   Text(
-                                    '点击选择照片',
+                                    uiCopy(context, "点击选择照片"),
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
                                     ),
@@ -1362,7 +1421,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                           OutlinedButton.icon(
                             onPressed: busy ? null : _pickDialPhoto,
                             icon: const Icon(Icons.photo_library_outlined),
-                            label: Text(_dialPhoto == null ? '选择照片' : '更换照片'),
+                            label: Text(
+                              _dialPhoto == null
+                                  ? uiCopy(context, "选择照片")
+                                  : uiCopy(context, "更换照片"),
+                            ),
                           ),
                         ],
                       ),
@@ -1377,7 +1440,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                   Padding(
                     padding: const EdgeInsets.all(12),
                     child: Text(
-                      progress > 0 ? '正在传送到戒指 $progress%' : '正在准备照片显示',
+                      progress > 0
+                          ? uiCopy(
+                              context,
+                              "正在传送到戒指 {p0}%",
+                              parameters: [progress],
+                            )
+                          : uiCopy(context, "正在准备照片显示"),
                     ),
                   ),
                 ],
@@ -1388,14 +1457,35 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     labelText: context.l10n.timeDisplayPosition,
                     prefixIcon: Icon(Icons.schedule_outlined),
                   ),
-                  items: const [
-                    DropdownMenuItem(value: 0, child: Text('顶部居中')),
-                    DropdownMenuItem(value: 1, child: Text('画面中央')),
-                    DropdownMenuItem(value: 2, child: Text('底部居中')),
-                    DropdownMenuItem(value: 3, child: Text('左上角')),
-                    DropdownMenuItem(value: 4, child: Text('右上角')),
-                    DropdownMenuItem(value: 5, child: Text('左下角')),
-                    DropdownMenuItem(value: 6, child: Text('右下角')),
+                  items: [
+                    DropdownMenuItem(
+                      value: 0,
+                      child: Text(uiCopy(context, "顶部居中")),
+                    ),
+                    DropdownMenuItem(
+                      value: 1,
+                      child: Text(uiCopy(context, "画面中央")),
+                    ),
+                    DropdownMenuItem(
+                      value: 2,
+                      child: Text(uiCopy(context, "底部居中")),
+                    ),
+                    DropdownMenuItem(
+                      value: 3,
+                      child: Text(uiCopy(context, "左上角")),
+                    ),
+                    DropdownMenuItem(
+                      value: 4,
+                      child: Text(uiCopy(context, "右上角")),
+                    ),
+                    DropdownMenuItem(
+                      value: 5,
+                      child: Text(uiCopy(context, "左下角")),
+                    ),
+                    DropdownMenuItem(
+                      value: 6,
+                      child: Text(uiCopy(context, "右下角")),
+                    ),
                   ],
                   onChanged: busy
                       ? null
@@ -1440,7 +1530,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('允许照片权限后使用')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "允许照片权限后使用"))));
     }
   }
 
@@ -1453,7 +1543,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         'imagePath': photo.path,
         'timePosition': _dialTimePosition,
       },
-      '照片显示已设置',
+      uiCopy(context, "照片显示已设置"),
       reload: false,
     );
   }
@@ -1484,7 +1574,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                       size: 52,
                     ),
             ),
-      message: _cameraMessage ?? '正在打开相机',
+      message: _cameraMessage ?? uiCopy(context, "正在打开相机"),
       remoteReady: _cameraRemoteStarted,
       takingPhoto: _takingPhoto,
       saved: _photoSaved,
@@ -1517,11 +1607,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Widget _buildPhoneCallsPanel(bool busy) {
-    if (_featureData.isEmpty) return _loadingCard(busy, '通话设置');
+    if (_featureData.isEmpty) {
+      return _loadingCard(busy, uiCopy(context, "通话设置"));
+    }
     final status = switch (_featureData['connectionStatus']) {
-      'connected' => '通话连接已建立',
-      'broadcasting' => '等待手机配对',
-      _ => '通话连接未建立',
+      'connected' => uiCopy(context, "通话连接已建立"),
+      'broadcasting' => uiCopy(context, "等待手机配对"),
+      _ => uiCopy(context, "通话连接未建立"),
     };
     return Card(
       child: Column(
@@ -1530,11 +1622,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             leading: const Icon(Icons.bluetooth_audio_rounded),
             title: Text(status),
             subtitle: Text(
-              _featureData['paired'] == true ? '手机已保存配对信息' : '请在手机蓝牙设置中完成配对',
+              _featureData['paired'] == true
+                  ? uiCopy(context, "手机已保存配对信息")
+                  : uiCopy(context, "请在手机蓝牙设置中完成配对"),
             ),
             trailing: IconButton(
               onPressed: busy ? null : _loadFeature,
-              tooltip: '刷新',
+              tooltip: uiCopy(context, "刷新"),
               icon: const Icon(Icons.refresh_rounded),
             ),
           ),
@@ -1547,7 +1641,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             ),
             title: Text(context.l10n.callMediaAudio),
             subtitle: Text(
-              _featureData['audioEnabled'] == true ? '戒指媒体声音已连接' : '媒体声音尚未连接',
+              _featureData['audioEnabled'] == true
+                  ? uiCopy(context, "戒指媒体声音已连接")
+                  : uiCopy(context, "媒体声音尚未连接"),
             ),
           ),
           Padding(
@@ -1560,12 +1656,12 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     ? null
                     : () => _saveFeature(const {
                         'enabled': true,
-                      }, '已发送通话连接请求，请按系统提示完成配对'),
+                      }, uiCopy(context, "已发送通话连接请求，请按系统提示完成配对")),
                 icon: const Icon(Icons.bluetooth_connected_rounded),
                 label: Text(
                   _featureData['connectionStatus'] == 'connected'
-                      ? '通话连接已建立'
-                      : '建立通话连接',
+                      ? uiCopy(context, "通话连接已建立")
+                      : uiCopy(context, "建立通话连接"),
                 ),
               ),
             ),
@@ -1583,12 +1679,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     bool supported = true,
   }) => SwitchListTile(
     title: Text(title),
-    subtitle: Text(supported ? subtitle : '当前戒指不支持此项'),
+    subtitle: Text(supported ? subtitle : uiCopy(context, "当前戒指不支持此项")),
     value: _featureData[keyName] == true,
     onChanged: busy || !supported
         ? null
-        : (value) =>
-              _saveFeature({..._featureData, keyName: value}, '$title已保存'),
+        : (value) => _saveFeature({
+            ..._featureData,
+            keyName: value,
+          }, uiCopy(context, "{p0}已保存", parameters: [title])),
   );
 
   Widget _buildNotificationsPanel(bool busy) {
@@ -1598,23 +1696,25 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     }.contains(_featureData['reminderStyle'])) {
       return _buildRingReminderSwitch(busy, call: false);
     }
-    if (_featureData.isEmpty) return _loadingCard(busy, '消息通知设置');
+    if (_featureData.isEmpty) {
+      return _loadingCard(busy, uiCopy(context, "消息通知设置"));
+    }
     final supported =
         (_featureData['supportedKeys'] as List?)
             ?.map((value) => '$value')
             .toSet() ??
         const <String>{};
     final entries = <(String, String, String)>[
-      ('incomingCall', '来电提醒', '有电话时在戒指提醒'),
-      ('sms', '短信', '收到短信时由戒指提醒'),
-      ('wechat', '微信', '收到微信消息时由戒指提醒'),
-      ('qq', 'QQ', '收到 QQ 消息时由戒指提醒'),
-      ('whatsapp', 'WhatsApp', '收到 WhatsApp 消息时由戒指提醒'),
-      ('dingtalk', '钉钉', '收到钉钉消息时由戒指提醒'),
-      ('wecom', '企业微信', '收到企业微信消息时由戒指提醒'),
-      ('tiktok', '抖音', '收到抖音消息时由戒指提醒'),
-      ('telegram', 'Telegram', '收到 Telegram 消息时由戒指提醒'),
-      ('otherApps', '其他应用', '接收其他已允许应用的消息提醒'),
+      ('incomingCall', uiCopy(context, "来电提醒"), uiCopy(context, "有电话时在戒指提醒")),
+      ('sms', uiCopy(context, "短信"), uiCopy(context, "收到短信时由戒指提醒")),
+      ('wechat', uiCopy(context, "微信"), uiCopy(context, "收到微信消息时由戒指提醒")),
+      ('qq', 'QQ', uiCopy(context, "收到 QQ 消息时由戒指提醒")),
+      ('whatsapp', 'WhatsApp', uiCopy(context, "收到 WhatsApp 消息时由戒指提醒")),
+      ('dingtalk', uiCopy(context, "钉钉"), uiCopy(context, "收到钉钉消息时由戒指提醒")),
+      ('wecom', uiCopy(context, "企业微信"), uiCopy(context, "收到企业微信消息时由戒指提醒")),
+      ('tiktok', uiCopy(context, "抖音"), uiCopy(context, "收到抖音消息时由戒指提醒")),
+      ('telegram', 'Telegram', uiCopy(context, "收到 Telegram 消息时由戒指提醒")),
+      ('otherApps', uiCopy(context, "其他应用"), uiCopy(context, "接收其他已允许应用的消息提醒")),
     ];
     final visibleEntries = entries
         .where((entry) => supported.contains(entry.$1))
@@ -1628,11 +1728,18 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               access ? Icons.verified_user_rounded : Icons.security_rounded,
               color: access ? SaydianColors.green : SaydianColors.orange,
             ),
-            title: Text(access ? '通知使用权已允许' : '还需允许通知使用权'),
+            title: Text(
+              access
+                  ? uiCopy(context, "通知使用权已允许")
+                  : uiCopy(context, "还需允许通知使用权"),
+            ),
             subtitle: Text(
               access
-                  ? '已开启的来电和应用消息可转发到戒指；实际振动仍需来电测试确认'
-                  : '这不是“允许发送通知”。请在系统“通知使用权/通知读取权限”中允许 Say Ring，否则开启提醒开关也无法转发来电和消息。',
+                  ? uiCopy(context, "已开启的来电和应用消息可转发到戒指；实际振动仍需来电测试确认")
+                  : uiCopy(
+                      context,
+                      "这不是“允许发送通知”。请在系统“通知使用权/通知读取权限”中允许 Say Ring，否则开启提醒开关也无法转发来电和消息。",
+                    ),
             ),
             trailing: TextButton(
               onPressed: busy
@@ -1640,7 +1747,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                   : access
                   ? _loadFeature
                   : _openNotificationSettings,
-              child: Text(access ? '重新检查' : '去设置'),
+              child: Text(
+                access ? uiCopy(context, "重新检查") : uiCopy(context, "去设置"),
+              ),
             ),
           ),
         ),
@@ -1677,7 +1786,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         content: Text(
           userFacingMessage(
             widget.controller.errorMessage,
-            fallback: '无法打开系统设置',
+            fallback: uiCopy(context, "无法打开系统设置"),
           ),
         ),
       ),
@@ -1685,7 +1794,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Widget _buildWeatherPanel(bool busy) {
-    if (_featureData.isEmpty) return _loadingCard(busy, '天气设置');
+    if (_featureData.isEmpty) {
+      return _loadingCard(busy, uiCopy(context, "天气设置"));
+    }
     final city = '${_featureData['city'] ?? ''}'.trim();
     final updatedAt = (_featureData['updatedAt'] as num?)?.toInt() ?? 0;
     return Column(
@@ -1695,15 +1806,17 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             children: [
               _featureSwitch(
                 keyName: 'enabled',
-                title: '在戒指显示天气',
-                subtitle: '开启后可在戒指查看天气信息',
+                title: uiCopy(context, "在戒指显示天气"),
+                subtitle: uiCopy(context, "开启后可在戒指查看天气信息"),
                 busy: busy || _weatherRefreshing,
               ),
               const Divider(indent: 56),
               SwitchListTile(
                 title: Text(context.l10n.useCelsius),
                 subtitle: Text(
-                  _featureData['useCelsius'] == true ? '温度显示为 ℃' : '温度显示为 ℉',
+                  _featureData['useCelsius'] == true
+                      ? uiCopy(context, "温度显示为 ℃")
+                      : uiCopy(context, "温度显示为 ℉"),
                 ),
                 value: _featureData['useCelsius'] == true,
                 onChanged: busy || _weatherRefreshing
@@ -1711,7 +1824,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     : (value) => _saveFeature({
                         ..._featureData,
                         'useCelsius': value,
-                      }, '温度单位已保存'),
+                      }, uiCopy(context, "温度单位已保存")),
               ),
               if (city.isNotEmpty) ...[
                 const Divider(indent: 56),
@@ -1720,8 +1833,12 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                   title: Text(city),
                   subtitle: Text(
                     updatedAt > 0
-                        ? '上次更新 ${_weatherTimeLabel(updatedAt)}'
-                        : '已同步到戒指',
+                        ? uiCopy(
+                            context,
+                            "上次更新 {p0}",
+                            parameters: [_weatherTimeLabel(updatedAt)],
+                          )
+                        : uiCopy(context, "已同步到戒指"),
                   ),
                 ),
               ],
@@ -1744,7 +1861,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                                 ),
                               )
                             : const Icon(Icons.cloud_sync_outlined),
-                        label: Text(_weatherRefreshing ? '正在更新天气' : '更新当前位置天气'),
+                        label: Text(
+                          _weatherRefreshing
+                              ? uiCopy(context, "正在更新天气")
+                              : uiCopy(context, "更新当前位置天气"),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -1797,23 +1918,34 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       final values = forecast.toFeatureValues(
         useCelsius: _featureData['useCelsius'] != false,
       );
-      final saved = await _saveFeature(values, '天气已同步到戒指', reload: false);
+      final saved = await _saveFeature(
+        values,
+        uiCopy(null, "天气已同步到戒指"),
+        reload: false,
+      );
       if (saved && mounted) {
         setState(() {
           _featureData = {..._featureData, ...values};
-          _weatherMessage = '${forecast.city}天气已更新';
+          _weatherMessage = uiCopy(
+            context,
+            "{p0}天气已更新",
+            parameters: [forecast.city],
+          );
         });
       }
     } on DeviceWeatherException catch (error) {
       if (!mounted) return;
-      final message = userFacingMessage(error.message, fallback: '暂时无法更新天气');
+      final message = userFacingMessage(
+        error.message,
+        fallback: uiCopy(context, "暂时无法更新天气"),
+      );
       setState(() => _weatherMessage = message);
       if (error.openSettings) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message),
             action: SnackBarAction(
-              label: '去设置',
+              label: uiCopy(context, "去设置"),
               onPressed: () {
                 if (error.locationSettings) {
                   unawaited(Geolocator.openLocationSettings());
@@ -1826,7 +1958,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         );
       }
     } catch (_) {
-      if (mounted) setState(() => _weatherMessage = '天气更新失败，请稍后重试');
+      if (mounted) {
+        setState(() => _weatherMessage = uiCopy(context, "天气更新失败，请稍后重试"));
+      }
     } finally {
       if (mounted) setState(() => _weatherRefreshing = false);
     }
@@ -1834,21 +1968,28 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   String _weatherTimeLabel(int milliseconds) {
     final value = DateTime.fromMillisecondsSinceEpoch(milliseconds);
-    return '${value.month}月${value.day}日 '
-        '${value.hour.toString().padLeft(2, '0')}:'
-        '${value.minute.toString().padLeft(2, '0')}';
+    return uiCopy(
+      context,
+      "{p0}月{p1}日 {p2}:{p3}",
+      parameters: [
+        value.month,
+        value.day,
+        value.hour.toString().padLeft(2, '0'),
+        value.minute.toString().padLeft(2, '0'),
+      ],
+    );
   }
 
   Widget _buildAlarmsPanel(bool busy) {
-    if (_featureData.isEmpty) return _loadingCard(busy, '闹钟');
+    if (_featureData.isEmpty) return _loadingCard(busy, uiCopy(context, "闹钟"));
     final alarms = _items;
     return Column(
       children: [
         Card(
           child: alarms.isEmpty
-              ? const Padding(
+              ? Padding(
                   padding: EdgeInsets.all(24),
-                  child: Center(child: Text('戒指中还没有闹钟')),
+                  child: Center(child: Text(uiCopy(context, "戒指中还没有闹钟"))),
                 )
               : Column(
                   children: [
@@ -1893,15 +2034,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             value: enabled,
             onChanged: busy
                 ? null
-                : (value) => _saveFeature({
-                    ...alarm,
-                    'operation': 'update',
-                    'enabled': value,
-                  }, value ? '闹钟已开启' : '闹钟已关闭'),
+                : (value) => _saveFeature(
+                    {...alarm, 'operation': 'update', 'enabled': value},
+                    value ? uiCopy(context, "闹钟已开启") : uiCopy(context, "闹钟已关闭"),
+                  ),
           ),
           IconButton(
             onPressed: busy ? null : () => _deleteAlarm(alarm),
-            tooltip: '删除',
+            tooltip: uiCopy(context, "删除"),
             icon: const Icon(Icons.delete_outline_rounded),
           ),
         ],
@@ -1922,12 +2062,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             .toSet() ??
         <int>{1, 2, 3, 4, 5, 6, 7};
     var enabled = alarm?['enabled'] != false;
-    var label = alarm?['label']?.toString().trim() ?? '闹钟';
+    var label = alarm?['label']?.toString().trim() ?? uiCopy(context, "闹钟");
     final values = await showDialog<Map<String, Object?>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(alarm == null ? '添加闹钟' : '编辑闹钟'),
+          title: Text(
+            alarm == null ? uiCopy(context, "添加闹钟") : uiCopy(context, "编辑闹钟"),
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1958,7 +2100,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     maxLength: 20,
                     decoration: InputDecoration(
                       labelText: context.l10n.reminderName,
-                      hintText: '例如：吃药、起床',
+                      hintText: uiCopy(context, "例如：吃药、起床"),
                     ),
                     onChanged: (value) => label = value.trim(),
                   ),
@@ -1971,7 +2113,15 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     for (var day = 1; day <= 7; day++)
                       FilterChip(
                         label: Text(
-                          const ['一', '二', '三', '四', '五', '六', '日'][day - 1],
+                          [
+                            uiCopy(context, "一"),
+                            uiCopy(context, "二"),
+                            uiCopy(context, "三"),
+                            uiCopy(context, "四"),
+                            uiCopy(context, "五"),
+                            uiCopy(context, "六"),
+                            uiCopy(context, "日"),
+                          ][day - 1],
                         ),
                         selected: repeatDays.contains(day),
                         onSelected: (selected) => setDialogState(() {
@@ -1999,7 +2149,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 'hour': time.hour,
                 'minute': time.minute,
                 'enabled': enabled,
-                'label': supportsNames ? (label.isEmpty ? '闹钟' : label) : '',
+                'label': supportsNames
+                    ? (label.isEmpty ? uiCopy(context, "闹钟") : label)
+                    : '',
                 'repeatDays': repeatDays.toList()..sort(),
               }),
               child: Text(context.l10n.save),
@@ -2008,29 +2160,45 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         ),
       ),
     );
-    if (values != null) await _saveFeature(values, '闹钟已保存');
+    if (values != null) await _saveFeature(values, uiCopy(null, "闹钟已保存"));
   }
 
   Future<void> _deleteAlarm(Map<String, Object?> alarm) async {
-    final confirmed = await _confirm('删除闹钟', '确定删除这个闹钟吗？');
+    final confirmed = await _confirm(
+      uiCopy(context, "删除闹钟"),
+      uiCopy(context, "确定删除这个闹钟吗？"),
+    );
     if (!confirmed) return;
-    await _saveFeature({...alarm, 'operation': 'delete'}, '闹钟已删除');
+    await _saveFeature({
+      ...alarm,
+      'operation': 'delete',
+    }, uiCopy(null, "闹钟已删除"));
   }
 
   String _repeatDaysLabel(Object? raw) {
     final days =
         (raw as List?)?.whereType<num>().map((day) => day.toInt()).toSet() ??
         {};
-    if (days.isEmpty) return '仅一次';
-    if (days.length == 7) return '每天';
-    if (days.length == 5 && days.containsAll([1, 2, 3, 4, 5])) return '工作日';
-    const labels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    if (days.isEmpty) return uiCopy(context, "仅一次");
+    if (days.length == 7) return uiCopy(context, "每天");
+    if (days.length == 5 && days.containsAll([1, 2, 3, 4, 5])) {
+      return uiCopy(context, "工作日");
+    }
+    final labels = [
+      uiCopy(context, "周一"),
+      uiCopy(context, "周二"),
+      uiCopy(context, "周三"),
+      uiCopy(context, "周四"),
+      uiCopy(context, "周五"),
+      uiCopy(context, "周六"),
+      uiCopy(context, "周日"),
+    ];
     final sorted = days.toList()..sort();
     return sorted.map((day) => labels[day - 1]).join('、');
   }
 
   Widget _buildContactsPanel(bool busy) {
-    if (_featureData.isEmpty) return _loadingCard(busy, '联系人');
+    if (_featureData.isEmpty) return _loadingCard(busy, uiCopy(context, "联系人"));
     final contacts = _items;
     Map<String, Object?>? emergency;
     for (final contact in contacts) {
@@ -2062,16 +2230,20 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               onPressed: busy || contacts.isEmpty
                   ? null
                   : () => _selectEmergencyContact(contacts),
-              child: Text(emergency == null ? '立即设置' : '更换'),
+              child: Text(
+                emergency == null
+                    ? uiCopy(context, "立即设置")
+                    : uiCopy(context, "更换"),
+              ),
             ),
           ),
         ),
         const SizedBox(height: 12),
         Card(
           child: contacts.isEmpty
-              ? const Padding(
+              ? Padding(
                   padding: EdgeInsets.all(24),
-                  child: Center(child: Text('戒指中还没有常用联系人')),
+                  child: Center(child: Text(uiCopy(context, "戒指中还没有常用联系人"))),
                 )
               : Column(
                   children: [
@@ -2116,7 +2288,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                           onPressed: busy
                               ? null
                               : () => _deleteContact(contacts[index]),
-                          tooltip: '删除',
+                          tooltip: uiCopy(context, "删除"),
                           icon: const Icon(Icons.delete_outline_rounded),
                         ),
                       ),
@@ -2134,7 +2306,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 ? null
                 : _showContactEditor,
             icon: const Icon(Icons.person_add_alt_1_rounded),
-            label: Text(contacts.length >= 10 ? '联系人已满' : '添加联系人'),
+            label: Text(
+              contacts.length >= 10
+                  ? uiCopy(context, "联系人已满")
+                  : uiCopy(context, "添加联系人"),
+            ),
           ),
         ),
       ],
@@ -2146,13 +2322,19 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       context: context,
       builder: (_) => const _ContactEditorDialog(),
     );
-    if (values != null) await _saveFeature(values, '联系人已添加');
+    if (values != null) await _saveFeature(values, uiCopy(null, "联系人已添加"));
   }
 
   Future<void> _deleteContact(Map<String, Object?> contact) async {
-    final confirmed = await _confirm('删除联系人', '确定从戒指删除这个联系人吗？');
+    final confirmed = await _confirm(
+      uiCopy(context, "删除联系人"),
+      uiCopy(context, "确定从戒指删除这个联系人吗？"),
+    );
     if (!confirmed) return;
-    await _saveFeature({...contact, 'operation': 'delete'}, '联系人已删除');
+    await _saveFeature({
+      ...contact,
+      'operation': 'delete',
+    }, uiCopy(null, "联系人已删除"));
   }
 
   Future<void> _toggleEmergencyContact(Map<String, Object?> contact) async {
@@ -2161,7 +2343,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       ...contact,
       'operation': 'emergency',
       'isEmergency': enabled,
-    }, enabled ? '已设为紧急联系人' : '已取消紧急联系人');
+    }, enabled ? uiCopy(context, "已设为紧急联系人") : uiCopy(context, "已取消紧急联系人"));
   }
 
   Future<void> _selectEmergencyContact(
@@ -2171,9 +2353,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         .where((contact) => contact['supportsEmergency'] == true)
         .toList(growable: false);
     if (supported.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('当前戒指不支持设置 SOS 联系人')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(uiCopy(context, "当前戒指不支持设置 SOS 联系人"))),
+      );
       return;
     }
     Map<String, Object?>? picked = supported.firstWhere(
@@ -2275,20 +2457,22 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   String _contactInitial(Map<String, Object?> contact) {
-    final name = '${contact['name'] ?? '联'}'.trim();
-    return name.isEmpty ? '联' : name.substring(0, 1);
+    final name = '${contact['name'] ?? uiCopy(context, "联")}'.trim();
+    return name.isEmpty ? uiCopy(context, "联") : name.substring(0, 1);
   }
 
   Widget _buildWorldClocksPanel(bool busy) {
-    if (_featureData.isEmpty) return _loadingCard(busy, '世界时钟');
+    if (_featureData.isEmpty) {
+      return _loadingCard(busy, uiCopy(context, "世界时钟"));
+    }
     final clocks = _items;
     return Column(
       children: [
         Card(
           child: clocks.isEmpty
-              ? const Padding(
+              ? Padding(
                   padding: EdgeInsets.all(24),
-                  child: Center(child: Text('戒指中还没有世界时钟')),
+                  child: Center(child: Text(uiCopy(context, "戒指中还没有世界时钟"))),
                 )
               : Column(
                   children: [
@@ -2307,7 +2491,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                           onPressed: busy
                               ? null
                               : () => _deleteWorldClock(clocks[index]),
-                          tooltip: '删除',
+                          tooltip: uiCopy(context, "删除"),
                           icon: const Icon(Icons.delete_outline_rounded),
                         ),
                       ),
@@ -2324,7 +2508,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 ? null
                 : _showWorldClockEditor,
             icon: const Icon(Icons.add_rounded),
-            label: Text(clocks.length >= 10 ? '世界时钟已满' : '添加城市'),
+            label: Text(
+              clocks.length >= 10
+                  ? uiCopy(context, "世界时钟已满")
+                  : uiCopy(context, "添加城市"),
+            ),
           ),
         ),
       ],
@@ -2332,16 +2520,16 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _showWorldClockEditor() async {
-    const cities = <(String, int)>[
-      ('北京', 480),
-      ('东京', 540),
-      ('新加坡', 480),
-      ('迪拜', 240),
-      ('伦敦', 0),
-      ('巴黎', 60),
-      ('纽约', -300),
-      ('洛杉矶', -480),
-      ('悉尼', 600),
+    final cities = <(String, int)>[
+      (uiCopy(context, "北京"), 480),
+      (uiCopy(context, "东京"), 540),
+      (uiCopy(context, "新加坡"), 480),
+      (uiCopy(context, "迪拜"), 240),
+      (uiCopy(context, "伦敦"), 0),
+      (uiCopy(context, "巴黎"), 60),
+      (uiCopy(context, "纽约"), -300),
+      (uiCopy(context, "洛杉矶"), -480),
+      (uiCopy(context, "悉尼"), 600),
     ];
     var selected = cities.first;
     final values = await showDialog<Map<String, Object?>>(
@@ -2381,13 +2569,19 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         ),
       ),
     );
-    if (values != null) await _saveFeature(values, '世界时钟已添加');
+    if (values != null) await _saveFeature(values, uiCopy(null, "世界时钟已添加"));
   }
 
   Future<void> _deleteWorldClock(Map<String, Object?> clock) async {
-    final confirmed = await _confirm('删除世界时钟', '确定从戒指删除这个城市吗？');
+    final confirmed = await _confirm(
+      uiCopy(context, "删除世界时钟"),
+      uiCopy(context, "确定从戒指删除这个城市吗？"),
+    );
     if (!confirmed) return;
-    await _saveFeature({...clock, 'operation': 'delete'}, '世界时钟已删除');
+    await _saveFeature({
+      ...clock,
+      'operation': 'delete',
+    }, uiCopy(null, "世界时钟已删除"));
   }
 
   String _utcLabel(int minutes) {
@@ -2397,7 +2591,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Widget _buildHealthRemindersPanel(bool busy) {
-    if (_featureData.isEmpty) return _loadingCard(busy, '健康提醒');
+    if (_featureData.isEmpty) {
+      return _loadingCard(busy, uiCopy(context, "健康提醒"));
+    }
     final reminders = _items
         .where(canDisplayRingReminder)
         .where(
@@ -2410,9 +2606,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         .toList(growable: false);
     return Card(
       child: reminders.isEmpty
-          ? const Padding(
+          ? Padding(
               padding: EdgeInsets.all(24),
-              child: Center(child: Text('当前戒指没有可设置的健康提醒')),
+              child: Center(child: Text(uiCopy(context, "当前戒指没有可设置的健康提醒"))),
             )
           : Column(
               children: [
@@ -2425,11 +2621,28 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                         ? null
                         : () => _showReminderEditor(reminders[index]),
                     leading: const Icon(Icons.event_available_outlined),
-                    title: Text('${reminders[index]['label'] ?? '健康提醒'}'),
+                    title: Text(
+                      '${reminders[index]['label'] ?? uiCopy(context, "健康提醒")}',
+                    ),
                     subtitle: Text(
-                      '${_minutesLabel((reminders[index]['startMinutes'] as num?)?.toInt() ?? 0)}–'
-                      '${_minutesLabel((reminders[index]['endMinutes'] as num?)?.toInt() ?? 0)}'
-                      '${reminders[index]['canEditInterval'] == false ? '' : '，每 ${(reminders[index]['intervalMinutes'] as num?)?.toInt() ?? 60} 分钟'}',
+                      uiCopy(
+                        context,
+                        "{p0}–{p1}{p2}",
+                        parameters: [
+                          _minutesLabel(
+                            (reminders[index]['startMinutes'] as num?)
+                                    ?.toInt() ??
+                                0,
+                          ),
+                          _minutesLabel(
+                            (reminders[index]['endMinutes'] as num?)?.toInt() ??
+                                0,
+                          ),
+                          reminders[index]['canEditInterval'] == false
+                              ? ''
+                              : '，每 ${(reminders[index]['intervalMinutes'] as num?)?.toInt() ?? 60} 分钟',
+                        ],
+                      ),
                     ),
                     trailing: Switch(
                       key: ValueKey(
@@ -2438,10 +2651,12 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                       value: reminders[index]['enabled'] == true,
                       onChanged: busy
                           ? null
-                          : (value) => _saveFeature({
-                              ...reminders[index],
-                              'enabled': value,
-                            }, value ? '提醒已开启' : '提醒已关闭'),
+                          : (value) => _saveFeature(
+                              {...reminders[index], 'enabled': value},
+                              value
+                                  ? uiCopy(context, "提醒已开启")
+                                  : uiCopy(context, "提醒已关闭"),
+                            ),
                     ),
                   ),
                   if (index != reminders.length - 1) const Divider(indent: 56),
@@ -2484,7 +2699,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           key: const Key('ring-reminder-editor'),
-          title: Text('${reminder['label'] ?? '健康提醒'}'),
+          title: Text('${reminder['label'] ?? uiCopy(context, "健康提醒")}'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -2539,7 +2754,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                         .map(
                           (minutes) => DropdownMenuItem(
                             value: minutes,
-                            child: Text('$minutes 分钟'),
+                            child: Text(
+                              uiCopy(context, "{p0} 分钟", parameters: [minutes]),
+                            ),
                           ),
                         )
                         .toList(),
@@ -2572,14 +2789,16 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (originalContext != _currentFeatureContext) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('连接已改变，请重新打开设置')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "连接已改变，请重新打开设置"))));
       return;
     }
-    await _saveFeature(values, '健康提醒已保存');
+    await _saveFeature(values, uiCopy(context, "健康提醒已保存"));
   }
 
   Widget _buildHealthAssessmentPanel(bool busy) {
-    if (_featureData.isEmpty) return _loadingCard(busy, '辅助评估设置');
+    if (_featureData.isEmpty) {
+      return _loadingCard(busy, uiCopy(context, "辅助评估设置"));
+    }
     final items = _items;
     if (items.isEmpty) {
       return FeatureStateCard(
@@ -2596,15 +2815,19 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               for (var index = 0; index < items.length; index++) ...[
                 SwitchListTile(
                   secondary: const Icon(Icons.health_and_safety_outlined),
-                  title: Text('${items[index]['label'] ?? '健康辅助功能'}'),
+                  title: Text(
+                    '${items[index]['label'] ?? uiCopy(context, "健康辅助功能")}',
+                  ),
                   subtitle: Text(context.l10n.assessmentEnabledHint),
                   value: items[index]['enabled'] == true,
                   onChanged: busy
                       ? null
-                      : (value) => _saveFeature({
-                          ...items[index],
-                          'enabled': value,
-                        }, value ? '已开启' : '已关闭'),
+                      : (value) => _saveFeature(
+                          {...items[index], 'enabled': value},
+                          value
+                              ? uiCopy(context, "已开启")
+                              : uiCopy(context, "已关闭"),
+                        ),
                 ),
                 if (index != items.length - 1) const Divider(indent: 56),
               ],
@@ -2628,18 +2851,18 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       return FeatureStateCard(
         message: widget.controller.deviceSettingsStatus,
         icon: Icons.monitor_heart_outlined,
-        actionLabel: '重新读取',
+        actionLabel: uiCopy(context, "重新读取"),
         onAction: widget.controller.refreshDeviceSettings,
       );
     }
-    const labels = <String, String>{
-      'heartRate': '心率自动检测',
-      'bloodOxygen': '血氧自动检测',
-      'hrv': '心率变异性（HRV）自动检测',
-      'stress': '压力自动检测',
-      'bloodPressure': '血压自动检测',
-      'bloodGlucose': '血糖自动检测',
-      'bodyTemperature': '皮肤温度自动检测',
+    final labels = <String, String>{
+      'heartRate': uiCopy(context, "心率自动检测"),
+      'bloodOxygen': uiCopy(context, "血氧自动检测"),
+      'hrv': uiCopy(context, "心率变异性（HRV）自动检测"),
+      'stress': uiCopy(context, "压力自动检测"),
+      'bloodPressure': uiCopy(context, "血压自动检测"),
+      'bloodGlucose': uiCopy(context, "血糖自动检测"),
+      'bodyTemperature': uiCopy(context, "皮肤温度自动检测"),
     };
     final entries = settings.entries.toList(growable: false);
     return Column(

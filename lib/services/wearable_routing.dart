@@ -13,13 +13,20 @@ import 'global_storage_scope.dart';
 import 'safe_secure_storage.dart';
 import 'wearable_bridge.dart';
 
-enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring }
+enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring, urion }
 
 /// Selects only the native transport that is allowed to attempt a handshake.
 ///
 /// A name match is not treated as proof of device capability. The selected
 /// SDK still has to complete its real handshake and capability read before the
 /// App exposes any device feature.
+// U19 的发现由广播特征、原生服务及 EB1 握手验证；名称不是身份凭证。
+// 戒指仍使用原有型号路由，不能把这项豁免扩大到其它通道。
+bool _providerAcceptsName(String name, WearableTransport transport) =>
+    transport == WearableTransport.urion
+    ? name.trim().isNotEmpty
+    : WearableDeviceClassifier.routesTo(name, transport);
+
 class WearableDeviceClassifier {
   const WearableDeviceClassifier._();
 
@@ -49,6 +56,12 @@ class WearableDeviceClassifier {
 
   static WearableTransport? transportFor(String name) {
     final normalized = name.trim().toUpperCase();
+    // 名称只供缓存路由；新发现的 U19 必须来自专用 GATT 的广播验证。
+    if (RegExp(
+      r'(^|[^A-Z0-9])U19[A-Z0-9]*($|[^A-Z0-9])',
+    ).hasMatch(normalized)) {
+      return WearableTransport.urion;
+    }
     // Explicit prefix rules override inherited substring matches (R7C/R7).
     if (_explicitQRing(normalized)) return WearableTransport.qring;
     final qring = _qringMarker(normalized);
@@ -82,6 +95,7 @@ class WearableDeviceClassifier {
     final separator = normalized.indexOf(':');
     if (separator <= 0) return null;
     return switch (normalized.substring(0, separator)) {
+      'urion' => WearableTransport.urion,
       'yucheng' => WearableTransport.yucheng,
       'veepoo' => WearableTransport.veepoo,
       'moyoung' => WearableTransport.moyoung,
@@ -187,13 +201,15 @@ class RoutedWearableBridge
         WearableReadOnlyHealthPolicyBridge,
         WearableManualHealthPolicyBridge,
         WearableHealthReminderHapticsBridge,
-        WearableBondedDeviceSelectionBridge {
+        WearableBondedDeviceSelectionBridge,
+        WearableU19HealthPolicyBridge {
   RoutedWearableBridge({
     WearableBridge? veepoo,
     WearableBridge? yucheng,
     WearableBridge? moyoung,
     WearableBridge? coolwear,
     WearableBridge? qring,
+    WearableBridge? urion,
     WearableTransportPreferenceStore? preferenceStore,
     this.restoreOnlyBoundDevice = false,
     this.requireOwnerScopedBinding = false,
@@ -206,6 +222,7 @@ class RoutedWearableBridge
        },
        _preferenceStore =
            preferenceStore ?? const SecureWearableTransportPreferenceStore() {
+    if (urion != null) _sources[WearableTransport.urion] = urion;
     if (moyoung != null) _sources[WearableTransport.moyoung] = moyoung;
     if (coolwear != null) _sources[WearableTransport.coolwear] = coolwear;
     if (qring != null) _sources[WearableTransport.qring] = qring;
@@ -341,10 +358,7 @@ class RoutedWearableBridge
   Future<DeviceInfo?> readRememberedDevice() async {
     final saved = await _readVisibleBinding();
     if (saved == null || saved.deviceName == null) return null;
-    if (!WearableDeviceClassifier.routesTo(
-      saved.deviceName!,
-      saved.transport,
-    )) {
+    if (!_providerAcceptsName(saved.deviceName!, saved.transport)) {
       return null;
     }
     return DeviceInfo(
@@ -361,7 +375,7 @@ class RoutedWearableBridge
         _bindingBelongsToOwner(saved) &&
         saved.deviceName != null &&
         _sources.containsKey(saved.transport) &&
-        WearableDeviceClassifier.routesTo(saved.deviceName!, saved.transport);
+        _providerAcceptsName(saved.deviceName!, saved.transport);
   }
 
   // 两种手动入口共用有效期。读取缓存或系统蓝牙期间，切号、换目标、重搜都可能发生。
@@ -388,10 +402,7 @@ class RoutedWearableBridge
         owner == null ||
         saved.ownerKey != owner ||
         saved.deviceName == null ||
-        !WearableDeviceClassifier.routesTo(
-          saved.deviceName!,
-          saved.transport,
-        )) {
+        !_providerAcceptsName(saved.deviceName!, saved.transport)) {
       return null;
     }
     final DeviceInfo? device;
@@ -405,7 +416,7 @@ class RoutedWearableBridge
     }
     if (device == null ||
         device.id != saved.nativeIdentifier ||
-        !WearableDeviceClassifier.routesTo(device.name, saved.transport)) {
+        !_providerAcceptsName(device.name, saved.transport)) {
       return null;
     }
     return device;
@@ -491,6 +502,23 @@ class RoutedWearableBridge
       throw PlatformException(code: 'NOT_CONNECTED', message: '请先连接戒指');
     }
     return _sources[transport]!;
+  }
+
+  @override
+  Future<void> configureU19HealthMetrics(
+    Set<HealthMetric> read,
+    Set<HealthMetric> manual, {
+    required Duration validity,
+  }) async {
+    final source = _sources[WearableTransport.urion];
+    if (source is! WearableU19HealthPolicyBridge) {
+      throw const WearableSdkNotConfigured();
+    }
+    await (source as WearableU19HealthPolicyBridge).configureU19HealthMetrics(
+      read,
+      manual,
+      validity: validity,
+    );
   }
 
   @override
@@ -621,7 +649,8 @@ class RoutedWearableBridge
     if (generation != _scanGeneration) return const [];
     for (final batch in batches) {
       for (final device in batch.value) {
-        if (!WearableDeviceClassifier.routesTo(device.name, batch.key)) {
+        if (batch.key != WearableTransport.urion &&
+            !_providerAcceptsName(device.name, batch.key)) {
           continue;
         }
         final routed = RoutedDevice.fromDevice(batch.key, device);
@@ -672,10 +701,7 @@ class RoutedWearableBridge
       if (!current() || remembered?.id != saved.nativeIdentifier) return;
       // Legacy bindings remain explicit manual choices; they never arm recovery.
       if (saved.ownerKey != null &&
-          !WearableDeviceClassifier.routesTo(
-            remembered!.name,
-            saved.transport,
-          )) {
+          !_providerAcceptsName(remembered!.name, saved.transport)) {
         return;
       }
       selected[id] = RoutedDevice.fromDevice(saved.transport, remembered!);
@@ -711,10 +737,7 @@ class RoutedWearableBridge
         if (!current()) return const [];
         if (saved.ownerKey != owner ||
             saved.deviceName == null ||
-            !WearableDeviceClassifier.routesTo(
-              saved.deviceName!,
-              saved.transport,
-            )) {
+            !_providerAcceptsName(saved.deviceName!, saved.transport)) {
           continue;
         }
         await prepareCached(saved);
@@ -742,7 +765,7 @@ class RoutedWearableBridge
         }
         if (!current()) return const [];
         for (final device in bonded) {
-          if (!WearableDeviceClassifier.routesTo(device.name, entry.key)) {
+          if (!_providerAcceptsName(device.name, entry.key)) {
             continue;
           }
           final routed = RoutedDevice.fromDevice(entry.key, device);
@@ -791,10 +814,7 @@ class RoutedWearableBridge
     final isExplicitRememberedTarget = _manualRecoveryIds.contains(deviceId);
     _directRecoveryLease = null;
     if (!isExplicitRememberedTarget &&
-        !WearableDeviceClassifier.routesTo(
-          device.display.name,
-          device.transport,
-        )) {
+        !_providerAcceptsName(device.display.name, device.transport)) {
       throw PlatformException(
         code: 'DEVICE_PROVIDER_MISMATCH',
         message: '设备信息已变化，请重新扫描后重试',
@@ -860,10 +880,7 @@ class RoutedWearableBridge
       try {
         if (!isCurrent()) return;
         var verifiedName =
-            WearableDeviceClassifier.routesTo(
-              device.display.name,
-              device.transport,
-            )
+            _providerAcceptsName(device.display.name, device.transport)
             ? device.display.name
             : null;
         final active = _activeBridge;
@@ -877,10 +894,7 @@ class RoutedWearableBridge
             if (!isCurrent()) return;
             if (details != null &&
                 details.id == device.nativeIdentifier &&
-                WearableDeviceClassifier.routesTo(
-                  details.name,
-                  device.transport,
-                )) {
+                _providerAcceptsName(details.name, device.transport)) {
               verifiedName = details.name;
               _scanned[deviceId] = RoutedDevice.fromDevice(
                 device.transport,
@@ -980,7 +994,7 @@ class RoutedWearableBridge
             .restoreConnection(profile: profile);
         if (generation != _connectionGeneration) return null;
         if (details == null) continue;
-        if (!WearableDeviceClassifier.routesTo(details.name, entry.key)) {
+        if (!_providerAcceptsName(details.name, entry.key)) {
           await bridge.disconnect();
           continue;
         }
@@ -1055,10 +1069,7 @@ class RoutedWearableBridge
     _requireRecoverySourceAvailable(saved.transport);
     if (source is WearableExactTargetRecoveryBridge &&
         saved.deviceName != null) {
-      if (!WearableDeviceClassifier.routesTo(
-        saved.deviceName!,
-        saved.transport,
-      )) {
+      if (!_providerAcceptsName(saved.deviceName!, saved.transport)) {
         return null;
       }
       _activeTransport = saved.transport;
@@ -1083,7 +1094,7 @@ class RoutedWearableBridge
                   .getConnectedDeviceDetails();
         if (generation != _connectionGeneration) return null;
         if (current?.id == saved.nativeIdentifier &&
-            WearableDeviceClassifier.routesTo(current!.name, saved.transport)) {
+            _providerAcceptsName(current!.name, saved.transport)) {
           final routed = RoutedDevice.fromDevice(saved.transport, current);
           _scanned[routed.display.id] = routed;
           return routed.display;
@@ -1108,6 +1119,10 @@ class RoutedWearableBridge
           if (generation != _connectionGeneration) return null;
           if (!const {
             'UNKNOWN_SCANNED_DEVICE',
+            'DEVICE_NOT_FOUND',
+            'CONNECT_FAILED',
+            'CONNECT_TIMEOUT',
+            'DEVICE_TIMEOUT',
             'COOLWEAR_HANDSHAKE_TIMEOUT',
             'COOLWEAR_HANDSHAKE_FAILED',
             'COOLWEAR_DISCONNECTED',
@@ -1170,7 +1185,7 @@ class RoutedWearableBridge
     int generation,
     WearableUserProfile profile,
   ) async {
-    if (!WearableDeviceClassifier.routesTo(target.name, transport)) return null;
+    if (!_providerAcceptsName(target.name, transport)) return null;
     final routed = RoutedDevice.fromDevice(transport, target);
     _activeTransport = transport;
     _activeNativeIdentifier = target.id;
@@ -1415,7 +1430,10 @@ class RoutedWearableBridge
             deviceId: deviceId,
             sleepTimeline: timeline,
             sourceVendor: transport.name,
-            sourceDeviceCategory: 'ring',
+            // 通用路由不能把手表来源降格成戒指；云端按此字段隔离指标。
+            sourceDeviceCategory: transport == WearableTransport.urion
+                ? 'watch'
+                : 'ring',
             sourceApp: 'say-ring',
           );
         })
@@ -1630,7 +1648,8 @@ class RoutedWearableBridge
     if (event.type == 'scanDevice') {
       if (!_acceptScanEvents) return;
       final device = DeviceInfo.fromMap(event.payload);
-      if (!WearableDeviceClassifier.routesTo(device.name, transport)) {
+      if (transport != WearableTransport.urion &&
+          !_providerAcceptsName(device.name, transport)) {
         return;
       }
       final routed = RoutedDevice.fromDevice(transport, device);
@@ -1653,6 +1672,9 @@ class RoutedWearableBridge
           event.type == 'sleepReadStatus' ||
           event.type == 'ringInitialization' ||
           event.type == 'healthRecord' ||
+          event.type == 'healthDataReady' ||
+          event.type == 'deviceFeatureData' ||
+          event.type == 'measurementProgress' ||
           event.type == 'sportData' ||
           event.type == 'sportState' ||
           event.type == 'cameraShutter' ||
@@ -1822,7 +1844,7 @@ class SecureWearableTransportPreferenceStore
         id is! String ||
         id.isEmpty ||
         name is! String ||
-        !WearableDeviceClassifier.routesTo(name, transport)) {
+        !_providerAcceptsName(name, transport)) {
       return null;
     }
     return SavedWearableBinding(

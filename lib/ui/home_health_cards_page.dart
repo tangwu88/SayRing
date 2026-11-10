@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:flutter/material.dart';
 
 import '../domain/home_health_cards.dart';
@@ -41,7 +42,7 @@ class _HomeHealthCardsPageState extends State<HomeHealthCardsPage> {
     } else {
       setState(() {
         _saving = false;
-        _error = '设置未保存，请返回后重试';
+        _error = uiCopy(context, "设置未保存，请返回后重试");
       });
     }
   }
@@ -64,7 +65,8 @@ class _HomeHealthCardsPageState extends State<HomeHealthCardsPage> {
         key: ValueKey(
           '${shown ? 'hide' : 'show'}-home-card-${metric.wireName}',
         ),
-        tooltip: '${shown ? '隐藏' : '显示'}${metric.label}',
+        tooltip:
+            '${shown ? uiCopy(context, "隐藏") : uiCopy(context, "显示")}${uiCopy(context, metric.label)}',
         onPressed: _saving || _owner != widget.controller.homeHealthCardOwner
             ? null
             : () => setState(() {
@@ -74,7 +76,7 @@ class _HomeHealthCardsPageState extends State<HomeHealthCardsPage> {
         color: shown ? SaydianColors.muted : SaydianColors.blue,
       ),
       title: Text(
-        metric.label,
+        uiCopy(context, metric.label),
         style: const TextStyle(fontWeight: FontWeight.w700),
       ),
       trailing: shown && index != null
@@ -83,7 +85,11 @@ class _HomeHealthCardsPageState extends State<HomeHealthCardsPage> {
               enabled:
                   !_saving && _owner == widget.controller.homeHealthCardOwner,
               child: Semantics(
-                label: '长按拖动${metric.label}调整顺序',
+                label: uiCopy(
+                  context,
+                  "长按拖动{p0}调整顺序",
+                  parameters: [uiCopy(context, metric.label)],
+                ),
                 child: const Padding(
                   padding: EdgeInsets.all(10),
                   child: Icon(
@@ -113,11 +119,11 @@ class _HomeHealthCardsPageState extends State<HomeHealthCardsPage> {
         canPop: !_saving,
         child: Scaffold(
           appBar: AppBar(
-            title: const Text('编辑卡片'),
+            title: Text(uiCopy(context, "编辑卡片")),
             actions: [
               IconButton(
                 key: const Key('save-home-health-cards'),
-                tooltip: '保存',
+                tooltip: uiCopy(context, "保存"),
                 onPressed: _saving || accountChanged ? null : _save,
                 icon: _saving
                     ? const SizedBox(
@@ -135,17 +141,21 @@ class _HomeHealthCardsPageState extends State<HomeHealthCardsPage> {
               if (_error != null || accountChanged)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 16),
-                  child: Text(accountChanged ? '账号已切换，请返回后重新编辑' : _error!),
+                  child: Text(
+                    accountChanged
+                        ? uiCopy(context, "账号已切换，请返回后重新编辑")
+                        : _error!,
+                  ),
                 ),
-              const Text(
-                '已显示',
+              Text(
+                uiCopy(context, "已显示"),
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 16),
               if (shown.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(bottom: 18),
-                  child: Text('暂无首页卡片，可从下方添加'),
+                  child: Text(uiCopy(context, "暂无首页卡片，可从下方添加")),
                 ),
               ReorderableListView.builder(
                 key: const Key('home-health-cards-reorder'),
@@ -163,17 +173,18 @@ class _HomeHealthCardsPageState extends State<HomeHealthCardsPage> {
                 },
               ),
               const SizedBox(height: 16),
-              const Text(
-                '未显示',
+              Text(
+                uiCopy(context, "未显示"),
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 16),
               for (final metric in hidden) _tile(metric, shown: false),
-              if (eligible.isEmpty) const Text('连接戒指后可添加卡片'),
-              if (eligible.isNotEmpty && hidden.isEmpty) const Text('卡片已全部添加'),
+              if (eligible.isEmpty) Text(uiCopy(context, "连接戒指后可添加卡片")),
+              if (eligible.isNotEmpty && hidden.isEmpty)
+                Text(uiCopy(context, "卡片已全部添加")),
               const SizedBox(height: 36),
-              const Text(
-                '长按右侧拖动排序。隐藏卡片会保留记录。',
+              Text(
+                uiCopy(context, "长按右侧拖动排序。隐藏卡片会保留记录。"),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: SaydianColors.muted, height: 1.7),
               ),

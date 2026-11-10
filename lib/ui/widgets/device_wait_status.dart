@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
@@ -25,12 +26,14 @@ class DeviceWaitStatus extends StatelessWidget {
         connected && value != null && value.isFinite && value > 0 && value <= 1
         ? value
         : null;
-    final title = connected ? '正在同步戒指数据' : connectionMessage;
+    final title = connected
+        ? uiCopy(context, "正在同步戒指数据")
+        : uiCopy(context, connectionMessage);
     final detail = !connected
-        ? '保持蓝牙开启，将戒指放在手机附近'
+        ? uiCopy(context, "保持蓝牙开启，将戒指放在手机附近")
         : receivedRecords > 0
-        ? '已接收 $receivedRecords 条记录'
-        : '正在读取活动与睡眠记录';
+        ? uiCopy(context, "已接收 {p0} 条记录", parameters: [receivedRecords])
+        : uiCopy(context, "正在读取活动与睡眠记录");
     return Semantics(
       liveRegion: true,
       label:
@@ -93,8 +96,8 @@ class DeviceWaitStatus extends StatelessWidget {
                     ],
                     if (connected) ...[
                       const SizedBox(height: 4),
-                      const Text(
-                        '可先浏览其他页面',
+                      Text(
+                        uiCopy(context, "可先浏览其他页面"),
                         style: TextStyle(
                           color: SaydianColors.muted,
                           fontSize: 12,

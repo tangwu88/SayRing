@@ -71,7 +71,7 @@ class _QRingCameraPageState extends State<QRingCameraPage> {
       _busy = false;
       _snapshot = _valid(value) ? value : null;
       _error = _snapshot == null
-          ? widget.controller.errorMessage ?? '拍照状态未确认，重试'
+          ? widget.controller.errorMessage ?? uiCopy(context, "拍照状态未确认，重试")
           : null;
     });
   }
@@ -84,16 +84,16 @@ class _QRingCameraPageState extends State<QRingCameraPage> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('切换为拍照控制？'),
-          content: const Text('将替换戒指当前的控制模式。'),
+          title: Text(uiCopy(context, "切换为拍照控制？")),
+          content: Text(uiCopy(context, "将替换戒指当前的控制模式。")),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
+              child: Text(uiCopy(context, "取消")),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('切换'),
+              child: Text(uiCopy(context, "切换")),
             ),
           ],
         ),
@@ -119,7 +119,7 @@ class _QRingCameraPageState extends State<QRingCameraPage> {
       _busy = false;
       _snapshot = _valid(value) && value['enabled'] == enabled ? value : null;
       _error = _snapshot == null
-          ? widget.controller.errorMessage ?? '拍照状态未确认，重试'
+          ? widget.controller.errorMessage ?? uiCopy(context, "拍照状态未确认，重试")
           : null;
     });
   }
@@ -132,7 +132,7 @@ class _QRingCameraPageState extends State<QRingCameraPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('遥控拍照')),
+    appBar: AppBar(title: Text(uiCopy(context, "遥控拍照"))),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -141,17 +141,17 @@ class _QRingCameraPageState extends State<QRingCameraPage> {
             children: [
               SwitchListTile(
                 key: const Key('qring-camera-enabled'),
-                title: const Text('拍照控制'),
+                title: Text(uiCopy(context, "拍照控制")),
                 subtitle: Text(
                   !_supported
-                      ? '请连接支持相机遥控的戒指'
+                      ? uiCopy(context, "请连接支持相机遥控的戒指")
                       : _busy
-                      ? '正在确认'
+                      ? uiCopy(context, "正在确认")
                       : _snapshot == null
-                      ? '状态未知'
+                      ? uiCopy(context, "状态未知")
                       : _snapshot!['enabled'] == true
-                      ? '已开启'
-                      : '未开启',
+                      ? uiCopy(context, "已开启")
+                      : uiCopy(context, "未开启"),
                 ),
                 value: _snapshot?['enabled'] == true,
                 onChanged: _supported && !_busy && _snapshot != null
@@ -170,20 +170,19 @@ class _QRingCameraPageState extends State<QRingCameraPage> {
                 key: const Key('qring-camera-refresh'),
                 onPressed: _supported && !_busy ? _read : null,
                 icon: const Icon(Icons.refresh_rounded),
-                label: const Text('刷新状态'),
+                label: Text(uiCopy(context, "刷新状态")),
               ),
             ],
           ),
         ),
-        const Card(
+        Card(
           child: Padding(
             padding: EdgeInsets.all(16),
             child: Text(
-              '使用说明\n\n'
-              '1. 开启拍照控制。\n'
-              '2. 如系统提示蓝牙配对，请完成配对。\n'
-              '3. 打开手机相机，使用戒指支持的触摸或手势拍照。\n\n'
-              '具体动作以设备说明为准；不拍照时可关闭此模式。',
+              uiCopy(
+                context,
+                "使用说明\n\n1. 开启拍照控制。\n2. 如系统提示蓝牙配对，请完成配对。\n3. 打开手机相机，使用戒指支持的触摸或手势拍照。\n\n具体动作以设备说明为准；不拍照时可关闭此模式。",
+              ),
             ),
           ),
         ),

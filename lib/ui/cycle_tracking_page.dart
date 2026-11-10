@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:convert';
 import '../services/user_message.dart';
 import 'cycle_day_widgets.dart';
@@ -24,16 +25,16 @@ class CycleShortcut extends StatelessWidget {
       child: ListTile(
         key: const Key('cycle-entry'),
         leading: const Icon(Icons.spa_outlined, color: _cyclePurple, size: 30),
-        title: const Text(
-          '生理周期',
+        title: Text(
+          uiCopy(context, "生理周期"),
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         subtitle: Text(
           controller.cycles.settings.hideSummary
-              ? '私密记录，安心管理'
+              ? uiCopy(context, "私密记录，安心管理")
               : controller.cycles.settings.enabled
-              ? '查看周期与戒指趋势'
-              : '记录周期，提前准备',
+              ? uiCopy(context, "查看周期与戒指趋势")
+              : uiCopy(context, "记录周期，提前准备"),
         ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => Navigator.of(context).push(
@@ -110,8 +111,11 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           SnackBar(
             content: Text(
               e is FormatException
-                  ? userFacingMessage(e.message, fallback: '暂时无法保存，请重试')
-                  : '暂时无法完成，请稍后重试',
+                  ? userFacingMessage(
+                      e.message,
+                      fallback: uiCopy(context, "暂时无法保存，请重试"),
+                    )
+                  : uiCopy(context, "暂时无法完成，请稍后重试"),
             ),
           ),
         );
@@ -143,24 +147,24 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     return Scaffold(
       key: const Key('cycle-page'),
       appBar: AppBar(
-        title: const Text('生理周期'),
+        title: Text(uiCopy(context, "生理周期")),
         actions: [
           if (c.available && s.enabled)
             IconButton(
-              tooltip: '打开月历',
+              tooltip: uiCopy(context, "打开月历"),
               onPressed: _calendar,
               icon: const Icon(Icons.calendar_month_outlined),
             ),
           if (c.available)
             IconButton(
-              tooltip: '更多',
+              tooltip: uiCopy(context, "更多"),
               onPressed: _working ? null : _moreSettings,
               icon: const Icon(Icons.more_horiz),
             ),
         ],
       ),
       body: _initialRevision != c.contextRevision
-          ? const Center(child: Text('账号已变化，请返回后重新打开'))
+          ? Center(child: Text(uiCopy(context, "账号已变化，请返回后重新打开")))
           : !c.available
           ? Center(
               child: Padding(
@@ -174,7 +178,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                       color: _cyclePurple,
                     ),
                     const SizedBox(height: 16),
-                    const Text('登录后开启私密周期记录，换机可恢复'),
+                    Text(uiCopy(context, "登录后开启私密周期记录，换机可恢复")),
                     const SizedBox(height: 20),
                     FilledButton(
                       onPressed: () => Navigator.of(context).push(
@@ -184,7 +188,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                           ),
                         ),
                       ),
-                      child: const Text('登录账号'),
+                      child: Text(uiCopy(context, "登录账号")),
                     ),
                   ],
                 ),
@@ -201,16 +205,19 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _title('记录周期，提前准备', Icons.spa_outlined),
+                          _title(
+                            uiCopy(context, "记录周期，提前准备"),
+                            Icons.spa_outlined,
+                          ),
                           const SizedBox(height: 10),
-                          const Text('记下起止日期，了解自己的节奏。'),
+                          Text(uiCopy(context, "记下起止日期，了解自己的节奏。")),
                           const SizedBox(height: 14),
                           FilledButton(
                             key: const Key('cycle-enable'),
                             onPressed: _working
                                 ? null
                                 : () => _settings(first: true),
-                            child: const Text('开始记录'),
+                            child: Text(uiCopy(context, "开始记录")),
                           ),
                         ],
                       ),
@@ -229,14 +236,30 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                       _card(
                         Column(
                           children: [
-                            const Text('不同手机修改了同一条记录，请核对后选择。'),
+                            Text(uiCopy(context, "不同手机修改了同一条记录，请核对后选择。")),
                             for (final conflict in c.conflicts)
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('本机：${_describe(conflict)}'),
                                   Text(
-                                    '云端：${_describe(CycleEntry.fromJson(conflict.conflict!))}',
+                                    uiCopy(
+                                      context,
+                                      "本机：{p0}",
+                                      parameters: [_describe(conflict)],
+                                    ),
+                                  ),
+                                  Text(
+                                    uiCopy(
+                                      context,
+                                      "云端：{p0}",
+                                      parameters: [
+                                        _describe(
+                                          CycleEntry.fromJson(
+                                            conflict.conflict!,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                   Wrap(
                                     spacing: 10,
@@ -245,13 +268,13 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                                         onPressed: () => _run(
                                           () => c.resolve(conflict, true),
                                         ),
-                                        child: const Text('保留本机'),
+                                        child: Text(uiCopy(context, "保留本机")),
                                       ),
                                       TextButton(
                                         onPressed: () => _run(
                                           () => c.resolve(conflict, false),
                                         ),
-                                        child: const Text('保留云端'),
+                                        child: Text(uiCopy(context, "保留云端")),
                                       ),
                                     ],
                                   ),
@@ -289,7 +312,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              c.busy ? '正在同步' : c.status,
+                              c.busy ? uiCopy(context, "正在同步") : c.status,
                               style: const TextStyle(fontSize: 13),
                             ),
                           ),
@@ -329,37 +352,48 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     final actual = active != null, ref = day.inReference;
     final latestPeriod = c.entries.where((e) => e.kind == 'period').firstOrNull;
     final title = actual
-        ? '经期第 ${day.periodDay} 天'
+        ? uiCopy(context, "经期第 {p0} 天", parameters: [day.periodDay])
         : ref
-        ? '处于经期参考范围'
+        ? uiCopy(context, "处于经期参考范围")
         : day.future
-        ? '尚未到这一天'
+        ? uiCopy(context, "尚未到这一天")
         : day.historical
-        ? '当天未记经期'
+        ? uiCopy(context, "当天未记经期")
         : p.status == 'reference'
-        ? '下次经期参考'
+        ? uiCopy(context, "下次经期参考")
         : p.status == 'needs_confirmation'
-        ? '核对最近经期'
+        ? uiCopy(context, "核对最近经期")
         : latestPeriod != null
-        ? '今天未记经期'
-        : '记录你的周期';
+        ? uiCopy(context, "今天未记经期")
+        : uiCopy(context, "记录你的周期");
     final sub = actual
-        ? '${cycleShort(active.start)}开始${completed ? ' · ${cycleShort(active.end!)}结束' : ''}'
+        ? uiCopy(
+            context,
+            "{p0}开始{p1}",
+            parameters: [
+              cycleShort(active.start),
+              completed ? ' · ${cycleShort(active.end!)}结束' : '',
+            ],
+          )
         : (ref || (!day.historical && !day.future && p.status == 'reference'))
         ? '${cycleShort(p.from!)} — ${cycleShort(p.to!)}'
         : day.future
-        ? '当天可记录。'
+        ? uiCopy(context, "当天可记录。")
         : day.historical
-        ? '可补记这一天。'
+        ? uiCopy(context, "可补记这一天。")
         : p.status == 'needs_confirmation'
-        ? '上次参考范围已过，请核对实际日期。'
+        ? uiCopy(context, "上次参考范围已过，请核对实际日期。")
         : c.settings.recordOnly
         ? (latestPeriod == null
-              ? '记录实际开始或结束日期。'
-              : '上次开始于 ${cycleShort(latestPeriod.start)}。')
+              ? uiCopy(context, "记录实际开始或结束日期。")
+              : uiCopy(
+                  context,
+                  "上次开始于 {p0}。",
+                  parameters: [cycleShort(latestPeriod.start)],
+                ))
         : latestPeriod != null
-        ? '记下经期开始和结束日。'
-        : '先记下经期开始日。';
+        ? uiCopy(context, "记下经期开始和结束日。")
+        : uiCopy(context, "先记下经期开始日。");
     final color = actual ? cycleRose : cyclePlum;
     return Container(
       key: const Key('cycle-overview'),
@@ -393,16 +427,16 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               Expanded(
                 child: Text(
                   actual
-                      ? '实际经期'
+                      ? uiCopy(context, "实际经期")
                       : ref
-                      ? '日历参考'
+                      ? uiCopy(context, "日历参考")
                       : day.historical
-                      ? '历史记录'
+                      ? uiCopy(context, "历史记录")
                       : day.future
-                      ? '日期预览'
+                      ? uiCopy(context, "日期预览")
                       : c.settings.recordOnly
-                      ? '仅记录'
-                      : '周期日历',
+                      ? uiCopy(context, "仅记录")
+                      : uiCopy(context, "周期日历"),
                   style: TextStyle(color: color, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -452,10 +486,10 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               ),
               label: Text(
                 completed
-                    ? '查看记录'
+                    ? uiCopy(context, "查看记录")
                     : actual
-                    ? '记录结束'
-                    : '记录开始',
+                    ? uiCopy(context, "记录结束")
+                    : uiCopy(context, "记录开始"),
               ),
             ),
           ],
@@ -466,7 +500,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
 
   Widget _feelings(CycleDayView day) {
     if (day.future) return const SizedBox.shrink();
-    final labels = diarySummary(day.daily?.data ?? {});
+    final labels = diarySummary(day.daily?.data ?? {}, context: context);
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
@@ -477,10 +511,14 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           child: Icon(Icons.sentiment_satisfied_alt, color: cycleRose),
         ),
         title: Text(
-          day.date == c.today ? '今日感受' : '当天感受',
+          day.date == c.today
+              ? uiCopy(context, "今日感受")
+              : uiCopy(context, "当天感受"),
           style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
         ),
-        subtitle: Text(labels.isEmpty ? '记感受' : labels.join(' · ')),
+        subtitle: Text(
+          labels.isEmpty ? uiCopy(context, "记感受") : labels.join(' · '),
+        ),
         trailing: Icon(
           labels.isEmpty ? Icons.add_circle_outline : Icons.edit_outlined,
           color: cycleRose,
@@ -495,9 +533,13 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     final lines = day.historical
         ? [
             day.period != null
-                ? '当天记录为经期第 ${day.periodDay} 天。'
-                : '按当天已保存的记录回顾。',
-            '依据实际经期和当天感受。',
+                ? uiCopy(
+                    context,
+                    "当天记录为经期第 {p0} 天。",
+                    parameters: [day.periodDay],
+                  )
+                : uiCopy(context, "按当天已保存的记录回顾。"),
+            uiCopy(context, "依据实际经期和当天感受。"),
           ]
         : c.explanation;
     return _card(
@@ -509,7 +551,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           lines.first,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
         ),
-        subtitle: const Text('查看依据'),
+        subtitle: Text(uiCopy(context, "查看依据")),
         children: [
           Align(
             alignment: Alignment.centerLeft,
@@ -522,7 +564,9 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               onPressed: _working ? null : _ai,
               icon: const Icon(Icons.auto_awesome),
               label: Text(
-                c.availability?['granted'] == true ? '更新解读' : '查看周期解读',
+                c.availability?['granted'] == true
+                    ? uiCopy(context, "更新解读")
+                    : uiCopy(context, "查看周期解读"),
               ),
             ),
         ],
@@ -531,12 +575,12 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
   }
 
   String _describe(CycleEntry e) => e.deleted
-      ? '已删除'
+      ? uiCopy(context, "已删除")
       : e.kind == 'settings'
-      ? '周期设置'
+      ? uiCopy(context, "周期设置")
       : e.kind == 'period'
-      ? '${e.start} — ${e.end ?? '未结束'}'
-      : '${e.start} · ${diarySummary(e.data).join(' · ')}';
+      ? '${e.start} — ${e.end ?? uiCopy(context, "未结束")}'
+      : '${e.start} · ${diarySummary(e.data, context: context).join(' · ')}';
 
   Future<void> _history() async {
     final entries = c.entries;
@@ -558,15 +602,27 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 18),
             children: [
-              _title('历史与统计', Icons.bar_chart_rounded),
+              _title(uiCopy(context, "历史与统计"), Icons.bar_chart_rounded),
               const SizedBox(height: 8),
-              Text('已记 ${periods.length} 次经期 · $closed 次有结束日期'),
+              Text(
+                uiCopy(
+                  context,
+                  "已记 {p0} 次经期 · {p1} 次有结束日期",
+                  parameters: [periods.length, closed],
+                ),
+              ),
               if (lengths.isNotEmpty)
                 Text(
-                  '最近记录间隔：${lengths.reversed.take(6).toList().reversed.join('、')} 天',
+                  uiCopy(
+                    context,
+                    "最近记录间隔：{p0} 天",
+                    parameters: [
+                      lengths.reversed.take(6).toList().reversed.join('、'),
+                    ],
+                  ),
                 ),
               const Divider(),
-              if (entries.isEmpty) const Text('还没有记录'),
+              if (entries.isEmpty) Text(uiCopy(context, "还没有记录")),
               for (final e in entries)
                 ListTile(
                   leading: Icon(
@@ -604,11 +660,11 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           children: [
             ListTile(title: Text(_describe(e))),
             ListTile(
-              title: const Text('修改感受'),
+              title: Text(uiCopy(context, "修改感受")),
               onTap: () => Navigator.pop(ctx, 'edit'),
             ),
             ListTile(
-              title: const Text('删除这条记录'),
+              title: Text(uiCopy(context, "删除这条记录")),
               onTap: () => Navigator.pop(ctx, 'delete'),
             ),
           ],
@@ -628,13 +684,16 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(title: const Text('经期记录'), subtitle: Text(_describe(e))),
             ListTile(
-              title: const Text('修改日期'),
+              title: Text(uiCopy(context, "经期记录")),
+              subtitle: Text(_describe(e)),
+            ),
+            ListTile(
+              title: Text(uiCopy(context, "修改日期")),
               onTap: () => Navigator.pop(ctx, 'edit'),
             ),
             ListTile(
-              title: const Text('删除这段经期'),
+              title: Text(uiCopy(context, "删除这段经期")),
               onTap: () => Navigator.pop(ctx, 'delete'),
             ),
           ],
@@ -667,10 +726,10 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
         builder: (ctx, update) => AlertDialog(
           title: Text(
             finish
-                ? '记录结束'
+                ? uiCopy(context, "记录结束")
                 : existing == null
-                ? '记录开始'
-                : '修改经期',
+                ? uiCopy(context, "记录开始")
+                : uiCopy(context, "修改经期"),
           ),
           content: SingleChildScrollView(
             child: Column(
@@ -678,7 +737,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               children: [
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('开始日期'),
+                  title: Text(uiCopy(context, "开始日期")),
                   subtitle: Text(start),
                   onTap: finish
                       ? null
@@ -691,8 +750,8 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('结束日期'),
-                  subtitle: Text(end ?? '未填写'),
+                  title: Text(uiCopy(context, "结束日期")),
+                  subtitle: Text(end ?? uiCopy(context, "未填写")),
                   onTap: () async {
                     final d = await _date(end ?? start);
                     if (d != null && ctx.mounted) {
@@ -711,7 +770,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消'),
+              child: Text(uiCopy(context, "取消")),
             ),
             FilledButton(
               onPressed: () {
@@ -729,14 +788,14 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                   update(
                     () => error = userFacingMessage(
                       e.message,
-                      fallback: '记录未保存，请重试',
+                      fallback: uiCopy(context, "记录未保存，请重试"),
                     ),
                   );
                   return;
                 }
                 Navigator.pop(ctx, true);
               },
-              child: const Text('保存'),
+              child: Text(uiCopy(context, "保存")),
             ),
           ],
         ),
@@ -785,16 +844,16 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('删除这条记录？'),
+        title: Text(uiCopy(context, "删除这条记录？")),
         content: Text(_describe(e)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
+            child: Text(uiCopy(context, "取消")),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除'),
+            child: Text(uiCopy(context, "删除")),
           ),
         ],
       ),
@@ -817,10 +876,10 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
         builder: (ctx, update) => AlertDialog(
           title: Text(
             first
-                ? '开启生理周期'
+                ? uiCopy(context, "开启生理周期")
                 : reminders
-                ? '提醒设置'
-                : '记录模式',
+                ? uiCopy(context, "提醒设置")
+                : uiCopy(context, "记录模式"),
           ),
           content: SizedBox(
             width: 420,
@@ -829,19 +888,22 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (!reminders)
-                    const Text(
-                      '经期与感受加密保存在本机，自动同步到当前账号的赛电云端，换机可恢复。你可关闭、导出或删除记录。AI 分析需单独同意。',
+                    Text(
+                      uiCopy(
+                        context,
+                        "经期与感受加密保存在本机，自动同步到当前账号的赛电云端，换机可恢复。你可关闭、导出或删除记录。AI 分析需单独同意。",
+                      ),
                     ),
                   for (final f
                       in {
-                        'enabled': '启用生理周期',
-                        'adultConfirmed': '确认已年满18岁',
-                        'purposeAccepted': '理解并同意上述数据用途',
-                        'recordOnly': '仅记录（孕哺、用药或不确定时适用）',
-                        'historyComplete': '已核对历史，中间没有漏记',
-                        'hideSummary': '隐藏“我的”入口上的周期摘要',
-                        'remind': '经期准备提醒',
-                        'recordRemind': '每日记录提醒',
+                        'enabled': uiCopy(context, "启用生理周期"),
+                        'adultConfirmed': uiCopy(context, "确认已年满18岁"),
+                        'purposeAccepted': uiCopy(context, "理解并同意上述数据用途"),
+                        'recordOnly': uiCopy(context, "仅记录（孕哺、用药或不确定时适用）"),
+                        'historyComplete': uiCopy(context, "已核对历史，中间没有漏记"),
+                        'hideSummary': uiCopy(context, "隐藏“我的”入口上的周期摘要"),
+                        'remind': uiCopy(context, "经期准备提醒"),
+                        'recordRemind': uiCopy(context, "每日记录提醒"),
                       }.entries.where(
                         (item) =>
                             first ||
@@ -857,7 +919,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                   if (first || reminders)
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('提醒时间'),
+                      title: Text(uiCopy(context, "提醒时间")),
                       trailing: Text(
                         '${(data['hour'] as int).toString().padLeft(2, '0')}:${(data['minute'] as int).toString().padLeft(2, '0')}',
                       ),
@@ -880,12 +942,17 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                   if (first || reminders)
                     DropdownButtonFormField<int>(
                       initialValue: data['leadDays'] as int,
-                      decoration: const InputDecoration(
-                        labelText: '参考范围开始前几天提醒',
+                      decoration: InputDecoration(
+                        labelText: uiCopy(context, "参考范围开始前几天提醒"),
                       ),
                       items: [
                         for (var i = 0; i <= 7; i++)
-                          DropdownMenuItem(value: i, child: Text('$i天')),
+                          DropdownMenuItem(
+                            value: i,
+                            child: Text(
+                              uiCopy(context, "{p0}天", parameters: [i]),
+                            ),
+                          ),
                       ],
                       onChanged: (v) => data['leadDays'] = v,
                     ),
@@ -896,11 +963,11 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消'),
+              child: Text(uiCopy(context, "取消")),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('保存'),
+              child: Text(uiCopy(context, "保存")),
             ),
           ],
         ),
@@ -930,9 +997,13 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
           shrinkWrap: true,
           children: [
-            _title('记录模式', Icons.spa_outlined),
+            _title(uiCopy(context, "记录模式"), Icons.spa_outlined),
             ListTile(
-              title: Text(c.settings.recordOnly ? '仅记录' : '经期记录与日历参考'),
+              title: Text(
+                c.settings.recordOnly
+                    ? uiCopy(context, "仅记录")
+                    : uiCopy(context, "经期记录与日历参考"),
+              ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
                 Navigator.pop(ctx);
@@ -940,9 +1011,9 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               },
             ),
             const Divider(),
-            _title('历史与统计', Icons.bar_chart_rounded),
+            _title(uiCopy(context, "历史与统计"), Icons.bar_chart_rounded),
             ListTile(
-              title: const Text('周期记录与统计'),
+              title: Text(uiCopy(context, "周期记录与统计")),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
                 Navigator.pop(ctx);
@@ -950,14 +1021,17 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               },
             ),
             const Divider(),
-            _title('提醒与隐私', Icons.notifications_none),
-            const UsageInfoButton(
-              title: '关于生理周期',
-              message: '经期参考用于生活安排，不用于避孕或诊断。记录自动同步到当前账号，可随时导出或删除。AI 分析需单独同意。',
+            _title(uiCopy(context, "提醒与隐私"), Icons.notifications_none),
+            UsageInfoButton(
+              title: uiCopy(context, "关于生理周期"),
+              message: uiCopy(
+                context,
+                "经期参考用于生活安排，不用于避孕或诊断。记录自动同步到当前账号，可随时导出或删除。AI 分析需单独同意。",
+              ),
             ),
             if (c.settings.enabled)
               ListTile(
-                title: const Text('提醒时间与日程'),
+                title: Text(uiCopy(context, "提醒时间与日程")),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -965,8 +1039,12 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                 },
               ),
             SwitchListTile(
-              title: const Text('这台手机的周期通知'),
-              subtitle: Text(c.notificationAccepted ? '已安排提醒' : '需允许系统通知'),
+              title: Text(uiCopy(context, "这台手机的周期通知")),
+              subtitle: Text(
+                c.notificationAccepted
+                    ? uiCopy(context, "已安排提醒")
+                    : uiCopy(context, "需允许系统通知"),
+              ),
               value: c.notificationOptIn,
               onChanged: (v) {
                 Navigator.pop(ctx);
@@ -975,7 +1053,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
             ),
             if (c.availability?['granted'] == true)
               ListTile(
-                title: const Text('撤回AI分析授权'),
+                title: Text(uiCopy(context, "撤回AI分析授权")),
                 onTap: () {
                   Navigator.pop(ctx);
                   _run(() => c.consentAi(false, ''));
@@ -983,7 +1061,7 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
               ),
             ListTile(
               leading: const Icon(Icons.file_download_outlined),
-              title: const Text('导出周期记录'),
+              title: Text(uiCopy(context, "导出周期记录")),
               onTap: () async {
                 Navigator.pop(ctx);
                 final range = await showDateRangePicker(
@@ -1014,22 +1092,24 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
             ),
             ListTile(
               leading: const Icon(Icons.delete_outline),
-              title: const Text('删除全部周期数据'),
+              title: Text(uiCopy(context, "删除全部周期数据")),
               onTap: () async {
                 Navigator.pop(ctx);
                 final confirmed = await showDialog<bool>(
                   context: context,
                   builder: (d) => AlertDialog(
-                    title: const Text('删除全部周期数据？'),
-                    content: const Text('删除经期、感受、周期报告及云端副本，取消周期提醒。其他健康记录不受影响。'),
+                    title: Text(uiCopy(context, "删除全部周期数据？")),
+                    content: Text(
+                      uiCopy(context, "删除经期、感受、周期报告及云端副本，取消周期提醒。其他健康记录不受影响。"),
+                    ),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(d, false),
-                        child: const Text('取消'),
+                        child: Text(uiCopy(context, "取消")),
                       ),
                       TextButton(
                         onPressed: () => Navigator.pop(d, true),
-                        child: const Text('确认删除'),
+                        child: Text(uiCopy(context, "确认删除")),
                       ),
                     ],
                   ),
@@ -1072,13 +1152,16 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
       final agreed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('周期AI分析'),
+          title: Text(uiCopy(context, "周期AI分析")),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  '仅向说明中列明的服务商发送必要的匿名化周期摘要，用于选择简短建议；不发送身份、设备编号或原始健康数据。可随时撤回。',
+                Text(
+                  uiCopy(
+                    context,
+                    "仅向说明中列明的服务商发送必要的匿名化周期摘要，用于选择简短建议；不发送身份、设备编号或原始健康数据。可随时撤回。",
+                  ),
                 ),
                 Text(noticeText),
               ],
@@ -1087,11 +1170,11 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('暂不开启'),
+              child: Text(uiCopy(context, "暂不开启")),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('同意并分析'),
+              child: Text(uiCopy(context, "同意并分析")),
             ),
           ],
         ),

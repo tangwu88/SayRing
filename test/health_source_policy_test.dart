@@ -26,6 +26,28 @@ HealthRecord _record(
 );
 
 void main() {
+  test(
+    'selected U19 uses its valid history without summing another device',
+    () {
+      final selected = ringPreferredHealthRecords([
+        _record('ring-steps', metric: HealthMetric.steps, value: 100),
+        _record(
+          'watch-steps',
+          metric: HealthMetric.steps,
+          value: 50,
+          category: 'watch',
+          deviceId: 'urion:watch-a',
+        ),
+        _record(
+          'invalid-watch',
+          category: 'watch',
+          deviceId: 'urion:watch-a',
+        ).copyWith(quality: 'invalid'),
+        _record('valid-ring-heart'),
+      ], preferredDeviceId: 'urion:watch-a');
+      expect(selected.map((r) => r.id), ['watch-steps', 'valid-ring-heart']);
+    },
+  );
   test('ring wins per metric and missing ring metric falls back to watch', () {
     final selected = ringPreferredHealthRecords([
       _record('ring-heart'),

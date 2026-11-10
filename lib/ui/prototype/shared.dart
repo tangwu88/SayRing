@@ -163,6 +163,8 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
 }
 
 IconData _deviceFeatureIcon(DeviceFeature feature) => switch (feature) {
+  DeviceFeature.basicSettings => Icons.settings_outlined,
+  DeviceFeature.u19Pulse => Icons.favorite_border,
   DeviceFeature.watchFaces => Icons.watch_later_outlined,
   DeviceFeature.photoWatchFace => Icons.photo_outlined,
   DeviceFeature.findWatch => Icons.notifications_active_outlined,
@@ -182,20 +184,22 @@ IconData _deviceFeatureIcon(DeviceFeature feature) => switch (feature) {
 };
 
 String _deviceFeatureDescription(DeviceFeature feature) => switch (feature) {
-  DeviceFeature.watchFaces => '选择并管理戒指显示样式',
-  DeviceFeature.photoWatchFace => '用自己的照片制作显示样式',
-  DeviceFeature.findWatch => '向已连接的戒指发送查找指令',
-  DeviceFeature.camera => '打开相机后，按戒指支持的动作控制手机拍照',
-  DeviceFeature.gestureControl => '设置戒指支持的手势模式',
-  DeviceFeature.callReminder => '设置戒指来电提醒',
-  DeviceFeature.phoneCalls => '管理戒指通话相关设置',
-  DeviceFeature.contacts => '管理戒指中的常用联系人',
-  DeviceFeature.notifications => '选择需要由戒指振动提醒的消息',
-  DeviceFeature.alarms => '管理戒指闹钟和重复日期',
-  DeviceFeature.weather => '把所在城市天气同步到戒指',
-  DeviceFeature.worldClock => '同步其他城市的时间信息',
-  DeviceFeature.healthReminders => '设置久坐、饮水和日常提醒',
-  DeviceFeature.healthMonitoring => '设置心率和血氧自动健康检测',
-  DeviceFeature.healthAssessment => '查看戒指支持的辅助评估',
-  DeviceFeature.screenDisplay => '调节亮度和亮屏方式',
+  DeviceFeature.basicSettings => uiCopy(null, "管理手表时间、语言和个人设置"),
+  DeviceFeature.u19Pulse => uiCopy(null, "查看手表的脉搏指数和趋势"),
+  DeviceFeature.watchFaces => uiCopy(null, "选择并管理戒指显示样式"),
+  DeviceFeature.photoWatchFace => uiCopy(null, "用自己的照片制作显示样式"),
+  DeviceFeature.findWatch => uiCopy(null, "向已连接的戒指发送查找指令"),
+  DeviceFeature.camera => uiCopy(null, "打开相机后，按戒指支持的动作控制手机拍照"),
+  DeviceFeature.gestureControl => uiCopy(null, "设置戒指支持的手势模式"),
+  DeviceFeature.callReminder => uiCopy(null, "设置戒指来电提醒"),
+  DeviceFeature.phoneCalls => uiCopy(null, "管理戒指通话相关设置"),
+  DeviceFeature.contacts => uiCopy(null, "管理戒指中的常用联系人"),
+  DeviceFeature.notifications => uiCopy(null, "选择需要由戒指振动提醒的消息"),
+  DeviceFeature.alarms => uiCopy(null, "管理戒指闹钟和重复日期"),
+  DeviceFeature.weather => uiCopy(null, "把所在城市天气同步到戒指"),
+  DeviceFeature.worldClock => uiCopy(null, "同步其他城市的时间信息"),
+  DeviceFeature.healthReminders => uiCopy(null, "设置久坐、饮水和日常提醒"),
+  DeviceFeature.healthMonitoring => uiCopy(null, "设置心率和血氧自动健康检测"),
+  DeviceFeature.healthAssessment => uiCopy(null, "查看戒指支持的辅助评估"),
+  DeviceFeature.screenDisplay => uiCopy(null, "调节亮度和亮屏方式"),
 };

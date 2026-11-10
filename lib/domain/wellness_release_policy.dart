@@ -2,6 +2,7 @@ import 'feature_models.dart';
 import 'models.dart';
 import 'read_only_health_features.dart';
 import 'sleep_timeline.dart';
+import 'u19_health_features.dart';
 
 /// Fixed iOS product ceiling plus explicitly published read-only features.
 /// Device capability/ownership checks are still required independently.
@@ -11,11 +12,23 @@ class WellnessReleasePolicy {
     this.enabled = false,
     this.readOnlyFeatures,
     this.manualFeatures,
+    this.u19Features,
+    this.deviceId,
   });
 
   final bool enabled;
   final ReadOnlyHealthFeatures? readOnlyFeatures;
   final ManualHealthFeatures? manualFeatures;
+  final U19HealthFeatures? u19Features;
+  final String? deviceId;
+  bool get isU19 => deviceId?.startsWith('urion:') == true;
+  WellnessReleasePolicy forDevice(String? id) => WellnessReleasePolicy(
+    enabled: enabled,
+    readOnlyFeatures: readOnlyFeatures,
+    manualFeatures: manualFeatures,
+    u19Features: u19Features,
+    deviceId: id,
+  );
 
   static const activitySleepMetrics = <HealthMetric>{
     HealthMetric.steps,
@@ -25,6 +38,7 @@ class WellnessReleasePolicy {
   };
 
   static const displayMetricOrder = <HealthMetric>[
+    HealthMetric.bloodPressure,
     HealthMetric.heartRate,
     HealthMetric.hrv,
     HealthMetric.bloodOxygen,
@@ -35,8 +49,14 @@ class WellnessReleasePolicy {
     HealthMetric.sleep,
   ];
 
-  Set<HealthMetric>? get allowedMetrics =>
-      enabled ? {...activitySleepMetrics, ...?readOnlyFeatures?.metrics} : null;
+  Set<HealthMetric>? get allowedMetrics => enabled
+      ? {
+          ...activitySleepMetrics,
+          ...(isU19
+              ? u19Features?.readMetrics ?? const <HealthMetric>{}
+              : readOnlyFeatures?.metrics ?? const <HealthMetric>{}),
+        }
+      : null;
 
   bool allowsMetric(HealthMetric metric) =>
       !enabled || allowedMetrics!.contains(metric);
@@ -44,7 +64,10 @@ class WellnessReleasePolicy {
   bool allowsManualMeasurement(HealthMetric metric) =>
       !enabled ||
       (allowsMetric(metric) &&
-          manualFeatures?.metrics.contains(metric) == true);
+          (isU19
+                  ? u19Features?.manualMetrics.contains(metric)
+                  : manualFeatures?.metrics.contains(metric)) ==
+              true);
 
   bool allowsWireMetric(String wire) {
     if (!enabled) return true;
@@ -86,7 +109,9 @@ class WellnessReleasePolicy {
         ? _sleepValues
         : metric == HealthMetric.bodyTemperature
         ? const {'value', 'skinTemperature'}
-        : const {'value'};
+        : metric == HealthMetric.bloodPressure
+        ? const {'systolic', 'diastolic', 'pulse'}
+        : const {'value', 'hours'};
     return Map.unmodifiable({
       for (final entry in values.entries)
         if (allowsMetric(metric) && keys.contains(entry.key))
@@ -96,8 +121,16 @@ class WellnessReleasePolicy {
 
   HealthRecord? projectRecord(HealthRecord record) {
     if (!enabled) return record;
-    if (!allowsMetric(record.metric)) return null;
-    final values = projectValues(record.metric, record.values);
+    // 云端使用账号散列设备键；来源由已校验的回读字段保留，不能靠当前连接猜填。
+    final policy = forDevice(
+      record.deviceId.startsWith('urion:') ||
+              (record.sourceVendor == 'urion' &&
+                  record.sourceDeviceCategory == 'watch')
+          ? 'urion:${record.deviceId}'
+          : record.deviceId,
+    );
+    if (!policy.allowsMetric(record.metric)) return null;
+    final values = policy.projectValues(record.metric, record.values);
     final timeline = record.sleepTimeline;
     return record.copyWith(
       values: values,

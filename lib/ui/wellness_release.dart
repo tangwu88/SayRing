@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:flutter/material.dart';
 
 /// Stable destination for saved routes that are outside this release's scope.
@@ -7,11 +8,14 @@ class WellnessReleaseUnavailablePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('功能暂未开放')),
-    body: const Center(
+    appBar: AppBar(title: Text(uiCopy(context, "功能暂未开放"))),
+    body: Center(
       child: Padding(
         padding: EdgeInsets.all(24),
-        child: Text('此功能暂未开放，已有记录仍保留。', textAlign: TextAlign.center),
+        child: Text(
+          uiCopy(context, "此功能暂未开放，已有记录仍保留。"),
+          textAlign: TextAlign.center,
+        ),
       ),
     ),
   );

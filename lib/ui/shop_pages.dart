@@ -106,7 +106,7 @@ class _ShopHomePageState extends State<ShopHomePage> {
       return Scaffold(
         key: const Key('commerce-unavailable-page'),
         appBar: AppBar(),
-        body: const Center(child: Text('此功能暂未开放')),
+        body: Center(child: Text(uiCopy(context, "此功能暂未开放"))),
       );
     }
     if (widget.controller.isGlobalEdition) {
@@ -118,7 +118,7 @@ class _ShopHomePageState extends State<ShopHomePage> {
         title: Text(context.l10n.shop),
         actions: [
           IconButton(
-            tooltip: '购物车',
+            tooltip: uiCopy(context, "购物车"),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 settings: const RouteSettings(name: 'shopping-cart'),
@@ -132,7 +132,7 @@ class _ShopHomePageState extends State<ShopHomePage> {
           ),
           if (widget.ordersPageBuilder != null)
             IconButton(
-              tooltip: '我的订单',
+              tooltip: uiCopy(context, "我的订单"),
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: widget.ordersPageBuilder!),
               ),
@@ -144,7 +144,9 @@ class _ShopHomePageState extends State<ShopHomePage> {
           ? const Center(child: CircularProgressIndicator())
           : _home.isEmpty
           ? _ShopFailure(
-              message: widget.controller.errorMessage ?? '商城加载失败，请稍后重试',
+              message:
+                  widget.controller.errorMessage ??
+                  uiCopy(context, "商城加载失败，请稍后重试"),
               onRetry: _load,
             )
           : Column(
@@ -209,7 +211,7 @@ class _ShopHomePageState extends State<ShopHomePage> {
                                 ),
                                 alignment: Alignment.center,
                                 child: Text(
-                                  '${_tabs[index]['name'] ?? '商品'}',
+                                  '${_tabs[index]['name'] ?? uiCopy(context, "商品")}',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     color: selected
@@ -230,7 +232,7 @@ class _ShopHomePageState extends State<ShopHomePage> {
                           onRefresh: _load,
                           child: _products.isEmpty
                               ? ListView(
-                                  children: const [
+                                  children: [
                                     SizedBox(height: 90),
                                     Icon(
                                       Icons.inventory_2_outlined,
@@ -238,7 +240,9 @@ class _ShopHomePageState extends State<ShopHomePage> {
                                       color: SaydianColors.outline,
                                     ),
                                     SizedBox(height: 10),
-                                    Center(child: Text('当前分类暂无商品')),
+                                    Center(
+                                      child: Text(uiCopy(context, "当前分类暂无商品")),
+                                    ),
                                   ],
                                 )
                               : ListView.separated(
@@ -309,14 +313,18 @@ class _ProductCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${product['name'] ?? '商品'}',
+                      '${product['name'] ?? uiCopy(context, "商品")}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '销量 ${product['sales'] ?? 0}',
+                      uiCopy(
+                        context,
+                        "销量 {p0}",
+                        parameters: [product['sales'] ?? 0],
+                      ),
                       style: const TextStyle(
                         color: SaydianColors.muted,
                         fontSize: 13,
@@ -397,7 +405,7 @@ class _ShopProductPageState extends State<ShopProductPage> {
 
   Future<void> _showPurchaseSheet({bool addToCart = false}) async {
     if (_selectedSku == null) {
-      _showMessage('该商品暂无可购买规格');
+      _showMessage(uiCopy(context, "该商品暂无可购买规格"));
       return;
     }
     await showModalBottomSheet<void>(
@@ -428,7 +436,9 @@ class _ShopProductPageState extends State<ShopProductPage> {
                   children: [
                     for (final sku in _skus)
                       ChoiceChip(
-                        label: Text('${sku['name'] ?? '默认规格'}'),
+                        label: Text(
+                          '${sku['name'] ?? uiCopy(context, "默认规格")}',
+                        ),
                         selected: '${_selectedSku?['id']}' == '${sku['id']}',
                         onSelected: (_) {
                           setState(() {
@@ -443,7 +453,7 @@ class _ShopProductPageState extends State<ShopProductPage> {
                 const SizedBox(height: 18),
                 Row(
                   children: [
-                    Text('库存 $_stock'),
+                    Text(uiCopy(context, "库存 {p0}", parameters: [_stock])),
                     const Spacer(),
                     IconButton.outlined(
                       onPressed: _quantity <= 1
@@ -487,7 +497,11 @@ class _ShopProductPageState extends State<ShopProductPage> {
                               _checkout();
                             }
                           },
-                    child: Text(addToCart ? '加入购物车' : '立即购买'),
+                    child: Text(
+                      addToCart
+                          ? uiCopy(context, "加入购物车")
+                          : uiCopy(context, "立即购买"),
+                    ),
                   ),
                 ),
               ],
@@ -503,7 +517,7 @@ class _ShopProductPageState extends State<ShopProductPage> {
     final skuId = _asInt(sku?['id']);
     if (sku == null || skuId == null) return;
     if (widget.controller.session == null) {
-      _showMessage('请先登录后购买');
+      _showMessage(uiCopy(context, "请先登录后购买"));
       return;
     }
     Navigator.of(context).push(
@@ -526,10 +540,15 @@ class _ShopProductPageState extends State<ShopProductPage> {
         sku: sku,
         quantity: _quantity,
       );
-      if (mounted) _showMessage('已加入购物车');
+      if (mounted) _showMessage(uiCopy(context, "已加入购物车"));
     } on ApiException catch (error) {
       if (mounted) {
-        _showMessage(userFacingMessage(error.message, fallback: '未能加入购物车，请重试'));
+        _showMessage(
+          userFacingMessage(
+            error.message,
+            fallback: uiCopy(context, "未能加入购物车，请重试"),
+          ),
+        );
       }
     }
   }
@@ -548,7 +567,8 @@ class _ShopProductPageState extends State<ShopProductPage> {
           ? const Center(child: CircularProgressIndicator())
           : _product.isEmpty
           ? _ShopFailure(
-              message: widget.controller.errorMessage ?? '商品详情加载失败',
+              message:
+                  widget.controller.errorMessage ?? uiCopy(context, "商品详情加载失败"),
               onRetry: _load,
             )
           : ColoredBox(
@@ -576,7 +596,7 @@ class _ShopProductPageState extends State<ShopProductPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${_product['name'] ?? '商品'}',
+                              '${_product['name'] ?? uiCopy(context, "商品")}',
                               style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w900,
@@ -598,7 +618,11 @@ class _ShopProductPageState extends State<ShopProductPage> {
                                   ),
                                 ),
                                 Text(
-                                  '销量 ${_product['sales'] ?? 0}',
+                                  uiCopy(
+                                    context,
+                                    "销量 {p0}",
+                                    parameters: [_product['sales'] ?? 0],
+                                  ),
                                   style: const TextStyle(
                                     color: SaydianColors.muted,
                                   ),
@@ -606,21 +630,21 @@ class _ShopProductPageState extends State<ShopProductPage> {
                               ],
                             ),
                             const SizedBox(height: 14),
-                            const Wrap(
+                            Wrap(
                               spacing: 8,
                               runSpacing: 8,
                               children: [
                                 _ShopPromise(
                                   icon: Icons.verified_outlined,
-                                  label: '品质保障',
+                                  label: uiCopy(context, "品质保障"),
                                 ),
                                 _ShopPromise(
                                   icon: Icons.local_shipping_outlined,
-                                  label: '配送到家',
+                                  label: uiCopy(context, "配送到家"),
                                 ),
                                 _ShopPromise(
                                   icon: Icons.support_agent_outlined,
-                                  label: '售后服务',
+                                  label: uiCopy(context, "售后服务"),
                                 ),
                               ],
                             ),
@@ -631,7 +655,7 @@ class _ShopProductPageState extends State<ShopProductPage> {
                                   onTap: _showPurchaseSheet,
                                   title: Text(context.l10n.variant),
                                   subtitle: Text(
-                                    '${_selectedSku?['name'] ?? '请选择规格'}',
+                                    '${_selectedSku?['name'] ?? uiCopy(context, "请选择规格")}',
                                   ),
                                   trailing: const Icon(
                                     Icons.chevron_right_rounded,
@@ -684,14 +708,14 @@ class _ShopProductPageState extends State<ShopProductPage> {
                         constraints.maxWidth < 336 ||
                         MediaQuery.textScalerOf(context).scale(14) > 18.2;
                     final home = _ShopBottomAction(
-                      tooltip: '商城首页',
-                      label: '首页',
+                      tooltip: uiCopy(context, "商城首页"),
+                      label: uiCopy(context, "首页"),
                       icon: Icons.home_rounded,
                       onTap: () => Navigator.pop(context),
                     );
                     final support = _ShopBottomAction(
-                      tooltip: '客服',
-                      label: '客服',
+                      tooltip: uiCopy(context, "客服"),
+                      label: uiCopy(context, "客服"),
                       icon: Icons.support_agent_rounded,
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
@@ -724,8 +748,8 @@ class _ShopProductPageState extends State<ShopProductPage> {
                                             context,
                                           ).scale(14) >
                                           18.2
-                                  ? '加入\n购物车'
-                                  : '加入购物车',
+                                  ? uiCopy(context, "加入\n购物车")
+                                  : uiCopy(context, "加入购物车"),
                               textAlign: TextAlign.center,
                             ),
                           ),
@@ -896,7 +920,13 @@ class _ShoppingCartPageState extends State<ShoppingCartPage> {
       return Scaffold(
         key: const Key('shopping-cart-page'),
         appBar: AppBar(
-          title: Text('购物车${items.isEmpty ? '' : '（${items.length}）'}'),
+          title: Text(
+            uiCopy(
+              context,
+              "购物车{p0}",
+              parameters: [items.isEmpty ? '' : '（${items.length}）'],
+            ),
+          ),
           actions: [
             if (items.isNotEmpty)
               TextButton(
@@ -991,7 +1021,11 @@ class _ShoppingCartPageState extends State<ShoppingCartPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '已选${selectedItems.length}件  ¥${_money(total)}',
+                          uiCopy(
+                            context,
+                            "已选{p0}件  ¥{p1}",
+                            parameters: [selectedItems.length, _money(total)],
+                          ),
                           style: const TextStyle(
                             color: SaydianColors.brandRed,
                             fontSize: 19,
@@ -1088,7 +1122,7 @@ class _CartItemCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${item['product_name'] ?? '商品'}',
+                    '${item['product_name'] ?? uiCopy(context, "商品")}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w800),
@@ -1232,19 +1266,27 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
     final point = num.tryParse(_point.text.trim()) ?? -1;
     final availablePoint = _asDouble(_account['money1']);
     if (addressId == null) {
-      _showMessage('请选择收货地址');
+      _showMessage(uiCopy(context, "请选择收货地址"));
       return;
     }
     if (orderItems.isEmpty) {
-      _showMessage('商品规格信息有误');
+      _showMessage(uiCopy(context, "商品规格信息有误"));
       return;
     }
     if (point < 0 || point > availablePoint) {
-      _showMessage('积分必须在 0～${_money(availablePoint)} 之间');
+      _showMessage(
+        uiCopy(
+          context,
+          "积分必须在 0～{p0} 之间",
+          parameters: [_money(availablePoint)],
+        ),
+      );
       return;
     }
     if (point > _total) {
-      _showMessage('使用积分不能超过订单金额 ${_money(_total)}');
+      _showMessage(
+        uiCopy(context, "使用积分不能超过订单金额 {p0}", parameters: [_money(_total)]),
+      );
       return;
     }
     setState(() => _submitting = true);
@@ -1258,7 +1300,7 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
     setState(() => _submitting = false);
     final orderId = _asInt(order['id'] ?? order['order_id']);
     if (orderId == null) {
-      _showMessage(widget.controller.errorMessage ?? '提交订单失败');
+      _showMessage(widget.controller.errorMessage ?? uiCopy(context, "提交订单失败"));
       return;
     }
     if (widget.clearCartAfterCreate) {
@@ -1285,11 +1327,23 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(partialFailure.isEmpty ? '订单已提交' : '部分订单已提交'),
+          title: Text(
+            partialFailure.isEmpty
+                ? uiCopy(context, "订单已提交")
+                : uiCopy(context, "部分订单已提交"),
+          ),
           content: Text(
             partialFailure.isEmpty
-                ? '已生成 ${orderIds.length} 个订单，请分别支付。'
-                : '已生成 ${orderIds.length} 个订单；其余商品提交失败：$partialFailure。已成功的商品已从购物车移除。',
+                ? uiCopy(
+                    context,
+                    "已生成 {p0} 个订单，请分别支付。",
+                    parameters: [orderIds.length],
+                  )
+                : uiCopy(
+                    context,
+                    "已生成 {p0} 个订单；其余商品提交失败：{p1}。已成功的商品已从购物车移除。",
+                    parameters: [orderIds.length, partialFailure],
+                  ),
           ),
           actions: [
             FilledButton(
@@ -1334,7 +1388,8 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
           ? const Center(child: CircularProgressIndicator())
           : _preview.isEmpty
           ? _ShopFailure(
-              message: widget.controller.errorMessage ?? '订单信息加载失败',
+              message:
+                  widget.controller.errorMessage ?? uiCopy(context, "订单信息加载失败"),
               onRetry: _load,
             )
           : ListView(
@@ -1364,7 +1419,13 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      '本次选择 ${_preview['order_count'] ?? widget.items.length} 种商品。提交后将生成对应订单，商品和运费均以商城实时预览为准。',
+                      uiCopy(
+                        context,
+                        "本次选择 {p0} 种商品。提交后将生成对应订单，商品和运费均以商城实时预览为准。",
+                        parameters: [
+                          _preview['order_count'] ?? widget.items.length,
+                        ],
+                      ),
                       style: const TextStyle(fontSize: 13, height: 1.45),
                     ),
                   ),
@@ -1399,7 +1460,7 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                                   ),
                                 ),
                                 title: Text(
-                                  '${product['product_name'] ?? '商品'}',
+                                  '${product['product_name'] ?? uiCopy(context, "商品")}',
                                 ),
                                 subtitle: Text('${product['sku_name'] ?? ''}'),
                               ),
@@ -1432,8 +1493,12 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                         decimal: true,
                       ),
                       decoration: InputDecoration(
-                        labelText: '积分抵扣',
-                        helperText: '可用积分：${_money(_account['money1'])}',
+                        labelText: uiCopy(context, "积分抵扣"),
+                        helperText: uiCopy(
+                          context,
+                          "可用积分：{p0}",
+                          parameters: [_money(_account['money1'])],
+                        ),
                       ),
                     ),
                   ),
@@ -1444,9 +1509,15 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        _MoneyRow(label: '商品总额', value: _productMoney),
+                        _MoneyRow(
+                          label: uiCopy(context, "商品总额"),
+                          value: _productMoney,
+                        ),
                         const SizedBox(height: 12),
-                        _MoneyRow(label: '快递费用', value: _shipping),
+                        _MoneyRow(
+                          label: uiCopy(context, "快递费用"),
+                          value: _shipping,
+                        ),
                       ],
                     ),
                   ),
@@ -1461,7 +1532,7 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                 child: AdaptiveActionPair(
                   minInlineWidth: 300,
                   leading: Text(
-                    '合计 ¥${_money(_total)}',
+                    uiCopy(context, "合计 ¥{p0}", parameters: [_money(_total)]),
                     style: const TextStyle(
                       color: SaydianColors.orange,
                       fontSize: 18,
@@ -1470,7 +1541,11 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                   ),
                   action: FilledButton(
                     onPressed: _submitting ? null : _submit,
-                    child: Text(_submitting ? '提交中…' : '提交订单'),
+                    child: Text(
+                      _submitting
+                          ? uiCopy(context, "提交中…")
+                          : uiCopy(context, "提交订单"),
+                    ),
                   ),
                 ),
               ),
@@ -1568,7 +1643,7 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
     if (_paying) return;
     final amount = _paymentAmount;
     if (amount <= 0) {
-      setState(() => _paymentMessage = '订单金额异常，请刷新后重试');
+      setState(() => _paymentMessage = uiCopy(context, "订单金额异常，请刷新后重试"));
       return;
     }
     setState(() {
@@ -1583,13 +1658,15 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
     if (!mounted) return;
     if (provider == AppPaymentProvider.alipay) {
       setState(() {
-        _paymentMessage = _paymentResultMessage(result, '支付宝');
+        _paymentMessage = _paymentResultMessage(result, uiCopy(context, "支付宝"));
         _paying = false;
       });
       await _load();
     } else {
       setState(() {
-        _paymentMessage = widget.controller.errorMessage ?? '已打开微信，请在微信中完成支付';
+        _paymentMessage =
+            widget.controller.errorMessage ??
+            uiCopy(context, "已打开微信，请在微信中完成支付");
         _paying = false;
       });
     }
@@ -1599,18 +1676,32 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
     await Future<void>.delayed(const Duration(milliseconds: 450));
     final result = await widget.controller.takeWechatPaymentResult();
     if (!mounted || result == null) return;
-    setState(() => _paymentMessage = _paymentResultMessage(result, '微信'));
+    setState(
+      () => _paymentMessage = _paymentResultMessage(
+        result,
+        uiCopy(context, "微信"),
+      ),
+    );
     await _load();
   }
 
   String _paymentResultMessage(AppPaymentResult? result, String provider) {
     if (result == null) {
-      return widget.controller.errorMessage ?? '$provider支付未能调起';
+      return widget.controller.errorMessage ??
+          uiCopy(context, "{p0}支付未能调起", parameters: [provider]);
     }
-    if (result.isSuccess) return '$provider付款成功，正在确认订单';
-    if (result.isCancelled) return '已取消$provider支付';
+    if (result.isSuccess) {
+      return uiCopy(context, "{p0}付款成功，正在确认订单", parameters: [provider]);
+    }
+    if (result.isCancelled) {
+      return uiCopy(context, "已取消{p0}支付", parameters: [provider]);
+    }
     return result.message.trim().isEmpty
-        ? '$provider支付未完成（${result.code}）'
+        ? uiCopy(
+            context,
+            "{p0}支付未完成（{p1}）",
+            parameters: [provider, result.code],
+          )
         : result.message;
   }
 
@@ -1623,7 +1714,10 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _order.isEmpty
-          ? _ShopFailure(message: '暂时无法读取订单，请重试', onRetry: _load)
+          ? _ShopFailure(
+              message: uiCopy(context, "暂时无法读取订单，请重试"),
+              onRetry: _load,
+            )
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
@@ -1646,12 +1740,12 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                     child: Column(
                       children: [
                         _PaymentSummaryRow(
-                          label: '订单号',
+                          label: uiCopy(context, "订单号"),
                           value: '${_order['order_sn'] ?? widget.orderId}',
                         ),
                         const SizedBox(height: 13),
                         _PaymentSummaryRow(
-                          label: '使用积分数量',
+                          label: uiCopy(context, "使用积分数量"),
                           value: _money(_usedPoints),
                         ),
                         const Padding(
@@ -1691,8 +1785,8 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                     const SizedBox(height: 12),
                     _PaymentMethodTile(
                       key: const Key('shop-pay-wechat'),
-                      title: '微信支付',
-                      subtitle: '使用微信安全支付',
+                      title: uiCopy(context, "微信支付"),
+                      subtitle: uiCopy(context, "使用微信安全支付"),
                       icon: Icons.chat_bubble_rounded,
                       iconColor: const Color(0xFF07C160),
                       selected: _selectedProvider == AppPaymentProvider.wechat,
@@ -1706,8 +1800,8 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                     const SizedBox(height: 10),
                     _PaymentMethodTile(
                       key: const Key('shop-pay-alipay'),
-                      title: '支付宝支付',
-                      subtitle: '使用支付宝安全支付',
+                      title: uiCopy(context, "支付宝支付"),
+                      subtitle: uiCopy(context, "使用支付宝安全支付"),
                       icon: Icons.account_balance_wallet_rounded,
                       iconColor: const Color(0xFF1677FF),
                       selected: _selectedProvider == AppPaymentProvider.alipay,
@@ -1739,7 +1833,7 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                   if (status != 0) ...[
                     const SizedBox(height: 18),
                     Row(
-                      children: const [
+                      children: [
                         Icon(
                           Icons.check_circle_rounded,
                           color: SaydianColors.green,
@@ -1747,7 +1841,7 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            '订单状态已更新，无需重复支付。',
+                            uiCopy(context, "订单状态已更新，无需重复支付。"),
                             style: TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
@@ -1787,7 +1881,13 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                   key: const Key('shop-pay-submit'),
                   onPressed: _paying ? null : () => _pay(_selectedProvider),
                   child: Text(
-                    _paying ? '正在调起支付…' : '去支付  ¥${_money(_paymentAmount)}',
+                    _paying
+                        ? uiCopy(context, "正在调起支付…")
+                        : uiCopy(
+                            context,
+                            "去支付  ¥{p0}",
+                            parameters: [_money(_paymentAmount)],
+                          ),
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w900,
@@ -1966,7 +2066,13 @@ class _ShopAddressBookPageState extends State<ShopAddressBookPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.selectMode ? '选择收货地址' : '收货地址')),
+      appBar: AppBar(
+        title: Text(
+          widget.selectMode
+              ? uiCopy(context, "选择收货地址")
+              : uiCopy(context, "收货地址"),
+        ),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListenableBuilder(
@@ -1983,8 +2089,8 @@ class _ShopAddressBookPageState extends State<ShopAddressBookPage> {
                   }
                   return _ShopFailure(
                     icon: Icons.location_on_outlined,
-                    message: '暂无收货地址',
-                    actionLabel: '新增地址',
+                    message: uiCopy(context, "暂无收货地址"),
+                    actionLabel: uiCopy(context, "新增地址"),
                     onRetry: _edit,
                   );
                 }
@@ -2016,7 +2122,7 @@ class _ShopAddressBookPageState extends State<ShopAddressBookPage> {
                           ),
                           subtitle: Text(_addressText(address)),
                           trailing: IconButton(
-                            tooltip: '编辑',
+                            tooltip: uiCopy(context, "编辑"),
                             onPressed: () => _edit(address),
                             icon: const Icon(Icons.edit_outlined),
                           ),
@@ -2131,7 +2237,7 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_provinceCode == null || _cityCode == null || _areaCode == null) {
-      _showMessage('请选择完整省、市、区县');
+      _showMessage(uiCopy(context, "请选择完整省、市、区县"));
       return;
     }
     setState(() => _saving = true);
@@ -2156,7 +2262,7 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
     if (saved) {
       Navigator.pop(context, true);
     } else {
-      _showMessage(widget.controller.errorMessage ?? '保存地址失败');
+      _showMessage(widget.controller.errorMessage ?? uiCopy(context, "保存地址失败"));
     }
   }
 
@@ -2170,7 +2276,11 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.initialAddress == null ? '新增地址' : '编辑地址'),
+        title: Text(
+          widget.initialAddress == null
+              ? uiCopy(context, "新增地址")
+              : uiCopy(context, "编辑地址"),
+        ),
       ),
       body: _loadingRegions
           ? const Center(child: CircularProgressIndicator())
@@ -2184,8 +2294,9 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                     decoration: InputDecoration(
                       labelText: context.l10n.recipient,
                     ),
-                    validator: (value) =>
-                        value?.trim().isEmpty ?? true ? '请填写收货人' : null,
+                    validator: (value) => value?.trim().isEmpty ?? true
+                        ? uiCopy(context, "请填写收货人")
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -2197,7 +2308,7 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                     validator: (value) =>
                         RegExp(r'^1\d{10}$').hasMatch(value?.trim() ?? '')
                         ? null
-                        : '请输入正确的手机号',
+                        : uiCopy(context, "请输入正确的手机号"),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
@@ -2272,8 +2383,9 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                     decoration: InputDecoration(
                       labelText: context.l10n.streetAddress,
                     ),
-                    validator: (value) =>
-                        value?.trim().isEmpty ?? true ? '请填写详细地址' : null,
+                    validator: (value) => value?.trim().isEmpty ?? true
+                        ? uiCopy(context, "请填写详细地址")
+                        : null,
                   ),
                   const SizedBox(height: 8),
                   SwitchListTile(
@@ -2285,7 +2397,11 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                   const SizedBox(height: 18),
                   FilledButton(
                     onPressed: _saving ? null : _save,
-                    child: Text(_saving ? '保存中…' : '保存地址'),
+                    child: Text(
+                      _saving
+                          ? uiCopy(context, "保存中…")
+                          : uiCopy(context, "保存地址"),
+                    ),
                   ),
                 ],
               ),
@@ -2352,7 +2468,9 @@ class _ShopExpressPageState extends State<ShopExpressPage> {
           ? const Center(child: CircularProgressIndicator())
           : _shipments.isEmpty
           ? _ShopFailure(
-              message: _failed ? '物流信息暂时无法加载' : '暂无物流信息',
+              message: _failed
+                  ? uiCopy(context, "物流信息暂时无法加载")
+                  : uiCopy(context, "暂无物流信息"),
               onRetry: _load,
             )
           : RefreshIndicator(
@@ -2371,13 +2489,19 @@ class _ShopExpressPageState extends State<ShopExpressPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${shipment['express_company'] ?? '快递'}',
+                            '${shipment['express_company'] ?? uiCopy(context, "快递")}',
                             style: const TextStyle(
                               fontSize: 17,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
-                          Text('快递单号：${shipment['express_no'] ?? '--'}'),
+                          Text(
+                            uiCopy(
+                              context,
+                              "快递单号：{p0}",
+                              parameters: [shipment['express_no'] ?? '--'],
+                            ),
+                          ),
                           const Divider(height: 28),
                           for (final trace in traces)
                             ListTile(
@@ -2476,11 +2600,11 @@ List<Widget> _shopDetailContentWidgets(String raw) {
                     height: 180,
                     child: Center(child: CircularProgressIndicator()),
                   ),
-            errorBuilder: (_, _, _) => const SizedBox(
+            errorBuilder: (_, _, _) => SizedBox(
               height: 130,
               child: ColoredBox(
                 color: Color(0xFFF0F2F5),
-                child: Center(child: Text('商品图片暂时无法加载')),
+                child: Center(child: Text(uiCopy(null, "商品图片暂时无法加载"))),
               ),
             ),
           ),
@@ -2495,7 +2619,10 @@ List<Widget> _shopDetailContentWidgets(String raw) {
   }
   if (widgets.isEmpty) {
     widgets.add(
-      const Text('暂无详细介绍', style: TextStyle(color: SaydianColors.muted)),
+      Text(
+        uiCopy(null, "暂无详细介绍"),
+        style: TextStyle(color: SaydianColors.muted),
+      ),
     );
   }
   return widgets;

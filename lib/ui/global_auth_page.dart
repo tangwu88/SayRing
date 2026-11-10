@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -408,7 +409,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                               ? l.email
                               : l.phoneNumber,
                           hintText: _channel == AccountChannel.sms
-                              ? '请输入11位手机号'
+                              ? uiCopy(context, "请输入11位手机号")
                               : null,
                         ),
                         onChanged: (_) => setState(_resetChallenge),

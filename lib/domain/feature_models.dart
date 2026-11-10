@@ -38,9 +38,11 @@ class FeatureAvailability {
 }
 
 enum DeviceFeature {
+  basicSettings('basic_settings', '基本设置'),
+  u19Pulse('u19_pulse', '脉搏指数'),
   watchFaces('watch_faces', '显示样式'),
   photoWatchFace('photo_watch_face', '照片显示'),
-  findWatch('find_watch', '查找设备'),
+  findWatch('find_watch', '查找戒指'),
   camera('camera', '相机遥控'),
   gestureControl('gesture_control', '手势控制'),
   callReminder('call_reminder', '来电提醒'),

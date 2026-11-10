@@ -810,7 +810,7 @@ void main() {
     expect(find.byKey(const Key('auth-password')), findsNothing);
     expect(find.byKey(const Key('auth-toggle-mode')), findsNothing);
     expect(find.text('CN +86'), findsNothing);
-    expect(find.text('请输入11位手机号'), findsOneWidget);
+    expect(find.text('Enter an 11-digit phone number'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.byKey(const Key('review-demo-entry')),
       250,

@@ -567,6 +567,7 @@ class DeviceInfo {
 }
 
 enum WearableSdkSource {
+  urion('U19', 'U19'),
   veepoo('Vep', 'Veepoo'),
   yucheng('Yuc', 'Yucheng'),
   moyoung('Moy', 'Moyoung'),
@@ -581,6 +582,7 @@ enum WearableSdkSource {
 
   static WearableSdkSource fromDeviceId(String deviceId) {
     final normalized = deviceId.trim().toLowerCase();
+    if (normalized.startsWith('urion:')) return WearableSdkSource.urion;
     if (normalized.startsWith('veepoo:')) return WearableSdkSource.veepoo;
     if (normalized.startsWith('yucheng:')) return WearableSdkSource.yucheng;
     if (normalized.startsWith('moyoung:')) return WearableSdkSource.moyoung;
@@ -645,6 +647,7 @@ class DeviceCapabilities {
   const DeviceCapabilities({
     required this.metrics,
     this.manualMetrics,
+    this.stoppableManualMetrics,
     this.historyMetrics,
     this.sportModes,
     this.features = const <DeviceFeature>{},
@@ -658,6 +661,7 @@ class DeviceCapabilities {
 
   final Set<HealthMetric> metrics;
   final Set<HealthMetric>? manualMetrics;
+  final Set<HealthMetric>? stoppableManualMetrics;
   final Set<HealthMetric>? historyMetrics;
 
   /// Sports that the connected watch can enter from the phone.
@@ -719,6 +723,12 @@ class DeviceCapabilities {
     return DeviceCapabilities(
       metrics: metrics,
       manualMetrics: manualMetrics,
+      stoppableManualMetrics: map['stoppableManualMetrics'] is List
+          ? (map['stoppableManualMetrics'] as List)
+                .map((v) => HealthMetric.tryFromWire('$v'))
+                .whereType<HealthMetric>()
+                .toSet()
+          : null,
       historyMetrics: map['historyMetrics'] is List
           ? (map['historyMetrics'] as List)
                 .map((value) => HealthMetric.tryFromWire('$value'))
@@ -743,6 +753,10 @@ class DeviceCapabilities {
   bool supportsManualMeasurement(HealthMetric metric) =>
       manualMetrics?.contains(metric) ?? supports(metric);
 
+  bool supportsStopMeasurement(HealthMetric metric) =>
+      stoppableManualMetrics?.contains(metric) ??
+      supportsManualMeasurement(metric);
+
   bool supportsHistoryMetric(HealthMetric metric) =>
       supportsHistorySync &&
       (historyMetrics?.contains(metric) ?? supports(metric));
@@ -753,6 +767,10 @@ class DeviceCapabilities {
     'metrics': metrics.map((metric) => metric.wireName).toList(),
     if (manualMetrics != null)
       'manualMetrics': manualMetrics!.map((metric) => metric.wireName).toList(),
+    if (stoppableManualMetrics != null)
+      'stoppableManualMetrics': stoppableManualMetrics!
+          .map((m) => m.wireName)
+          .toList(),
     if (historyMetrics != null)
       'historyMetrics': historyMetrics!
           .map((metric) => metric.wireName)

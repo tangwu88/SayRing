@@ -27,9 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Connect to your ring and sync health data you choose to share.</string>
+	<string>Connect your ring or U19 watch and sync your health records.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>Connect to your ring and sync health data you choose to share.</string>
+	<string>Connect your ring or U19 watch and sync your health records.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Use the camera only when you choose to take a photo with a compatible ring.</string>
 	<key>NSAppleMusicUsageDescription</key>

@@ -63,8 +63,13 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
       SnackBar(
         content: Text(
           saved
-              ? '${widget.metric.label}校准已保存到戒指'
-              : widget.controller.errorMessage ?? '校准保存失败，请稍后重试',
+              ? uiCopy(
+                  context,
+                  "{p0}校准已保存到戒指",
+                  parameters: [uiCopy(context, widget.metric.label)],
+                )
+              : widget.controller.errorMessage ??
+                    uiCopy(context, "校准保存失败，请稍后重试"),
         ),
       ),
     );
@@ -118,18 +123,20 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
                         decimal: true,
                       ),
                       decoration: InputDecoration(
-                        labelText: isBloodPressure ? '收缩压（高压）' : '血糖校准值',
+                        labelText: isBloodPressure
+                            ? uiCopy(context, "收缩压（高压）")
+                            : uiCopy(context, "血糖校准值"),
                         suffixText: isBloodPressure ? 'mmHg' : 'mmol/L',
                       ),
                       validator: (value) {
                         if (!_enabled) return null;
                         final number = double.tryParse(value?.trim() ?? '');
-                        if (number == null) return '请输入有效数值';
+                        if (number == null) return uiCopy(context, "请输入有效数值");
                         if (isBloodPressure && (number < 60 || number > 300)) {
-                          return '收缩压需在 60–300 mmHg';
+                          return uiCopy(context, "收缩压需在 60–300 mmHg");
                         }
                         if (!isBloodPressure && (number < 1 || number > 30)) {
-                          return '血糖值需在 1.0–30.0 mmol/L';
+                          return uiCopy(context, "血糖值需在 1.0–30.0 mmol/L");
                         }
                         return null;
                       },
@@ -149,10 +156,10 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
                           final low = int.tryParse(value?.trim() ?? '');
                           final high = int.tryParse(_primary.text.trim());
                           if (low == null || low < 20 || low > 200) {
-                            return '舒张压需在 20–200 mmHg';
+                            return uiCopy(context, "舒张压需在 20–200 mmHg");
                           }
                           if (high != null && low >= high) {
-                            return '舒张压必须低于收缩压';
+                            return uiCopy(context, "舒张压必须低于收缩压");
                           }
                           return null;
                         },
@@ -172,7 +179,9 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.save_outlined),
-              label: Text(_saving ? '正在写入戒指' : '保存校准'),
+              label: Text(
+                _saving ? uiCopy(context, "正在写入戒指") : uiCopy(context, "保存校准"),
+              ),
             ),
           ],
         ),
@@ -243,7 +252,7 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
     if (record.metric == HealthMetric.sleep && !readOnly) {
       final date = DateTime.parse(sleepRecordSdkDate(record));
       return Scaffold(
-        appBar: AppBar(title: const Text('睡眠详情')),
+        appBar: AppBar(title: Text(uiCopy(context, "睡眠详情"))),
         body: SleepDayDetails(
           controller: controller,
           initialDate: date,
@@ -301,10 +310,12 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
                     ),
                   ),
                   Text(
-                    hasUnconfirmedCalorieUnit(record) ? '单位待确认' : record.unit,
+                    hasUnconfirmedCalorieUnit(record)
+                        ? uiCopy(context, "单位待确认")
+                        : record.unit,
                     style: const TextStyle(color: SaydianColors.muted),
                   ),
-                  if (isRriHrv) const Text('HRV 指标：SDNN'),
+                  if (isRriHrv) Text(uiCopy(context, "HRV 指标：SDNN")),
                   const SizedBox(height: 12),
                   Text(
                     date,
@@ -312,7 +323,11 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '数据来源：${record.origin.label}',
+                    uiCopy(
+                      context,
+                      "数据来源：{p0}",
+                      parameters: [uiCopy(context, record.origin.label)],
+                    ),
                     style: const TextStyle(
                       color: SaydianColors.techBlue,
                       fontWeight: FontWeight.w700,
@@ -331,7 +346,7 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
                     ListTile(
                       title: Text(
                         isRriHrv && values[index].key == 'rri'
-                            ? '平均 NN 间期'
+                            ? uiCopy(context, "平均 NN 间期")
                             : healthValueLabel(
                                 values[index].key,
                                 record.metric,
@@ -423,16 +438,16 @@ class _EcgRecordDetailPageState extends State<_EcgRecordDetailPage> {
           ),
           const SizedBox(height: 14),
           SegmentedButton<int>(
-            segments: const [
+            segments: [
               ButtonSegment(
                 value: 0,
                 icon: Icon(Icons.monitor_heart_outlined),
-                label: Text('测量指标'),
+                label: Text(uiCopy(context, "测量指标")),
               ),
               ButtonSegment(
                 value: 1,
                 icon: Icon(Icons.health_and_safety_outlined),
-                label: Text('风险分析'),
+                label: Text(uiCopy(context, "风险分析")),
               ),
             ],
             selected: {_section},
@@ -484,13 +499,13 @@ class _EcgSummaryCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
                 Icon(Icons.monitor_heart_rounded, color: Colors.white),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '本次心电记录',
+                    uiCopy(context, "本次心电记录"),
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -518,7 +533,7 @@ class _EcgSummaryCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    record.origin.label,
+                    uiCopy(context, record.origin.label),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,
@@ -533,7 +548,7 @@ class _EcgSummaryCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: _EcgSummaryValue(
-                    label: '心率',
+                    label: uiCopy(context, "心率"),
                     value: _ecgValue(record, const ['meanHeartRate', 'value']),
                     unit: 'bpm',
                   ),
@@ -600,17 +615,17 @@ class _EcgMedicalSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const definitions = <(String, String, String)>[
-      ('meanHeartRate', '平均心率', 'bpm'),
-      ('averageHRV', '心率变异性（HRV）', 'ms'),
-      ('averageTimeInterval', 'QT 间期', 'ms'),
-      ('respiratoryRate', '呼吸频率', '次/分'),
+    final definitions = <(String, String, String)>[
+      ('meanHeartRate', uiCopy(context, "平均心率"), 'bpm'),
+      ('averageHRV', uiCopy(context, "心率变异性（HRV）"), 'ms'),
+      ('averageTimeInterval', uiCopy(context, "QT 间期"), 'ms'),
+      ('respiratoryRate', uiCopy(context, "呼吸频率"), uiCopy(context, "次/分")),
       ('sdnn', 'SDNN', 'ms'),
       ('rmssd', 'RMSSD', 'ms'),
-      ('qrsTime', 'QRS 时限', 'ms'),
-      ('qrsAmplitude', 'QRS 振幅', ''),
-      ('stAmplitude', 'ST 振幅', ''),
-      ('pulseWaveVelocity', '脉搏波速度', ''),
+      ('qrsTime', uiCopy(context, "QRS 时限"), 'ms'),
+      ('qrsAmplitude', uiCopy(context, "QRS 振幅"), ''),
+      ('stAmplitude', uiCopy(context, "ST 振幅"), ''),
+      ('pulseWaveVelocity', uiCopy(context, "脉搏波速度"), ''),
     ];
     final values = definitions
         .where((item) => record.values[item.$1] != null)
@@ -690,14 +705,14 @@ class _EcgRiskSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const definitions = <(String, String)>[
-      ('diseaseRisk', '综合异常风险'),
-      ('myocarditisRisk', '心肌健康风险'),
-      ('chdRisk', '冠心病相关风险'),
-      ('angioscleroticRisk', '血管硬化相关风险'),
-      ('pressureIndex', '压力指数'),
-      ('fatigueIndex', '疲劳指数'),
-      ('deviceAbnormalFlags', '设备识别异常项'),
+    final definitions = <(String, String)>[
+      ('diseaseRisk', uiCopy(context, "综合异常风险")),
+      ('myocarditisRisk', uiCopy(context, "心肌健康风险")),
+      ('chdRisk', uiCopy(context, "冠心病相关风险")),
+      ('angioscleroticRisk', uiCopy(context, "血管硬化相关风险")),
+      ('pressureIndex', uiCopy(context, "压力指数")),
+      ('fatigueIndex', uiCopy(context, "疲劳指数")),
+      ('deviceAbnormalFlags', uiCopy(context, "设备识别异常项")),
     ];
     final values = definitions
         .where((item) => record.values[item.$1] != null)
@@ -844,14 +859,18 @@ class _EcgRiskOverview extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '本次风险等级：${level.label}',
+                  uiCopy(
+                    context,
+                    "本次风险等级：{p0}",
+                    parameters: [uiCopy(context, level.label)],
+                  ),
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   value < 30
-                      ? '本次设备算法未提示明显高风险，建议继续保持规律监测。'
-                      : '建议在静息状态复测；如多次提示异常或伴随不适，请及时就医。',
+                      ? uiCopy(context, "本次设备算法未提示明显高风险，建议继续保持规律监测。")
+                      : uiCopy(context, "建议在静息状态复测；如多次提示异常或伴随不适，请及时就医。"),
                   style: const TextStyle(fontSize: 13, height: 1.45),
                 ),
               ],
@@ -865,48 +884,60 @@ class _EcgRiskOverview extends StatelessWidget {
 
 ({String label, Color color}) _ecgRiskLevel(String key, num value) {
   if (key == 'pressureIndex' || key == 'fatigueIndex') {
-    if (value < 30) return (label: '较低', color: SaydianColors.green);
-    if (value < 60) return (label: '中等', color: SaydianColors.orange);
-    return (label: '偏高', color: SaydianColors.danger);
+    if (value < 30) {
+      return (label: uiCopy(null, "较低"), color: SaydianColors.green);
+    }
+    if (value < 60) {
+      return (label: uiCopy(null, "中等"), color: SaydianColors.orange);
+    }
+    return (label: uiCopy(null, "偏高"), color: SaydianColors.danger);
   }
-  if (value < 30) return (label: '低风险', color: SaydianColors.green);
-  if (value < 60) return (label: '需关注', color: SaydianColors.orange);
-  return (label: '风险较高', color: SaydianColors.danger);
+  if (value < 30) {
+    return (label: uiCopy(null, "低风险"), color: SaydianColors.green);
+  }
+  if (value < 60) {
+    return (label: uiCopy(null, "需关注"), color: SaydianColors.orange);
+  }
+  return (label: uiCopy(null, "风险较高"), color: SaydianColors.danger);
 }
 
 String _ecgRiskDescription(String key, num value) {
   if (key == 'pressureIndex') {
     return value < 30
-        ? '压力指标较低，当前状态相对放松。'
+        ? uiCopy(null, "压力指标较低，当前状态相对放松。")
         : value < 60
-        ? '压力指标处于中等范围，建议适当休息并保持规律作息。'
-        : '压力指标偏高，建议静息后复测，并关注近期睡眠与情绪变化。';
+        ? uiCopy(null, "压力指标处于中等范围，建议适当休息并保持规律作息。")
+        : uiCopy(null, "压力指标偏高，建议静息后复测，并关注近期睡眠与情绪变化。");
   }
   if (key == 'fatigueIndex') {
     return value < 30
-        ? '疲劳指标较低，当前恢复状态较好。'
+        ? uiCopy(null, "疲劳指标较低，当前恢复状态较好。")
         : value < 60
-        ? '存在一定疲劳，建议减少高强度活动并保证休息。'
-        : '疲劳指标偏高，建议充分休息后复测。';
+        ? uiCopy(null, "存在一定疲劳，建议减少高强度活动并保证休息。")
+        : uiCopy(null, "疲劳指标偏高，建议充分休息后复测。");
   }
-  const names = {
-    'diseaseRisk': '综合异常',
-    'myocarditisRisk': '心肌健康',
-    'chdRisk': '冠心病相关',
-    'angioscleroticRisk': '血管硬化相关',
-    'deviceAbnormalFlags': '设备识别异常',
+  final names = {
+    'diseaseRisk': uiCopy(null, "综合异常"),
+    'myocarditisRisk': uiCopy(null, "心肌健康"),
+    'chdRisk': uiCopy(null, "冠心病相关"),
+    'angioscleroticRisk': uiCopy(null, "血管硬化相关"),
+    'deviceAbnormalFlags': uiCopy(null, "设备识别异常"),
   };
-  final name = names[key] ?? '该项';
+  final name = names[key] ?? uiCopy(null, "该项");
   if (key == 'deviceAbnormalFlags') {
     return value <= 0
-        ? '设备未识别到异常标记。'
-        : '设备识别到 ${_formatEcgNumber(value)} 项异常标记，建议在静息状态规范佩戴后复测。';
+        ? uiCopy(null, "设备未识别到异常标记。")
+        : uiCopy(
+            null,
+            "设备识别到 {p0} 项异常标记，建议在静息状态规范佩戴后复测。",
+            parameters: [_formatEcgNumber(value)],
+          );
   }
   return value < 30
-      ? '$name风险较低，建议继续观察长期趋势。'
+      ? uiCopy(null, "{p0}风险较低，建议继续观察长期趋势。", parameters: [name])
       : value < 60
-      ? '$name指标需要关注，建议在静息状态规范复测。'
-      : '$name指标偏高；若复测仍高或伴有胸闷、心悸等不适，请及时就医。';
+      ? uiCopy(null, "{p0}指标需要关注，建议在静息状态规范复测。", parameters: [name])
+      : uiCopy(null, "{p0}指标偏高；若复测仍高或伴有胸闷、心悸等不适，请及时就医。", parameters: [name]);
 }
 
 class _EcgFullReportPage extends StatefulWidget {
@@ -943,12 +974,12 @@ class _EcgFullReportPageState extends State<_EcgFullReportPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('心电报告已保存到手机相册')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "心电报告已保存到手机相册"))));
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('报告保存失败，请稍后重试')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(uiCopy(context, "报告保存失败，请稍后重试"))),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1010,7 +1041,9 @@ class _EcgFullReportPageState extends State<_EcgFullReportPage> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.download_rounded),
-          label: Text(_saving ? '正在保存报告' : '保存报告图片'),
+          label: Text(
+            _saving ? uiCopy(context, "正在保存报告") : uiCopy(context, "保存报告图片"),
+          ),
         ),
       ),
     );

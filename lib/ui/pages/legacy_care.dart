@@ -84,8 +84,8 @@ class _CarePageState extends State<CarePage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                '守护家人健康',
+                              Text(
+                                uiCopy(context, "守护家人健康"),
                                 style: TextStyle(
                                   fontSize: 19,
                                   fontWeight: FontWeight.w900,
@@ -95,8 +95,12 @@ class _CarePageState extends State<CarePage> {
                               const SizedBox(height: 5),
                               Text(
                                 memberCount == 0
-                                    ? '添加关爱成员后查看授权数据'
-                                    : '正在关爱 $memberCount 位家人',
+                                    ? uiCopy(context, "添加关爱成员后查看授权数据")
+                                    : uiCopy(
+                                        context,
+                                        "正在关爱 {p0} 位家人",
+                                        parameters: [memberCount],
+                                      ),
                                 style: const TextStyle(
                                   color: Color(0xFFDDEBFF),
                                   fontSize: 14,
@@ -106,7 +110,7 @@ class _CarePageState extends State<CarePage> {
                           ),
                         ),
                         IconButton.filled(
-                          tooltip: '添加关爱',
+                          tooltip: uiCopy(context, "添加关爱"),
                           onPressed:
                               controller.session == null ||
                                   controller.isPreviewMode
@@ -129,8 +133,8 @@ class _CarePageState extends State<CarePage> {
                       minInlineWidth: 320,
                       leading: _CareActionEntry(
                         icon: Icons.manage_accounts_outlined,
-                        title: '共享管理',
-                        subtitle: '授权与隐私',
+                        title: uiCopy(context, "共享管理"),
+                        subtitle: uiCopy(context, "授权与隐私"),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             settings: const RouteSettings(
@@ -143,10 +147,16 @@ class _CarePageState extends State<CarePage> {
                       ),
                       action: _CareActionEntry(
                         icon: Icons.mark_email_unread_outlined,
-                        title: '关爱邀请',
+                        title: uiCopy(context, "关爱邀请"),
                         subtitle: controller.pendingCareInvitations.isEmpty
                             ? controller.careInvitationStatus
-                            : '${controller.pendingCareInvitations.length} 条待处理',
+                            : uiCopy(
+                                context,
+                                "{p0} 条待处理",
+                                parameters: [
+                                  controller.pendingCareInvitations.length,
+                                ],
+                              ),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             settings: const RouteSettings(
@@ -210,21 +220,21 @@ class _CarePageState extends State<CarePage> {
                               size: 46,
                             ),
                             title: Text(
-                              '${member['nickname'] ?? member['mobile'] ?? '关爱成员'}',
+                              '${member['nickname'] ?? member['mobile'] ?? uiCopy(context, "关爱成员")}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                             subtitle: Text(
-                              '${member['mobile'] ?? '手机号未提供'}\n点击查看实时健康数据',
+                              '${member['mobile'] ?? uiCopy(context, "手机号未提供")}\n点击查看实时健康数据',
                             ),
                             trailing: const Icon(Icons.chevron_right_rounded),
                           ),
                         ),
                       ),
                   const SizedBox(height: 4),
-                  const InlineNotice(
-                    message: '默认不共享任何数据；成员可按指标授权并随时撤销。',
+                  InlineNotice(
+                    message: uiCopy(context, "默认不共享任何数据；成员可按指标授权并随时撤销。"),
                     icon: Icons.privacy_tip_outlined,
                     color: SaydianColors.green,
                   ),
@@ -262,17 +272,17 @@ class _CareMembersStateCard extends StatelessWidget {
         ? const Key('care-members-error')
         : const Key('care-members-empty');
     final title = loading
-        ? '正在读取关爱成员'
+        ? uiCopy(context, "正在读取关爱成员")
         : failed
         ? status
         : isPreviewMode
-        ? '当前暂无关爱成员'
-        : '暂无关爱成员';
+        ? uiCopy(context, "当前暂无关爱成员")
+        : uiCopy(context, "暂无关爱成员");
     final description = failed
         ? (errorMessage?.trim().isNotEmpty == true
               ? errorMessage!.trim()
-              : '关爱数据暂时无法读取，请稍后重试。')
-        : '通过手机号邀请家人，对方接受并授权后才会共享健康数据。';
+              : uiCopy(context, "关爱数据暂时无法读取，请稍后重试。"))
+        : uiCopy(context, "通过手机号邀请家人，对方接受并授权后才会共享健康数据。");
 
     return Card(
       key: stateKey,
@@ -457,7 +467,7 @@ class _CareMemberPageState extends State<CareMemberPage> {
   @override
   Widget build(BuildContext context) {
     final name =
-        '${widget.member['nickname'] ?? widget.member['mobile'] ?? '关爱成员'}';
+        '${widget.member['nickname'] ?? widget.member['mobile'] ?? uiCopy(context, "关爱成员")}';
     final loadError = '${_data['loadError'] ?? ''}'.trim();
     final todayItems = _mapList(_data['jrjk']);
     final dailyItems = _mapList(_data['daily']);
@@ -479,7 +489,7 @@ class _CareMemberPageState extends State<CareMemberPage> {
                       child: Row(
                         children: [
                           IconButton(
-                            tooltip: '前一天',
+                            tooltip: uiCopy(context, "前一天"),
                             onPressed: _loading ? null : () => _shiftDay(-1),
                             icon: const Icon(Icons.chevron_left_rounded),
                           ),
@@ -487,11 +497,15 @@ class _CareMemberPageState extends State<CareMemberPage> {
                             child: TextButton.icon(
                               onPressed: _loading ? null : _pickDay,
                               icon: const Icon(Icons.calendar_month_outlined),
-                              label: Text(DateFormat('yyyy年M月d日').format(_day)),
+                              label: Text(
+                                DateFormat(
+                                  uiCopy(context, "yyyy年M月d日"),
+                                ).format(_day),
+                              ),
                             ),
                           ),
                           IconButton(
-                            tooltip: '后一天',
+                            tooltip: uiCopy(context, "后一天"),
                             onPressed: _loading || _isToday(_day)
                                 ? null
                                 : () => _shiftDay(1),
@@ -515,7 +529,13 @@ class _CareMemberPageState extends State<CareMemberPage> {
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            '实时更新 · ${DateFormat('HH:mm:ss').format(_updatedAt!)}',
+                            uiCopy(
+                              context,
+                              "实时更新 · {p0}",
+                              parameters: [
+                                DateFormat('HH:mm:ss').format(_updatedAt!),
+                              ],
+                            ),
                             style: const TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 13,
@@ -531,16 +551,18 @@ class _CareMemberPageState extends State<CareMemberPage> {
                       color: SaydianColors.orange,
                     )
                   else if (_data.isEmpty)
-                    const InlineNotice(
-                      message: '对方尚未授权健康数据，或当前日期没有数据。',
+                    InlineNotice(
+                      message: uiCopy(context, "对方尚未授权健康数据，或当前日期没有数据。"),
                       icon: Icons.privacy_tip_outlined,
                       color: SaydianColors.orange,
                     )
                   else ...[
                     if (todayItems.isNotEmpty) ...[
                       _CareSectionTitle(
-                        title: _isToday(_day) ? '今日活动' : '当日活动',
-                        subtitle: '成员授权共享的活动概况',
+                        title: _isToday(_day)
+                            ? uiCopy(context, "今日活动")
+                            : uiCopy(context, "当日活动"),
+                        subtitle: uiCopy(context, "成员授权共享的活动概况"),
                       ),
                       const SizedBox(height: 10),
                       LayoutBuilder(
@@ -563,9 +585,9 @@ class _CareMemberPageState extends State<CareMemberPage> {
                     if (todayItems.isNotEmpty && dailyItems.isNotEmpty)
                       const SizedBox(height: 20),
                     if (dailyItems.isNotEmpty) ...[
-                      const _CareSectionTitle(
-                        title: '健康详情',
-                        subtitle: '活动、睡眠与身体指标摘要',
+                      _CareSectionTitle(
+                        title: uiCopy(context, "健康详情"),
+                        subtitle: uiCopy(context, "活动、睡眠与身体指标摘要"),
                       ),
                       const SizedBox(height: 10),
                       for (final item in dailyItems) ...[
@@ -582,8 +604,8 @@ class _CareMemberPageState extends State<CareMemberPage> {
                       ],
                     ],
                     if (todayItems.isEmpty && dailyItems.isEmpty)
-                      const InlineNotice(
-                        message: '这一天没有已共享的记录。',
+                      InlineNotice(
+                        message: uiCopy(context, "这一天没有已共享的记录。"),
                         icon: Icons.event_busy_outlined,
                         color: SaydianColors.orange,
                       ),
@@ -625,7 +647,7 @@ class _CareMemberPageState extends State<CareMemberPage> {
       initialDate: _day,
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
-      helpText: '选择关爱数据日期',
+      helpText: uiCopy(context, "选择关爱数据日期"),
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -666,7 +688,7 @@ class _CareHealthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = '${item['title'] ?? '健康指标'}';
+    final title = '${item['title'] ?? uiCopy(context, "健康指标")}';
     final value = '${item['num'] ?? item['value'] ?? '--'}';
     final unit = '${item['unit'] ?? ''}'.trim();
     final percent = _careNumber(item['percent']).clamp(0, 100).toDouble();
@@ -727,10 +749,10 @@ class _CareDailyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = '${item['title'] ?? '健康详情'}';
+    final title = '${item['title'] ?? uiCopy(context, "健康详情")}';
     final unauthorized = item['state'] == 'unauthorized';
     final tips = unauthorized
-        ? '对方未授权此项目'
+        ? uiCopy(context, "对方未授权此项目")
         : '${item['tips'] ?? item['tip'] ?? ''}'.trim();
     final summary = unauthorized
         ? const <String, String>{}
@@ -835,10 +857,12 @@ class CareMetricDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = '${item['title'] ?? '健康数据'}';
+    final title = '${item['title'] ?? uiCopy(context, "健康数据")}';
     final state = '${item['state'] ?? ''}';
     final unauthorized = state == 'unauthorized';
-    final tips = unauthorized ? '对方未授权此项目' : '${item['tips'] ?? ''}'.trim();
+    final tips = unauthorized
+        ? uiCopy(context, "对方未授权此项目")
+        : '${item['tips'] ?? ''}'.trim();
     final metricUnit = '${item['unit'] ?? ''}'.trim();
     final rawRecords = unauthorized ? const <Object?>[] : item['records'];
     final allRecords = rawRecords is List
@@ -869,7 +893,7 @@ class CareMetricDetailPage extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            DateFormat('yyyy年M月d日').format(day),
+            DateFormat(uiCopy(context, "yyyy年M月d日")).format(day),
             style: const TextStyle(
               color: SaydianColors.muted,
               fontWeight: FontWeight.w700,
@@ -882,7 +906,7 @@ class CareMetricDetailPage extends StatelessWidget {
           ],
           if (records.isEmpty)
             InlineNotice(
-              message: tips.isNotEmpty ? tips : '这一天没有明细记录。',
+              message: tips.isNotEmpty ? tips : uiCopy(context, "这一天没有明细记录。"),
               icon: unauthorized
                   ? Icons.lock_outline
                   : state == 'unavailable'
@@ -926,8 +950,8 @@ class _CareMetricDaySummaryCard extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 3),
-          const Text(
-            '仅汇总当前所选日期的有效记录',
+          Text(
+            uiCopy(context, "仅汇总当前所选日期的有效记录"),
             style: TextStyle(color: SaydianColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 10),
@@ -983,13 +1007,15 @@ class _CareMetricRecordCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              time.isEmpty ? '第 ${index + 1} 条记录' : time,
+              time.isEmpty
+                  ? uiCopy(context, "第 {p0} 条记录", parameters: [index + 1])
+                  : time,
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
             if (fields.isEmpty)
               Text(
-                '该记录未包含可用的$metricTitle数据',
+                uiCopy(context, "该记录未包含可用的{p0}数据", parameters: [metricTitle]),
                 style: const TextStyle(color: SaydianColors.muted),
               )
             else
@@ -1049,7 +1075,7 @@ class _CareEcgRecordCard extends StatelessWidget {
         samples.length > 1 &&
         hasUsableEcgSignal(samples, sampleFrequency: frequency);
     final values = <(String, num?, String)>[
-      ('心率', _number('meanHeartRate'), 'bpm'),
+      (uiCopy(context, "心率"), _number('meanHeartRate'), 'bpm'),
       ('QT', _number('averageTimeInterval'), 'ms'),
       ('HRV', _number('averageHRV'), 'ms'),
     ];
@@ -1064,7 +1090,9 @@ class _CareEcgRecordCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    time.isEmpty ? '第 ${index + 1} 条记录' : time,
+                    time.isEmpty
+                        ? uiCopy(context, "第 {p0} 条记录", parameters: [index + 1])
+                        : time,
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
@@ -1163,12 +1191,12 @@ List<_CareMetricDisplayField> _careMetricDisplayFields(
   switch (title) {
     case '心率':
       return [
-        ?scalar('心率', const [
+        ?scalar(uiCopy(null, "心率"), const [
           'pulseReat',
           'heartReat',
           'heartRate',
           'heart',
-        ], '次/分'),
+        ], uiCopy(null, "次/分")),
       ];
     case '血糖':
       return [
@@ -1204,18 +1232,18 @@ List<_CareMetricDisplayField> _careMetricDisplayFields(
         'low',
       ], 'mmHg');
       final pair = _careMetricPressurePair(record);
-      final pulse = scalar('脉搏', const [
+      final pulse = scalar(uiCopy(null, "脉搏"), const [
         'pulseReat',
         'heartReat',
         'heartRate',
         'pulse',
-      ], '次/分');
+      ], uiCopy(null, "次/分"));
       return [
         high ??
             (pair == null
                 ? null
                 : (
-                    label: '收缩压',
+                    label: uiCopy(null, "收缩压"),
                     value: _careFormatNumber(pair.$1),
                     unit: 'mmHg',
                   )),
@@ -1223,64 +1251,104 @@ List<_CareMetricDisplayField> _careMetricDisplayFields(
             (pair == null
                 ? null
                 : (
-                    label: '舒张压',
+                    label: uiCopy(null, "舒张压"),
                     value: _careFormatNumber(pair.$2),
                     unit: 'mmHg',
                   )),
         ?pulse,
       ].whereType<_CareMetricDisplayField>().toList(growable: false);
     case '睡眠':
-      return _careCompositeMetricFields(record, const [
-        (label: '总睡眠', keys: ['sleepMinutes', 'allSleepTime'], unit: '分钟'),
-        (label: '深睡', keys: ['deepSleep', 'deepSleepTime'], unit: '分钟'),
-        (label: '浅睡', keys: ['lightSleep', 'lightSleepTime'], unit: '分钟'),
-        (label: '清醒', keys: ['awake', 'awakeTime'], unit: '分钟'),
+      return _careCompositeMetricFields(record, [
+        (
+          label: uiCopy(null, "总睡眠"),
+          keys: ['sleepMinutes', 'allSleepTime'],
+          unit: uiCopy(null, "分钟"),
+        ),
+        (
+          label: uiCopy(null, "深睡"),
+          keys: ['deepSleep', 'deepSleepTime'],
+          unit: uiCopy(null, "分钟"),
+        ),
+        (
+          label: uiCopy(null, "浅睡"),
+          keys: ['lightSleep', 'lightSleepTime'],
+          unit: uiCopy(null, "分钟"),
+        ),
+        (
+          label: uiCopy(null, "清醒"),
+          keys: ['awake', 'awakeTime'],
+          unit: uiCopy(null, "分钟"),
+        ),
       ]);
     case '身体成分':
-      return _careCompositeMetricFields(record, const [
+      return _careCompositeMetricFields(record, [
         (label: 'BMI', keys: ['BMI', 'bmi'], unit: ''),
-        (label: '体脂率', keys: ['bodyFatRate', 'bodyFatPercentage'], unit: '%'),
-        (label: '脂肪量', keys: ['fatRate', 'fatMass'], unit: 'kg'),
-        (label: '去脂体重', keys: ['fatFreeRate', 'fatFreeMass'], unit: 'kg'),
-        (label: '肌肉率', keys: ['muscleRate'], unit: '%'),
-        (label: '肌肉量', keys: ['muscleMass'], unit: 'kg'),
-        (label: '皮下脂肪率', keys: ['subcutaneousFat'], unit: '%'),
-        (label: '体水分率', keys: ['bodyMoisture', 'bodyWaterRate'], unit: '%'),
-        (label: '水分量', keys: ['waterContent', 'waterMass'], unit: 'kg'),
         (
-          label: '骨骼肌率',
+          label: uiCopy(null, "体脂率"),
+          keys: ['bodyFatRate', 'bodyFatPercentage'],
+          unit: '%',
+        ),
+        (label: uiCopy(null, "脂肪量"), keys: ['fatRate', 'fatMass'], unit: 'kg'),
+        (
+          label: uiCopy(null, "去脂体重"),
+          keys: ['fatFreeRate', 'fatFreeMass'],
+          unit: 'kg',
+        ),
+        (label: uiCopy(null, "肌肉率"), keys: ['muscleRate'], unit: '%'),
+        (label: uiCopy(null, "肌肉量"), keys: ['muscleMass'], unit: 'kg'),
+        (label: uiCopy(null, "皮下脂肪率"), keys: ['subcutaneousFat'], unit: '%'),
+        (
+          label: uiCopy(null, "体水分率"),
+          keys: ['bodyMoisture', 'bodyWaterRate'],
+          unit: '%',
+        ),
+        (
+          label: uiCopy(null, "水分量"),
+          keys: ['waterContent', 'waterMass'],
+          unit: 'kg',
+        ),
+        (
+          label: uiCopy(null, "骨骼肌率"),
           keys: ['skeletalMuscle', 'skeletalMuscleRate'],
           unit: '%',
         ),
-        (label: '骨量', keys: ['boneMass'], unit: 'kg'),
-        (label: '蛋白质率', keys: ['proteinProportion', 'proteinRate'], unit: '%'),
-        (label: '蛋白质量', keys: ['proteinMass'], unit: 'kg'),
+        (label: uiCopy(null, "骨量"), keys: ['boneMass'], unit: 'kg'),
         (
-          label: '基础代谢',
+          label: uiCopy(null, "蛋白质率"),
+          keys: ['proteinProportion', 'proteinRate'],
+          unit: '%',
+        ),
+        (label: uiCopy(null, "蛋白质量"), keys: ['proteinMass'], unit: 'kg'),
+        (
+          label: uiCopy(null, "基础代谢"),
           keys: ['basalMetabolicRate', 'basalMetabolism'],
-          unit: 'kcal/日',
+          unit: uiCopy(null, "kcal/日"),
         ),
       ]);
     case '血液成分':
-      return _careCompositeMetricFields(record, const [
-        (label: '尿酸', keys: ['uricAcidVal', 'uricAcid'], unit: 'μmol/L'),
+      return _careCompositeMetricFields(record, [
         (
-          label: '总胆固醇',
+          label: uiCopy(null, "尿酸"),
+          keys: ['uricAcidVal', 'uricAcid'],
+          unit: 'μmol/L',
+        ),
+        (
+          label: uiCopy(null, "总胆固醇"),
           keys: ['cholesterol', 'totalCholesterol'],
           unit: 'mmol/L',
         ),
         (
-          label: '甘油三酯',
+          label: uiCopy(null, "甘油三酯"),
           keys: ['triacylglycerol', 'triglycerides'],
           unit: 'mmol/L',
         ),
         (
-          label: '高密度脂蛋白',
+          label: uiCopy(null, "高密度脂蛋白"),
           keys: ['highDensity', 'highDensityLipoprotein'],
           unit: 'mmol/L',
         ),
         (
-          label: '低密度脂蛋白',
+          label: uiCopy(null, "低密度脂蛋白"),
           keys: ['lowDensity', 'lowDensityLipoprotein'],
           unit: 'mmol/L',
         ),
@@ -1475,7 +1543,9 @@ Map<String, String> _careMetricDaySummary(
   List<Map<String, Object?>> records, {
   Object? normalizedLatest,
 }) {
-  final result = <String, String>{'记录数': '${records.length} 条'};
+  final result = <String, String>{
+    '记录数': uiCopy(null, "{p0} 条", parameters: [records.length]),
+  };
   if (title == '心电' || title == '身体成分' || title == '血液成分') {
     return result;
   }
@@ -1489,16 +1559,16 @@ Map<String, String> _careMetricDaySummary(
         '${_careFormatNumber(high)}/${_careFormatNumber(low)} mmHg';
     final latest = _careMetricPressurePair({'bloodPressure': normalizedLatest});
     final displayedLatest = latest ?? values.last;
-    result['最近'] = pair(displayedLatest.$1, displayedLatest.$2);
-    result['平均'] = pair(
+    result[uiCopy(null, "最近")] = pair(displayedLatest.$1, displayedLatest.$2);
+    result[uiCopy(null, "平均")] = pair(
       values.map((value) => value.$1).reduce((a, b) => a + b) / values.length,
       values.map((value) => value.$2).reduce((a, b) => a + b) / values.length,
     );
-    result['最高'] = pair(
+    result[uiCopy(null, "最高")] = pair(
       values.map((value) => value.$1).reduce(math.max),
       values.map((value) => value.$2).reduce(math.max),
     );
-    result['最低'] = pair(
+    result[uiCopy(null, "最低")] = pair(
       values.map((value) => value.$1).reduce(math.min),
       values.map((value) => value.$2).reduce(math.min),
     );
@@ -1519,23 +1589,25 @@ Map<String, String> _careMetricDaySummary(
       .toList(growable: false);
   if (values.isEmpty) return result;
   final unit = switch (title) {
-    '心率' => '次/分',
+    '心率' => uiCopy(null, "次/分"),
     '血糖' => 'mmol/L',
     '血氧' => '%',
     '体温' => '℃',
     'HRV' => 'ms',
-    '睡眠' => '分钟',
+    '睡眠' => uiCopy(null, "分钟"),
     _ => '',
   };
   String format(num value) => unit.isEmpty
       ? _careFormatNumber(value)
       : '${_careFormatNumber(value)} $unit';
-  result['最近'] = format(
+  result[uiCopy(null, "最近")] = format(
     _carePositiveDisplayNumber(normalizedLatest) ?? values.last,
   );
-  result['平均'] = format(values.reduce((a, b) => a + b) / values.length);
-  result['最高'] = format(values.reduce(math.max));
-  result['最低'] = format(values.reduce(math.min));
+  result[uiCopy(null, "平均")] = format(
+    values.reduce((a, b) => a + b) / values.length,
+  );
+  result[uiCopy(null, "最高")] = format(values.reduce(math.max));
+  result[uiCopy(null, "最低")] = format(values.reduce(math.min));
   return result;
 }
 
@@ -1636,18 +1708,18 @@ Color _careColor(Object? value) {
 }
 
 Map<String, String> _careSummary(Map<String, Object?> item) {
-  const labels = <String, String>{
-    'latest': '最近',
-    'num': '当前',
-    'value': '当前',
-    'max': '最高',
-    'min': '最低',
-    'avg': '平均',
+  final labels = <String, String>{
+    'latest': uiCopy(null, "最近"),
+    'num': uiCopy(null, "当前"),
+    'value': uiCopy(null, "当前"),
+    'max': uiCopy(null, "最高"),
+    'min': uiCopy(null, "最低"),
+    'avg': uiCopy(null, "平均"),
     'bmi': 'BMI',
-    'meanHeartRate': '平均心率',
-    'averageTimeInterval': '平均间期',
-    'deepSleep': '深睡',
-    'lightSleep': '浅睡',
+    'meanHeartRate': uiCopy(null, "平均心率"),
+    'averageTimeInterval': uiCopy(null, "平均间期"),
+    'deepSleep': uiCopy(null, "深睡"),
+    'lightSleep': uiCopy(null, "浅睡"),
   };
   final result = <String, String>{};
   final unit = '${item['unit'] ?? ''}'.trim();
@@ -1665,10 +1737,12 @@ Map<String, String> _careSummary(Map<String, Object?> item) {
   final ecg = item['ecgData'];
   if (ecg is Map) {
     if (ecg['meanHeartRate'] != null) {
-      result['平均心率'] = _careFieldValue(ecg['meanHeartRate']);
+      result[uiCopy(null, "平均心率")] = _careFieldValue(ecg['meanHeartRate']);
     }
     if (ecg['averageTimeInterval'] != null) {
-      result['平均间期'] = _careFieldValue(ecg['averageTimeInterval']);
+      result[uiCopy(null, "平均间期")] = _careFieldValue(
+        ecg['averageTimeInterval'],
+      );
     }
   }
   return result;
@@ -1710,16 +1784,16 @@ class _AddCareDialogState extends State<_AddCareDialog> {
         keyboardType: TextInputType.phone,
         textInputAction: TextInputAction.done,
         decoration: InputDecoration(
-          labelText: '对方手机号',
+          labelText: uiCopy(context, "对方手机号"),
           hintText: context.l10n.enterPhone,
         ),
         validator: (value) {
           final mobile = value?.trim() ?? '';
           if (!RegExp(r'^\d{6,20}$').hasMatch(mobile)) {
-            return '请输入正确的手机号';
+            return uiCopy(context, "请输入正确的手机号");
           }
           if (widget.ownMobile.isNotEmpty && mobile == widget.ownMobile) {
-            return '不能添加当前登录账号';
+            return uiCopy(context, "不能添加当前登录账号");
           }
           return null;
         },
@@ -1754,8 +1828,11 @@ Future<void> _showAddCareDialog(
     SnackBar(
       content: Text(
         success
-            ? '关爱请求已发送'
-            : userFacingMessage(controller.errorMessage, fallback: '请求未发送，请重试'),
+            ? uiCopy(context, "关爱请求已发送")
+            : userFacingMessage(
+                controller.errorMessage,
+                fallback: uiCopy(context, "请求未发送，请重试"),
+              ),
       ),
     ),
   );

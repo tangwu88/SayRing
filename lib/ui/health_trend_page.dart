@@ -142,7 +142,10 @@ class _HealthMetricMiniChartState extends State<HealthMetricMiniChart> {
           records.removeWhere(hasUnconfirmedCalorieUnit);
           if (pending && records.isEmpty) {
             return bounded(
-              const Text('单位待确认', style: TextStyle(color: SaydianColors.muted)),
+              Text(
+                uiCopy(context, "单位待确认"),
+                style: TextStyle(color: SaydianColors.muted),
+              ),
             );
           }
           if (records.isEmpty && !showEmptyLabel) {
@@ -153,7 +156,9 @@ class _HealthMetricMiniChartState extends State<HealthMetricMiniChart> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  records.isEmpty ? '暂无数据' : '仅 1 条记录',
+                  records.isEmpty
+                      ? uiCopy(context, "暂无数据")
+                      : uiCopy(context, "仅 1 条记录"),
                   style: const TextStyle(
                     color: SaydianColors.muted,
                     fontSize: 13,
@@ -226,8 +231,24 @@ class _HealthMetricMiniChartState extends State<HealthMetricMiniChart> {
           );
           return Semantics(
             label: fitToSamples
-                ? '${metric.label}今日趋势，$firstLabel 至 $lastLabel，共${data.points.length}个数据点'
-                : '${metric.label}今日趋势，共${data.points.length}个数据点',
+                ? uiCopy(
+                    context,
+                    "{p0}今日趋势，{p1} 至 {p2}，共{p3}个数据点",
+                    parameters: [
+                      uiCopy(context, metric.label),
+                      firstLabel,
+                      lastLabel,
+                      data.points.length,
+                    ],
+                  )
+                : uiCopy(
+                    context,
+                    "{p0}今日趋势，共{p1}个数据点",
+                    parameters: [
+                      uiCopy(context, metric.label),
+                      data.points.length,
+                    ],
+                  ),
             child: fitToSamples
                 ? Column(
                     mainAxisSize: MainAxisSize.min,
@@ -460,7 +481,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
       initialDate: initial,
       firstDate: initial.isBefore(earliest) ? initial : earliest,
       lastDate: today,
-      helpText: '选择查看日期',
+      helpText: uiCopy(context, "选择查看日期"),
     );
     if (picked == null || !mounted) return;
     setState(() => _anchor = picked);
@@ -525,10 +546,14 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
     }
     final range = HealthTrendRange.forPeriod(_period, _anchor);
     final rangeLabel = switch (_period) {
-      HealthTrendPeriod.day => DateFormat('yyyy年M月d日').format(range.start),
+      HealthTrendPeriod.day => DateFormat(
+        uiCopy(context, "yyyy年M月d日"),
+      ).format(range.start),
       HealthTrendPeriod.week =>
-        '${DateFormat('M月d日').format(range.start)} - ${DateFormat('M月d日').format(DateTime(range.end.year, range.end.month, range.end.day - 1))}',
-      HealthTrendPeriod.month => DateFormat('yyyy年M月').format(range.start),
+        '${DateFormat(uiCopy(context, "M月d日")).format(range.start)} - ${DateFormat(uiCopy(context, "M月d日")).format(DateTime(range.end.year, range.end.month, range.end.day - 1))}',
+      HealthTrendPeriod.month => DateFormat(
+        uiCopy(context, "yyyy年M月"),
+      ).format(range.start),
     };
     return Scaffold(
       appBar: AppBar(
@@ -567,7 +592,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                                 for (final period in HealthTrendPeriod.values)
                                   ButtonSegment(
                                     value: period,
-                                    label: Text(period.label),
+                                    label: Text(uiCopy(context, period.label)),
                                   ),
                               ],
                               selected: {_period},
@@ -611,7 +636,11 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                           Row(
                             children: [
                               IconButton(
-                                tooltip: '上一${_period.label}',
+                                tooltip: uiCopy(
+                                  context,
+                                  "上一{p0}",
+                                  parameters: [uiCopy(context, _period.label)],
+                                ),
                                 onPressed: () => _shift(-1),
                                 icon: const Icon(Icons.chevron_left_rounded),
                               ),
@@ -635,7 +664,11 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                                 ),
                               ),
                               IconButton(
-                                tooltip: '下一${_period.label}',
+                                tooltip: uiCopy(
+                                  context,
+                                  "下一{p0}",
+                                  parameters: [uiCopy(context, _period.label)],
+                                ),
                                 onPressed: range.end.isAfter(DateTime.now())
                                     ? null
                                     : () => _shift(1),
@@ -687,7 +720,11 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                                         ),
                                       )
                                     : const Icon(Icons.monitor_heart_outlined),
-                                label: Text(_measuring ? '测量中' : '手动测量'),
+                                label: Text(
+                                  _measuring
+                                      ? uiCopy(context, "测量中")
+                                      : uiCopy(context, "手动测量"),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 14),
@@ -705,8 +742,8 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                   else if (_error != null)
                     _MessageCard(
                       icon: Icons.error_outline_rounded,
-                      title: '数据读取失败',
-                      detail: '请稍后重试。',
+                      title: uiCopy(context, "数据读取失败"),
+                      detail: uiCopy(context, "请稍后重试。"),
                       action: _load,
                     )
                   else
@@ -734,14 +771,17 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         const SizedBox(height: 12),
       ],
       if (data.records.isEmpty)
-        const _MessageCard(icon: Icons.show_chart_rounded, title: '该时间段暂无数据')
+        _MessageCard(
+          icon: Icons.show_chart_rounded,
+          title: uiCopy(context, "该时间段暂无数据"),
+        )
       else ...[
         if (data.records.any(hasUnconfirmedCalorieUnit)) ...[
-          const _MessageCard(
+          _MessageCard(
             key: Key('calorie-unit-unconfirmed'),
             icon: Icons.info_outline_rounded,
-            title: '热量单位待确认',
-            detail: '这条记录不计入千卡总量。',
+            title: uiCopy(context, "热量单位待确认"),
+            detail: uiCopy(context, "这条记录不计入千卡总量。"),
           ),
           const SizedBox(height: 12),
         ],
@@ -756,9 +796,9 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           const SizedBox(height: 12),
         ],
         if (widget.metric == HealthMetric.bodyTemperature) ...[
-          const UsageInfoButton(
-            title: '皮温说明',
-            message: '皮温用于观察个人变化，不等于核心体温。确认体温请使用体温计。',
+          UsageInfoButton(
+            title: uiCopy(context, "皮温说明"),
+            message: uiCopy(context, "皮温用于观察个人变化，不等于核心体温。确认体温请使用体温计。"),
           ),
           const SizedBox(height: 12),
         ],
@@ -787,7 +827,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
             ),
             const SizedBox(width: 12),
             Text(
-              '${data.records.length} 条',
+              uiCopy(context, "{p0} 条", parameters: [data.records.length]),
               style: const TextStyle(color: SaydianColors.muted),
             ),
           ],
@@ -811,7 +851,13 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
               key: Key('health-all-records-${widget.metric.wireName}'),
               onPressed: () => _showAllRecords(data),
               icon: const Icon(Icons.list_alt_rounded),
-              label: Text('查看全部 ${data.records.length} 条数据'),
+              label: Text(
+                uiCopy(
+                  context,
+                  "查看全部 {p0} 条数据",
+                  parameters: [data.records.length],
+                ),
+              ),
             ),
           ),
       ],
@@ -861,11 +907,15 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                           ),
                         ),
                         Text(
-                          '${data.records.length} 条',
+                          uiCopy(
+                            context,
+                            "{p0} 条",
+                            parameters: [data.records.length],
+                          ),
                           style: const TextStyle(color: SaydianColors.muted),
                         ),
                         IconButton(
-                          tooltip: '关闭',
+                          tooltip: uiCopy(context, "关闭"),
                           onPressed: () => Navigator.of(context).pop(),
                           icon: const Icon(Icons.close_rounded),
                         ),
@@ -939,20 +989,30 @@ class SleepStructureCard extends StatelessWidget {
     }
 
     final rows = <(String, String)>[
-      ('总睡眠', hours('value')),
-      ('深睡', hours('deepHours')),
-      ('浅睡', hours('lightHours')),
-      ('快速眼动', values.containsKey('remHours') ? hours('remHours') : '暂未记录'),
+      (uiCopy(context, "总睡眠"), hours('value')),
+      (uiCopy(context, "深睡"), hours('deepHours')),
+      (uiCopy(context, "浅睡"), hours('lightHours')),
+      (
+        uiCopy(context, "快速眼动"),
+        values.containsKey('remHours')
+            ? hours('remHours')
+            : uiCopy(context, "暂未记录"),
+      ),
       if (values.containsKey('awakeMinutes'))
-        ('清醒时长', count('awakeMinutes', '分钟')),
-      ('体动', count('movementMinutes', '分钟')),
-      ('清醒次数', count('wakeCount', '次')),
+        (uiCopy(context, "清醒时长"), count('awakeMinutes', '分钟')),
+      (uiCopy(context, "体动"), count('movementMinutes', '分钟')),
+      (uiCopy(context, "清醒次数"), count('wakeCount', '次')),
       if (!wellnessOnly && controller?.isWellnessOnly != true)
-        ('设备睡眠评分', values.containsKey('score') ? count('score', '分') : '暂未记录'),
+        (
+          uiCopy(context, "设备睡眠评分"),
+          values.containsKey('score')
+              ? count('score', '分')
+              : uiCopy(context, "暂未记录"),
+        ),
       if (!wellnessOnly &&
           controller?.isWellnessOnly != true &&
           values.containsKey('efficiency'))
-        ('睡眠效率', count('efficiency', '%')),
+        (uiCopy(context, "睡眠效率"), count('efficiency', '%')),
     ];
     return Card(
       key: const Key('sleep-structure-card'),
@@ -961,8 +1021,8 @@ class SleepStructureCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '睡眠结构',
+            Text(
+              uiCopy(context, "睡眠结构"),
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 18),
@@ -1038,11 +1098,11 @@ class _StressRangeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const ranges = <(String, String, Color)>[
-      ('放松', '1–29', Color(0xFF66B99B)),
-      ('正常', '30–59', Color(0xFF72AEE6)),
-      ('中等', '60–79', Color(0xFFE3A54D)),
-      ('偏高', '80–100', Color(0xFFE56565)),
+    final ranges = <(String, String, Color)>[
+      (uiCopy(context, "放松"), '1–29', Color(0xFF66B99B)),
+      (uiCopy(context, "正常"), '30–59', Color(0xFF72AEE6)),
+      (uiCopy(context, "中等"), '60–79', Color(0xFFE3A54D)),
+      (uiCopy(context, "偏高"), '80–100', Color(0xFFE56565)),
     ];
     return Card(
       key: const Key('stress-range-card'),
@@ -1051,8 +1111,8 @@ class _StressRangeCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '压力分级',
+            Text(
+              uiCopy(context, "压力分级"),
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
@@ -1145,15 +1205,27 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final values = <(String, String, IconData)>[
-      ('最大值', _format(summary.maximum, unit), Icons.arrow_upward_rounded),
-      ('最小值', _format(summary.minimum, unit), Icons.arrow_downward_rounded),
-      ('记录数', '${summary.recordCount} 条', Icons.data_usage_rounded),
+      (
+        uiCopy(context, "最大值"),
+        _format(summary.maximum, unit),
+        Icons.arrow_upward_rounded,
+      ),
+      (
+        uiCopy(context, "最小值"),
+        _format(summary.minimum, unit),
+        Icons.arrow_downward_rounded,
+      ),
+      (
+        uiCopy(context, "记录数"),
+        uiCopy(context, "{p0} 条", parameters: [summary.recordCount]),
+        Icons.data_usage_rounded,
+      ),
     ];
-    var averageLabel = '平均值';
+    var averageLabel = uiCopy(context, "平均值");
     var average = _format(summary.average, unit);
     if (metric == HealthMetric.bloodPressure &&
         summary.secondaryAverage != null) {
-      averageLabel = '平均血压';
+      averageLabel = uiCopy(context, "平均血压");
       average =
           '${_number(summary.average)}/${_number(summary.secondaryAverage)} $unit';
     }
@@ -1192,7 +1264,15 @@ class _SummaryCard extends StatelessWidget {
             if (change != null) ...[
               const SizedBox(height: 13),
               Text(
-                '较上一周期 ${change >= 0 ? '+' : ''}${change.toStringAsFixed(1)} $unit',
+                uiCopy(
+                  context,
+                  "较上一周期 {p0}{p1} {p2}",
+                  parameters: [
+                    change >= 0 ? '+' : '',
+                    change.toStringAsFixed(1),
+                    unit,
+                  ],
+                ),
                 style: const TextStyle(
                   color: SaydianColors.muted,
                   fontSize: 14,
@@ -1259,10 +1339,10 @@ class _TrendChartCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (data.points.isEmpty) {
-      return const _MessageCard(
+      return _MessageCard(
         icon: Icons.show_chart_rounded,
-        title: '暂无可绘制数据',
-        detail: '记录中没有该指标的有效数值。',
+        title: uiCopy(context, "暂无可绘制数据"),
+        detail: uiCopy(context, "记录中没有该指标的有效数值。"),
       );
     }
     final isBar =
@@ -1276,14 +1356,21 @@ class _TrendChartCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '变化趋势',
+            Text(
+              uiCopy(context, "变化趋势"),
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 24),
             Semantics(
-              label:
-                  '${metric.label}趋势图，${data.points.length}个数据点，平均${_number(data.summary.average)}',
+              label: uiCopy(
+                context,
+                "{p0}趋势图，{p1}个数据点，平均{p2}",
+                parameters: [
+                  uiCopy(context, metric.label),
+                  data.points.length,
+                  _number(data.summary.average),
+                ],
+              ),
               child: SizedBox(
                 height: 280,
                 child: isBar
@@ -1566,7 +1653,9 @@ class _RecordTile extends StatelessWidget {
                             readOnly: true,
                           )
                         : Scaffold(
-                            appBar: AppBar(title: Text(dataSource!.label)),
+                            appBar: AppBar(
+                              title: Text(uiCopy(context, dataSource!.label)),
+                            ),
                             body: Center(
                               child: Text(
                                 dataSource is SavedRingActivitySource
@@ -1659,37 +1748,37 @@ Color _metricColor(HealthMetric metric) => switch (metric) {
 };
 
 String _fieldLabel(String key) => switch (key) {
-  'value' => '趋势概况',
-  'systolic' => '收缩压',
-  'diastolic' => '舒张压',
-  'pulse' => '脉搏',
-  'meanHeartRate' || 'averageHeartRate' => '平均心率',
-  'averageTimeInterval' || 'qt' => 'QT间期',
+  'value' => uiCopy(null, "趋势概况"),
+  'systolic' => uiCopy(null, "收缩压"),
+  'diastolic' => uiCopy(null, "舒张压"),
+  'pulse' => uiCopy(null, "脉搏"),
+  'meanHeartRate' || 'averageHeartRate' => uiCopy(null, "平均心率"),
+  'averageTimeInterval' || 'qt' => uiCopy(null, "QT间期"),
   'averageHRV' || 'hrv' => HealthMetric.hrv.label,
   'BMI' || 'bmi' => 'BMI',
-  'bodyFatRate' || 'bodyFatPercentage' => '体脂率',
-  'fatMass' => '脂肪量',
-  'fatFreeMass' => '去脂体重',
-  'muscleRate' => '肌肉率',
-  'muscleMass' => '肌肉量',
-  'subcutaneousFat' => '皮下脂肪率',
-  'bodyWaterRate' || 'bodyMoisture' => '体水分率',
-  'waterMass' => '水分量',
-  'skeletalMuscleRate' => '骨骼肌率',
-  'boneMass' => '骨量',
-  'proteinRate' => '蛋白质率',
-  'proteinMass' => '蛋白质量',
-  'basalMetabolicRate' || 'basalMetabolism' => '基础代谢',
-  'uricAcid' => '尿酸',
-  'totalCholesterol' => '总胆固醇',
-  'triglycerides' => '甘油三酯',
-  'highDensityLipoprotein' => '高密度脂蛋白',
-  'lowDensityLipoprotein' => '低密度脂蛋白',
+  'bodyFatRate' || 'bodyFatPercentage' => uiCopy(null, "体脂率"),
+  'fatMass' => uiCopy(null, "脂肪量"),
+  'fatFreeMass' => uiCopy(null, "去脂体重"),
+  'muscleRate' => uiCopy(null, "肌肉率"),
+  'muscleMass' => uiCopy(null, "肌肉量"),
+  'subcutaneousFat' => uiCopy(null, "皮下脂肪率"),
+  'bodyWaterRate' || 'bodyMoisture' => uiCopy(null, "体水分率"),
+  'waterMass' => uiCopy(null, "水分量"),
+  'skeletalMuscleRate' => uiCopy(null, "骨骼肌率"),
+  'boneMass' => uiCopy(null, "骨量"),
+  'proteinRate' => uiCopy(null, "蛋白质率"),
+  'proteinMass' => uiCopy(null, "蛋白质量"),
+  'basalMetabolicRate' || 'basalMetabolism' => uiCopy(null, "基础代谢"),
+  'uricAcid' => uiCopy(null, "尿酸"),
+  'totalCholesterol' => uiCopy(null, "总胆固醇"),
+  'triglycerides' => uiCopy(null, "甘油三酯"),
+  'highDensityLipoprotein' => uiCopy(null, "高密度脂蛋白"),
+  'lowDensityLipoprotein' => uiCopy(null, "低密度脂蛋白"),
   _ => key,
 };
 
 String _unit(HealthMetric metric, HealthRecord record, String key) {
-  if (hasUnconfirmedCalorieUnit(record)) return '单位待确认';
+  if (hasUnconfirmedCalorieUnit(record)) return uiCopy(null, "单位待确认");
   if (metric == HealthMetric.bodyComposition) {
     if (const {
       'bodyFatRate',
@@ -1714,7 +1803,7 @@ String _unit(HealthMetric metric, HealthRecord record, String key) {
       return 'kg';
     }
     if (key == 'basalMetabolicRate' || key == 'basalMetabolism') {
-      return 'kcal/日';
+      return uiCopy(null, "kcal/日");
     }
     return '';
   }

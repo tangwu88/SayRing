@@ -32,8 +32,16 @@ class _WatchFaceThumbnail extends StatelessWidget {
     return Semantics(
       image: true,
       label: source == null
-          ? '${face['name'] ?? '显示样式'}预览暂不可用'
-          : '${face['name'] ?? '显示样式'}缩略图',
+          ? uiCopy(
+              context,
+              "{p0}预览暂不可用",
+              parameters: [face['name'] ?? uiCopy(context, "显示样式")],
+            )
+          : uiCopy(
+              context,
+              "{p0}缩略图",
+              parameters: [face['name'] ?? uiCopy(context, "显示样式")],
+            ),
       child: Container(
         width: 62,
         height: 62,
@@ -57,7 +65,7 @@ class _WatchFaceThumbnail extends StatelessWidget {
       color: const Color(0xFFF1F3F5),
       child: Center(
         child: Text(
-          '预览\n暂不可用',
+          uiCopy(null, "预览\n暂不可用"),
           textAlign: TextAlign.center,
           style: const TextStyle(
             color: SaydianColors.muted,
@@ -139,16 +147,19 @@ class _EcgWaveformCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (samples.isEmpty) {
-      return const Card(
+      return Card(
         child: Padding(
           padding: EdgeInsets.fromLTRB(12, 16, 12, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('心电波形', style: TextStyle(fontWeight: FontWeight.w800)),
+              Text(
+                uiCopy(context, "心电波形"),
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
               SizedBox(height: 10),
               FeatureStateCard(
-                message: '戒指未返回可用心电波形',
+                message: uiCopy(context, "戒指未返回可用心电波形"),
                 icon: Icons.monitor_heart_outlined,
               ),
             ],
@@ -157,17 +168,20 @@ class _EcgWaveformCard extends StatelessWidget {
       );
     }
     if (!calibrated) {
-      return const Card(
+      return Card(
         child: Padding(
           padding: EdgeInsets.fromLTRB(12, 16, 12, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('心电波形', style: TextStyle(fontWeight: FontWeight.w800)),
+              Text(
+                uiCopy(context, "心电波形"),
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
               SizedBox(height: 10),
               FeatureStateCard(
-                message: '本次波形无法显示',
-                detail: '请重新测量心电。',
+                message: uiCopy(context, "本次波形无法显示"),
+                detail: uiCopy(context, "请重新测量心电。"),
                 icon: Icons.monitor_heart_outlined,
               ),
             ],
@@ -206,7 +220,11 @@ class _EcgWaveformCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '共 ${durationSeconds.toStringAsFixed(1)} 秒 · 左右滑动查看完整记录',
+              uiCopy(
+                context,
+                "共 {p0} 秒 · 左右滑动查看完整记录",
+                parameters: [durationSeconds.toStringAsFixed(1)],
+              ),
               style: const TextStyle(color: SaydianColors.muted, fontSize: 13),
             ),
             const SizedBox(height: 10),
@@ -218,7 +236,11 @@ class _EcgWaveformCard extends StatelessWidget {
               )
             else
               Semantics(
-                label: '设备记录的有效心电波形，共${displaySamples.length}个采样点',
+                label: uiCopy(
+                  context,
+                  "设备记录的有效心电波形，共{p0}个采样点",
+                  parameters: [displaySamples.length],
+                ),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: SizedBox(
@@ -293,10 +315,14 @@ class _FindWatchPanel extends StatelessWidget {
             const SizedBox(height: 14),
             Text(
               commandOnly
-                  ? (finding ? '查找指令已发送' : '查找已连接的戒指')
+                  ? (finding
+                        ? uiCopy(context, "查找指令已发送")
+                        : uiCopy(context, "查找已连接的戒指"))
                   : (finding
-                        ? (supportsStop ? '请留意附近响铃或振动的戒指' : '查找指令已发送，请留意戒指振动')
-                        : '让戒指响铃或振动，帮助你快速找到它'),
+                        ? (supportsStop
+                              ? uiCopy(context, "请留意附近响铃或振动的戒指")
+                              : uiCopy(context, "查找指令已发送，请留意戒指振动"))
+                        : uiCopy(context, "让戒指响铃或振动，帮助你快速找到它")),
               textAlign: TextAlign.center,
               style: const TextStyle(height: 1.5),
             ),
@@ -308,7 +334,11 @@ class _FindWatchPanel extends StatelessWidget {
                     ? null
                     : onPressed,
                 child: Text(
-                  finding ? (supportsStop ? '停止查找' : '正在查找') : '开始查找',
+                  finding
+                      ? (supportsStop
+                            ? uiCopy(context, "停止查找")
+                            : uiCopy(context, "正在查找"))
+                      : uiCopy(context, "开始查找"),
                 ),
               ),
             ),
@@ -339,10 +369,12 @@ class _ScreenSettingsPanel extends StatelessWidget {
     final value = settings;
     if (value == null) {
       return FeatureStateCard(
-        message: busy ? '正在读取戒指设置' : '暂时未读取到屏幕设置',
-        detail: '请保持戒指靠近手机后重试。',
+        message: busy
+            ? uiCopy(context, "正在读取戒指设置")
+            : uiCopy(context, "暂时未读取到屏幕设置"),
+        detail: uiCopy(context, "请保持戒指靠近手机后重试。"),
         icon: Icons.brightness_6_outlined,
-        actionLabel: busy ? null : '重新读取',
+        actionLabel: busy ? null : uiCopy(context, "重新读取"),
         onAction: busy ? null : onReload,
       );
     }
@@ -368,7 +400,13 @@ class _ScreenSettingsPanel extends StatelessWidget {
               ),
               const Divider(),
               const SizedBox(height: 12),
-              Text('屏幕亮度  $current / $maximum'),
+              Text(
+                uiCopy(
+                  context,
+                  "屏幕亮度  {p0} / {p1}",
+                  parameters: [current, maximum],
+                ),
+              ),
               Slider(
                 value: current.toDouble(),
                 min: 1,
@@ -391,14 +429,14 @@ class _ScreenSettingsPanel extends StatelessWidget {
                   color: SaydianColors.brandGoldSoft,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Row(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(Icons.info_outline_rounded, size: 22),
                     SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        '当前戒指无可由 App 调整的显示设置。',
+                        uiCopy(context, "当前戒指无可由 App 调整的显示设置。"),
                         style: TextStyle(fontSize: 14, height: 1.45),
                       ),
                     ),
@@ -411,7 +449,13 @@ class _ScreenSettingsPanel extends StatelessWidget {
                 value.maximumDurationSeconds != null) ...[
               const Divider(),
               const SizedBox(height: 12),
-              Text('亮屏时长  ${value.durationSeconds} 秒'),
+              Text(
+                uiCopy(
+                  context,
+                  "亮屏时长  {p0} 秒",
+                  parameters: [value.durationSeconds],
+                ),
+              ),
               Slider(
                 value: value.durationSeconds!.toDouble().clamp(
                   value.minimumDurationSeconds!.toDouble(),
@@ -458,7 +502,13 @@ class _ScreenSettingsPanel extends StatelessWidget {
                       ? null
                       : () => _pickRaiseTime(context, value, onChanged),
                 ),
-                Text('抬腕灵敏度  ${value.raiseToWakeSensitivity} / 10'),
+                Text(
+                  uiCopy(
+                    context,
+                    "抬腕灵敏度  {p0} / 10",
+                    parameters: [value.raiseToWakeSensitivity],
+                  ),
+                ),
                 Slider(
                   value: value.raiseToWakeSensitivity.toDouble().clamp(1, 10),
                   min: 1,
@@ -493,7 +543,7 @@ class _ScreenSettingsPanel extends StatelessWidget {
   ) async {
     final start = await showTimePicker(
       context: context,
-      helpText: '选择开始时间',
+      helpText: uiCopy(context, "选择开始时间"),
       initialTime: TimeOfDay(
         hour: value.raiseToWakeStartMinutes ~/ 60,
         minute: value.raiseToWakeStartMinutes % 60,
@@ -502,7 +552,7 @@ class _ScreenSettingsPanel extends StatelessWidget {
     if (start == null || !context.mounted) return;
     final end = await showTimePicker(
       context: context,
-      helpText: '选择结束时间',
+      helpText: uiCopy(context, "选择结束时间"),
       initialTime: TimeOfDay(
         hour: value.raiseToWakeEndMinutes ~/ 60,
         minute: value.raiseToWakeEndMinutes % 60,

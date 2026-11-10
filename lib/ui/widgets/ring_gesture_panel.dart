@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
@@ -45,13 +46,33 @@ class RingGesturePanel extends StatelessWidget {
   final bool tapControl;
   final bool preparingControl, waitingForIdle, syncingData;
 
-  static const modes = <(int, String, IconData, String)>[
-    (0, '关闭', Icons.power_settings_new_rounded, '暂停手势控制'),
-    (1, '短视频', Icons.play_circle_outline_rounded, '打开短视频 App'),
-    (2, '音乐', Icons.headphones_rounded, '打开音乐播放器'),
-    (3, '阅读', Icons.auto_stories_outlined, '打开阅读 App'),
-    (4, '拍照', Icons.camera_alt_outlined, '系统相机控制'),
-    (5, '电话', Icons.phone_in_talk_outlined, '支持的通话控制'),
+  static final modes = <(int, String, IconData, String)>[
+    (
+      0,
+      uiCopy(null, "关闭"),
+      Icons.power_settings_new_rounded,
+      uiCopy(null, "暂停手势控制"),
+    ),
+    (
+      1,
+      uiCopy(null, "短视频"),
+      Icons.play_circle_outline_rounded,
+      uiCopy(null, "打开短视频 App"),
+    ),
+    (2, uiCopy(null, "音乐"), Icons.headphones_rounded, uiCopy(null, "打开音乐播放器")),
+    (
+      3,
+      uiCopy(null, "阅读"),
+      Icons.auto_stories_outlined,
+      uiCopy(null, "打开阅读 App"),
+    ),
+    (4, uiCopy(null, "拍照"), Icons.camera_alt_outlined, uiCopy(null, "系统相机控制")),
+    (
+      5,
+      uiCopy(null, "电话"),
+      Icons.phone_in_talk_outlined,
+      uiCopy(null, "支持的通话控制"),
+    ),
   ];
 
   @override
@@ -73,14 +94,14 @@ class RingGesturePanel extends StatelessWidget {
               key: const ValueKey('gesture-stop-control'),
               onPressed: busy ? null : onStop,
               icon: const Icon(Icons.stop_circle_outlined),
-              label: const Text('关闭手势控制'),
+              label: Text(uiCopy(context, "关闭手势控制")),
             ),
           ),
         if (uncertainControl)
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(bottom: 12),
             child: Text(
-              '控制状态待确认，之前开启的控制可能仍在生效。请先关闭，或在系统蓝牙中暂时断开戒指。',
+              uiCopy(context, "控制状态待确认，之前开启的控制可能仍在生效。请先关闭，或在系统蓝牙中暂时断开戒指。"),
               style: TextStyle(color: SaydianColors.danger),
             ),
           ),
@@ -113,8 +134,8 @@ class RingGesturePanel extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          '当前模式',
+                        Text(
+                          uiCopy(context, "当前模式"),
                           style: TextStyle(
                             color: Color(0xFFCDD9E3),
                             fontSize: 15,
@@ -123,19 +144,21 @@ class RingGesturePanel extends StatelessWidget {
                         const SizedBox(height: 6),
                         Text(
                           preparingControl
-                              ? '正在准备手势控制'
+                              ? uiCopy(context, "正在准备手势控制")
                               : syncingData
-                              ? '正在同步戒指数据'
+                              ? uiCopy(context, "正在同步戒指数据")
                               : waitingForIdle
-                              ? '等待设备空闲'
+                              ? uiCopy(context, "等待设备空闲")
                               : uncertainControl
-                              ? '控制状态待确认'
+                              ? uiCopy(context, "控制状态待确认")
                               : requiresReconnect
-                              ? '控制状态待恢复'
+                              ? uiCopy(context, "控制状态待恢复")
                               : !ready
-                              ? '等待读取'
+                              ? uiCopy(context, "等待读取")
                               : selected?.$2 ??
-                                    (confirmedMode == -1 ? '其他模式' : '尚未确认'),
+                                    (confirmedMode == -1
+                                        ? uiCopy(context, "其他模式")
+                                        : uiCopy(context, "尚未确认")),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 24,
@@ -145,22 +168,22 @@ class RingGesturePanel extends StatelessWidget {
                         const SizedBox(height: 6),
                         Text(
                           preparingControl
-                              ? '正在恢复控制连接，请稍候'
+                              ? uiCopy(context, "正在恢复控制连接，请稍候")
                               : syncingData
-                              ? '同步完成后即可设置手势'
+                              ? uiCopy(context, "同步完成后即可设置手势")
                               : waitingForIdle
-                              ? '当前操作结束后会准备控制连接'
+                              ? uiCopy(context, "当前操作结束后会准备控制连接")
                               : requiresReconnect
-                              ? '手势设置尚未确认'
+                              ? uiCopy(context, "手势设置尚未确认")
                               : busy
-                              ? '正在与戒指确认…'
+                              ? uiCopy(context, "正在与戒指确认…")
                               : !ready
-                              ? '读取后即可选择'
+                              ? uiCopy(context, "读取后即可选择")
                               : readbackConfirmed
-                              ? '已从戒指读取'
+                              ? uiCopy(context, "已从戒指读取")
                               : selected != null
-                              ? '本次连接指令已确认'
-                              : '选择一个使用场景',
+                              ? uiCopy(context, "本次连接指令已确认")
+                              : uiCopy(context, "选择一个使用场景"),
                           style: const TextStyle(
                             color: Color(0xFFCDD9E3),
                             fontSize: 15,
@@ -205,9 +228,9 @@ class RingGesturePanel extends StatelessWidget {
         const SizedBox(height: 12),
         Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
-                '选择场景',
+                uiCopy(context, "选择场景"),
                 style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700),
               ),
             ),
@@ -224,7 +247,11 @@ class RingGesturePanel extends StatelessWidget {
                     : Icons.refresh_rounded,
                 size: 20,
               ),
-              label: Text(requiresReconnect ? '恢复控制' : '刷新状态'),
+              label: Text(
+                requiresReconnect
+                    ? uiCopy(context, "恢复控制")
+                    : uiCopy(context, "刷新状态"),
+              ),
             ),
           ],
         ),
@@ -233,15 +260,15 @@ class RingGesturePanel extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 16),
             child: Text(
               syncingData
-                  ? '数据同步完成后即可设置手势，请保持戒指靠近手机。'
+                  ? uiCopy(context, "数据同步完成后即可设置手势，请保持戒指靠近手机。")
                   : (preparingControl || waitingForIdle)
-                  ? '请保持戒指靠近手机，准备过程中不需要重新选择场景。'
+                  ? uiCopy(context, "请保持戒指靠近手机，准备过程中不需要重新选择场景。")
                   : error ??
                         (requiresReconnect
-                            ? '恢复控制后再设置手势'
+                            ? uiCopy(context, "恢复控制后再设置手势")
                             : busy
-                            ? '正在读取手势设置'
-                            : '暂未读到手势设置，请刷新重试'),
+                            ? uiCopy(context, "正在读取手势设置")
+                            : uiCopy(context, "暂未读到手势设置，请刷新重试")),
               style: const TextStyle(fontSize: 16),
             ),
           ),
@@ -251,12 +278,12 @@ class RingGesturePanel extends StatelessWidget {
             child: DropdownButtonFormField<int>(
               key: const ValueKey('gesture-strength'),
               initialValue: selectedStrength,
-              decoration: const InputDecoration(
-                labelText: '手势力度',
-                helperText: '先选力度，再选场景',
+              decoration: InputDecoration(
+                labelText: uiCopy(context, "手势力度"),
+                helperText: uiCopy(context, "先选力度，再选场景"),
                 helperMaxLines: 2,
               ),
-              hint: const Text('请选择1～10'),
+              hint: Text(uiCopy(context, "请选择1～10")),
               items: [
                 for (var value = 1; value <= 10; value++)
                   DropdownMenuItem(value: value, child: Text('$value')),
@@ -354,14 +381,14 @@ class RingGesturePanel extends StatelessWidget {
           },
         ),
         if (ready && confirmedMode == -1)
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(top: 12),
-            child: Text('选择场景会替换戒指当前的控制模式。'),
+            child: Text(uiCopy(context, "选择场景会替换戒指当前的控制模式。")),
           ),
         if (ready && availableModes.length == 1)
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(top: 12),
-            child: Text('暂时只能关闭手势。'),
+            child: Text(uiCopy(context, "暂时只能关闭手势。")),
           ),
         const SizedBox(height: 12),
         RingGestureGuide(tapControl: tapControl),

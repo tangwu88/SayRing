@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'generated/app_localizations.dart';
+import 'legacy_ui_copy.dart';
 import '../services/safe_secure_storage.dart';
 
 abstract interface class GlobalLocaleStore {
@@ -23,95 +24,82 @@ class SecureGlobalLocaleStore implements GlobalLocaleStore {
 }
 
 class GlobalLocaleController extends ChangeNotifier {
-  GlobalLocaleController({GlobalLocaleStore? store, Locale? initialLocale})
-    : _store = store ?? const SecureGlobalLocaleStore(),
-      _locale = normalize(initialLocale?.toLanguageTag()) ?? defaultLocale;
+  GlobalLocaleController({
+    GlobalLocaleStore? store,
+    Locale? initialLocale,
+    Locale Function()? systemLocale,
+  }) : _store = store ?? const SecureGlobalLocaleStore(),
+       _systemLocale =
+           systemLocale ??
+           (() => WidgetsBinding.instance.platformDispatcher.locale),
+       _followsSystem = initialLocale == null,
+       _locale = resolveSystemLocale(
+         initialLocale ??
+             (systemLocale ??
+                 (() => WidgetsBinding.instance.platformDispatcher.locale))(),
+       );
 
   static final instance = GlobalLocaleController();
-  static const defaultLocale = Locale.fromSubtags(
-    languageCode: 'zh',
-    scriptCode: 'Hans',
-  );
+  static const defaultLocale = Locale('en');
   static const supportedLocales = [
     Locale('en'),
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
-    Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
-    Locale('de'),
-    Locale('fr'),
-    Locale('es'),
-    Locale('ja'),
-    Locale('ko'),
   ];
-  static const names = {
-    'en': 'English',
-    'zh-Hans': '简体中文',
-    'zh-Hant': '繁體中文',
-    'de': 'Deutsch',
-    'fr': 'Français',
-    'es': 'Español',
-    'ja': '日本語',
-    'ko': '한국어',
-  };
-
+  static const names = {'en': 'English', 'zh-Hans': '简体中文'};
   final GlobalLocaleStore _store;
+  final Locale Function() _systemLocale;
+  bool _followsSystem;
   Locale _locale;
+  bool _disposed = false;
+  bool _hasApplicationHost = false;
+  Future<void> _writes = Future.value();
   Locale get locale => _locale;
   String get languageName => names[_locale.toLanguageTag()]!;
-  int _revision = 0;
-  bool _disposed = false;
-  Future<void> _writes = Future<void>.value();
-  Future<void>? _loading;
 
   static Locale? normalize(String? value) {
     final tag = value?.trim().replaceAll('_', '-').toLowerCase();
     if (tag == null || tag.isEmpty) return null;
-    if (tag.startsWith('zh')) {
-      if (tag == 'zh-hant' ||
-          tag == 'zh-tw' ||
-          tag == 'zh-hk' ||
-          tag == 'zh-mo') {
-        return supportedLocales[2];
-      }
-      if (tag == 'zh' || tag == 'zh-hans' || tag == 'zh-cn' || tag == 'zh-sg') {
-        return supportedLocales[1];
-      }
-      return null;
-    }
-    for (final locale in supportedLocales) {
-      if (tag == locale.languageCode ||
-          tag.startsWith('${locale.languageCode}-')) {
-        return locale;
-      }
+    final parts = tag.split('-');
+    if (parts.first == 'en') return supportedLocales.first;
+    if (parts.first == 'zh' &&
+        !parts.contains('hant') &&
+        !parts.any({'tw', 'hk', 'mo'}.contains) &&
+        (parts.length == 1 ||
+            parts.contains('hans') ||
+            parts.contains('cn') ||
+            parts.contains('sg'))) {
+      return supportedLocales[1];
     }
     return null;
   }
 
-  Future<void> load() => _loading ??= _restore();
+  static Locale resolveSystemLocale(Locale value) =>
+      normalize(value.toLanguageTag()) ?? defaultLocale;
 
-  Future<void> _restore() async {
-    final revision = _revision;
-    try {
-      final stored = normalize(await _store.read());
-      if (!_disposed &&
-          revision == _revision &&
-          stored != null &&
-          stored != _locale) {
-        _locale = stored;
-        notifyListeners();
-      }
-    } catch (_) {
-      // A preference failure must not prevent sign-in or expose storage errors.
+  // 不读取旧版固定中文偏好。升级、冷启动与系统变化采用同一规则。
+  Future<void> load() async {
+    _hasApplicationHost = true;
+    refreshSystemLocale();
+  }
+
+  void refreshSystemLocale() {
+    if (_disposed || !_followsSystem) return;
+    final next = resolveSystemLocale(_systemLocale());
+    if (next != _locale) {
+      _locale = next;
+      notifyListeners();
     }
   }
 
-  Future<bool> setLocale(Locale locale) {
-    final supported = normalize(locale.toLanguageTag());
+  // 保留供现有显式测试宿主使用的接口；产品没有手动语言入口。
+  Future<bool> setLocale(Locale value) {
+    final supported = normalize(value.toLanguageTag());
     if (supported == null || _disposed) return Future.value(false);
-    _revision += 1;
-    final result = _writes.then((_) async {
+    final operation = _writes.then((_) async {
       try {
         await _store.write(supported.toLanguageTag());
         if (!_disposed) {
+          _followsSystem = false;
           _locale = supported;
           notifyListeners();
         }
@@ -120,8 +108,8 @@ class GlobalLocaleController extends ChangeNotifier {
         return false;
       }
     });
-    _writes = result.then((_) {});
-    return result;
+    _writes = operation.then((_) {});
+    return operation;
   }
 
   @override
@@ -145,9 +133,7 @@ class GlobalLocaleScope extends InheritedNotifier<GlobalLocaleController> {
 }
 
 extension SaydianLocalizedContext on BuildContext {
-  // Existing domestic page hosts can omit the new delegate. Global App always
-  // installs it and explicitly starts in Simplified Chinese; it never follows
-  // the OS locale.
+  // 兼容未安装委托的旧独立页面宿主；正式 App 始终安装系统中英文委托。
   AppLocalizations get l10n =>
       AppLocalizations.of(this) ??
       lookupAppLocalizations(
@@ -203,4 +189,59 @@ Future<void> showGlobalLanguagePicker(BuildContext context) async {
       context,
     ).showSnackBar(SnackBar(content: Text(context.l10n.changeLanguageFailed)));
   }
+}
+
+/// 只处理源码中明确标记的应用文案；用户记录、文章和已生成报告不得传入。
+String uiCopy(
+  Object? context,
+  String template, {
+  List<Object?> parameters = const [],
+}) {
+  final tag = context is BuildContext
+      ? (AppLocalizations.of(context)?.localeName ?? 'zh-Hans')
+      : (GlobalLocaleController.instance._hasApplicationHost
+            ? GlobalLocaleController.instance.locale.toLanguageTag()
+            : 'zh-Hans');
+  var copy = tag.startsWith('zh')
+      ? template
+      : legacyUiEnglish[template] ?? template;
+  // 一次性替换模板占位符，参数中的花括号不再解释，防止用户文本被二次替换。
+  copy = copy.replaceAllMapped(RegExp(r'\{p(\d+)\}'), (m) {
+    final index = int.parse(m[1]!);
+    return index < parameters.length ? '${parameters[index] ?? ''}' : m[0]!;
+  });
+  return copy;
+}
+
+// 仅调用于控制器维护的状态/错误，绝不传入文章或用户的健康内容。
+final _statusTemplates = legacyUiEnglish.entries
+    .where((e) => e.key.contains(RegExp(r'\{p\d+\}')))
+    .map((e) {
+      final keys = RegExp(
+        r'\{p\d+\}',
+      ).allMatches(e.key).map((m) => m[0]!).toList();
+      var pattern = RegExp.escape(e.key);
+      for (final key in keys) {
+        pattern = pattern.replaceFirst(RegExp.escape(key), '(.+?)');
+      }
+      return (RegExp('^$pattern\$'), e.value, keys);
+    })
+    .toList();
+String appStatusCopy(String value) {
+  if (!GlobalLocaleController.instance._hasApplicationHost ||
+      GlobalLocaleController.instance.locale.languageCode == 'zh') {
+    return value;
+  }
+  final direct = legacyUiEnglish[value];
+  if (direct != null) return direct;
+  for (final (pattern, english, keys) in _statusTemplates) {
+    final match = pattern.firstMatch(value);
+    if (match == null) continue;
+    return english.replaceAllMapped(RegExp(r'\{p\d+\}'), (m) {
+      final i = keys.indexOf(m[0]!);
+      final original = i < 0 ? m[0]! : match[i + 1]!;
+      return legacyUiEnglish[original] ?? original;
+    });
+  }
+  return value;
 }

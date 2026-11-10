@@ -1394,7 +1394,7 @@ class _GlobalShopAddressEditPageState extends State<GlobalShopAddressEditPage> {
               ],
               decoration: InputDecoration(
                 labelText: context.l10n.phoneNumber,
-                hintText: '请输入11位手机号',
+                hintText: uiCopy(context, "请输入11位手机号"),
               ),
               validator: (value) =>
                   RegExp(
