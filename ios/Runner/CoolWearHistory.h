@@ -12,8 +12,9 @@ static inline NSString *CoolWearHistoryMetric(NSInteger type) {
              @47:@"body_temperature", @61:@"hrv"}[@(type)];
 }
 
-// Packet accounting is independent of callback ordering. Only explicit batch
-// counts can establish completion, never a command ACK or mixed envelope.
+// 同一厂商协议的剩余数包含本包：iOS SDK 直接将前两个字节解为
+// remainItemCount，第三字节为 curItemCount（未扣减）。末包为 1/1，
+// 不是 0/1；重复包不能增加已收条数，ACK 和混合信封不能证明完成。
 @interface CoolWearHistoryBatch : NSObject
 @property(nonatomic) NSUInteger expected;
 @property(nonatomic) BOOL finalSeen;
@@ -35,8 +36,11 @@ static inline NSString *CoolWearHistoryMetric(NSInteger type) {
     if (!count || !remain || ![rows isKindOfClass:NSArray.class] || [rows count] != count.unsignedIntegerValue) {
         self.malformed = YES; return;
     }
-    self.expected = MAX(self.expected, count.unsignedIntegerValue + remain.unsignedIntegerValue);
-    self.finalSeen |= remain.unsignedIntegerValue == 0;
+    if (remain.unsignedIntegerValue < count.unsignedIntegerValue || remain.unsignedIntegerValue > 16384) {
+        self.malformed = YES; return;
+    }
+    self.expected = MAX(self.expected, remain.unsignedIntegerValue);
+    self.finalSeen |= remain.unsignedIntegerValue == count.unsignedIntegerValue;
     for (id row in rows) {
         if (![row isKindOfClass:NSDictionary.class] || self.rows.count >= 16384 ||
             ![NSJSONSerialization isValidJSONObject:row]) { self.malformed = YES; continue; }
@@ -46,7 +50,7 @@ static inline NSString *CoolWearHistoryMetric(NSInteger type) {
     }
 }
 - (NSString *)status {
-    if (!self.malformed && self.finalSeen && self.rows.count >= self.expected)
+    if (!self.malformed && self.finalSeen && self.rows.count == self.expected)
         return self.rows.count ? @"complete" : @"no_data";
     return self.rows.count || self.malformed || self.finalSeen ? @"partial" : @"not_received";
 }

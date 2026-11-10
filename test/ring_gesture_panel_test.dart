@@ -7,71 +7,75 @@ import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/widgets/ring_gesture_panel.dart';
 
 void main() {
-  for (final viewport in const [(320.0, 2.0), (390.0, 1.0)]) {
-    testWidgets('iPhone tap setup is readable and read only at $viewport', (
-      tester,
-    ) async {
-      final originalPlatform = debugDefaultTargetPlatformOverride;
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      try {
-        await tester.binding.setSurfaceSize(Size(viewport.$1, 844));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-        var writes = 0;
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildSaydianTheme(),
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: TextScaler.linear(viewport.$2)),
-              child: child!,
-            ),
-            home: Scaffold(
-              body: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: RingGesturePanel(
-                  availableModes: const {0, 1},
-                  confirmedMode: 1,
-                  ready: true,
-                  busy: false,
-                  requiresReconnect: false,
-                  readbackConfirmed: true,
-                  tapControl: true,
-                  onRefresh: () => writes++,
-                  onSelect: (_) => writes++,
+  for (final tapControl in [true, false]) {
+    for (final viewport in const [(320.0, 2.0), (390.0, 1.0)]) {
+      testWidgets(
+        'iPhone setup is readable and read only; tap=$tapControl at $viewport',
+        (tester) async {
+          final originalPlatform = debugDefaultTargetPlatformOverride;
+          debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+          try {
+            await tester.binding.setSurfaceSize(Size(viewport.$1, 844));
+            addTearDown(() => tester.binding.setSurfaceSize(null));
+            var writes = 0;
+            await tester.pumpWidget(
+              MaterialApp(
+                theme: buildSaydianTheme(),
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(viewport.$2)),
+                  child: child!,
+                ),
+                home: Scaffold(
+                  body: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: RingGesturePanel(
+                      availableModes: const {0, 1},
+                      confirmedMode: 1,
+                      ready: true,
+                      busy: false,
+                      requiresReconnect: false,
+                      readbackConfirmed: tapControl,
+                      tapControl: tapControl,
+                      onRefresh: () => writes++,
+                      onSelect: (_) => writes++,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-        );
-        await tester.pumpAndSettle();
-        final setup = find.byKey(const ValueKey('gesture-ios-setup'));
-        await tester.ensureVisible(setup);
-        expect(find.text('设置 → 辅助功能 → 触控 → 辅助触控'), findsOneWidget);
-        expect(
-          find.textContaining('辅助触控 · 需开启', findRichText: true),
-          findsOneWidget,
-        );
-        expect(
-          find.textContaining('执行触控手势 · 需开启', findRichText: true),
-          findsOneWidget,
-        );
-        expect(
-          find.textContaining('跟踪灵敏度 · 调至最高', findRichText: true),
-          findsOneWidget,
-        );
-        final action = find.textContaining('用佩戴戒指的手指敲击操作');
-        await tester.ensureVisible(action);
-        expect(action.hitTestable(), findsOneWidget);
-        expect(find.textContaining('双击即可'), findsNothing);
-        expect(find.byType(Switch), findsNothing);
-        expect(find.byType(Checkbox), findsNothing);
-        expect(writes, 0);
-        expect(tester.takeException(), isNull);
-      } finally {
-        debugDefaultTargetPlatformOverride = originalPlatform;
-      }
-    });
+            );
+            await tester.pumpAndSettle();
+            final setup = find.byKey(const ValueKey('gesture-ios-setup'));
+            await tester.ensureVisible(setup);
+            expect(find.text('设置 → 无障碍 → 触控 → 辅助触控'), findsOneWidget);
+            expect(
+              find.textContaining('辅助触控 · 需开启', findRichText: true),
+              findsOneWidget,
+            );
+            expect(
+              find.textContaining('执行触控手势 · 需开启', findRichText: true),
+              findsOneWidget,
+            );
+            expect(
+              find.textContaining('跟踪灵敏度 · 调至最高', findRichText: true),
+              findsOneWidget,
+            );
+            final action = find.text('双击戒指');
+            expect(find.text('晃动手指'), findsOneWidget);
+            await tester.ensureVisible(action);
+            expect(action.hitTestable(), findsOneWidget);
+            expect(find.textContaining('双击即可'), findsNothing);
+            expect(find.byType(Switch), findsNothing);
+            expect(find.byType(Checkbox), findsNothing);
+            expect(writes, 0);
+            expect(tester.takeException(), isNull);
+          } finally {
+            debugDefaultTargetPlatformOverride = originalPlatform;
+          }
+        },
+      );
+    }
   }
 
   testWidgets('iPhone setup cannot imply an unavailable or unconfirmed mode', (
@@ -81,11 +85,9 @@ void main() {
     try {
       for (final state in [
         (TargetPlatform.android, true, true, false, false, true, 1, {0, 1}),
-        (TargetPlatform.iOS, false, true, false, false, true, 1, {0, 1}),
         (TargetPlatform.iOS, true, false, false, false, false, 1, {0, 1}),
         (TargetPlatform.iOS, true, true, true, false, true, 1, {0, 1}),
         (TargetPlatform.iOS, true, true, false, true, true, 1, {0, 1}),
-        (TargetPlatform.iOS, true, true, false, false, false, 1, {0, 1}),
         (TargetPlatform.iOS, true, true, false, false, true, 2, {0, 1, 2}),
         (TargetPlatform.iOS, true, true, false, false, true, 1, {0}),
       ]) {

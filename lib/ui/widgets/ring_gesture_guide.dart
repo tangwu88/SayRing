@@ -23,10 +23,15 @@ class RingGestureIosSetup extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            '设置 → 辅助功能 → 触控 → 辅助触控',
+            '设置 → 无障碍 → 触控 → 辅助触控',
             style: TextStyle(fontSize: 14, height: 1.4),
           ),
           const SizedBox(height: 12),
+          const Text(
+            '旧版 iOS 中“无障碍”名为“辅助功能”。',
+            style: TextStyle(fontSize: 13, color: SaydianColors.muted),
+          ),
+          const SizedBox(height: 8),
           for (final step in const [
             (Icons.accessibility_new_rounded, '辅助触控', '需开启'),
             (Icons.touch_app_outlined, '执行触控手势', '需开启'),
@@ -56,10 +61,7 @@ class RingGestureIosSetup extends StatelessWidget {
                 ],
               ),
             ),
-          const Text(
-            '打开短视频 App，用佩戴戒指的手指敲击操作。敲击次数以这枚戒指的说明为准。',
-            style: TextStyle(fontSize: 15, height: 1.5),
-          ),
+          const RingGestureActions(),
           const SizedBox(height: 6),
           const Text(
             '请在系统中核对以上设置；部分手机、固件或 App 可能不支持。',
@@ -169,6 +171,32 @@ class RingGestureQuickStart extends StatelessWidget {
   );
 }
 
+/// 操作提示只读。不同固件支持的动作可不同，不把动作说明当成能力回包。
+class RingGestureActions extends StatelessWidget {
+  const RingGestureActions({super.key});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (final action in const [
+        (Icons.waving_hand_outlined, '晃动手指', '轻晃佩戴戒指的手指'),
+        (Icons.touch_app_outlined, '双击戒指', '连续轻敲戒指两下'),
+      ])
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(action.$1, color: SaydianColors.techBlue),
+          title: Text(action.$2),
+          subtitle: Text(action.$3),
+        ),
+      const Text(
+        '打开短视频 App，尝试戒指支持的动作。',
+        style: TextStyle(fontSize: 14, height: 1.4),
+      ),
+    ],
+  );
+}
+
 /// Read-only instructions. Opening this guide never pairs a device, grants a
 /// permission or changes its gesture mode. OEM touch mappings vary by firmware.
 class RingGestureGuide extends StatelessWidget {
@@ -202,16 +230,13 @@ class RingGestureGuide extends StatelessWidget {
       expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _GuideSection('操作方法', [
-          if (tapControl)
-            '用佩戴戒指的手指敲击操作，次数以这枚戒指的说明为准。'
-          else
-            '按这枚戒指的说明操作。不同型号的触控次数和动作可能不同。',
+          '晃动手指或双击戒指，具体动作以戒指支持为准。',
           'App 内拍照：到设备页打开“${DeviceFeature.camera.label}”，允许相机与照片保存权限，并保持拍照页在前台。',
           '用完可选择“关闭”，减少误操作。',
         ]),
-        if (tapControl && defaultTargetPlatform == TargetPlatform.iOS)
+        if (defaultTargetPlatform == TargetPlatform.iOS)
           const _GuideSection('iPhone 短视频设置', [
-            '设置 → 辅助功能 → 触控 → 辅助触控：开启“辅助触控”和“执行触控手势”，将“跟踪灵敏度”调至最高。',
+            '设置 → 无障碍（旧版称“辅助功能”）→ 触控 → 辅助触控。开启“辅助触控”和“执行触控手势”，将“跟踪灵敏度”调至最高。',
             '设置完成后，打开短视频 App 试用。',
           ]),
         const _GuideSection('阅读翻页', [

@@ -70,6 +70,7 @@ int main(void) { @autoreleasepool {
     // Synthetic grants never bypass the hard manual/medical ceiling.
     check(SRConfigureReadOnlyHealthLease(@{@"metrics": @[@"heart_rate", @"hrv", @"blood_oxygen"], @"validForSeconds": @60}));
     check(SRActivitySleepMetricAllowed(@"heart_rate"));
+    check([SRActivitySleepEvent(@"sportData", @{@"steps":@12,@"heartRate":@88})[@"heartRate"] isEqual:@88]);
     check(SRActivitySleepMetricAllowed(@"hrv"));
     check(!SRActivitySleepMetricAllowed(@"body_temperature"));
     check(!SRActivitySleepMetricAllowed(@"blood_pressure"));

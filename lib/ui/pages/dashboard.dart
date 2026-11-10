@@ -119,7 +119,6 @@ class DashboardPage extends StatelessWidget {
       if (controller.isWellnessOnly) ...[
         HealthMetric.steps,
         HealthMetric.distance,
-        HealthMetric.calories,
       ],
       HealthMetric.bloodPressure,
       HealthMetric.heartRate,
@@ -724,9 +723,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
         : _failed
         ? '睡眠缓存刷新失败，点击查看或重试'
         : latest == null
-        ? sleepSyncUnavailable(controller)
-              ? '暂无睡眠记录，可按日期查看'
-              : '暂无睡眠记录，佩戴戒指睡眠后同步数据'
+        ? '暂无睡眠记录'
         : '最近一次 · ${DateFormat('M月d日').format(DateTime.parse(sleepRecordSdkDate(latest)))}';
     return Material(
       key: const Key('home-sleep-overview-entry'),

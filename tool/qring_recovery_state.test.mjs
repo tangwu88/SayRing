@@ -27,6 +27,7 @@ function withFixture(run, transform = source => source, centralTransform = sourc
     '- (void)finishScan', '- (void)didScanPeripherals:', '- (void)scanPeripheralFinish',
     '- (void)scheduleRecoveryAfterDisconnect', '- (void)failConnect:',
     '- (void)didState:', '- (void)didFailConnected:', '- (void)didBluetoothState:',
+    '- (void)resetSportReception',
   ].map(signature => method(bridge, signature)).join('\n');
   const centralMethods = [
     '- (NSArray<CBPeripheral *> *)systemConnectedPeripheralsForSelection',

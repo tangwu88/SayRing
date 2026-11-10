@@ -774,7 +774,7 @@ void main() {
       await tester.tap(find.byKey(const Key('sleep-previous-day')));
       await tester.pumpAndSettle();
       expect(find.text('2026年9月30日'), findsOneWidget);
-      expect(find.text('这一天暂无睡眠记录，佩戴戒指入睡后，可在次日更新查看'), findsOneWidget);
+      expect(find.text('这一天暂无睡眠记录，你可以选择其他日期查看'), findsOneWidget);
       expect(find.text('0小时0分'), findsNothing);
       expect(tester.takeException(), isNull);
     },

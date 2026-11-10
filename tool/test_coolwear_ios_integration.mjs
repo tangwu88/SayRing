@@ -159,7 +159,13 @@ test('installation-wide recovery and raw health logging are not imported', () =>
   assert.match(transport, /!\[observer isResolved\]/);
   assert.match(transport, /hrvDiagnostic:@"transport_rx"/);
   assert.doesNotMatch(transport, /NSLog\(|%@|description|base64|writeTo|subdata|payload/);
-  assert.doesNotMatch(bridge.replace(diagnostic, '').replace(transport, ''), /NSLog\(|NSUserDefaults|receiveOriginalDataHandler\s*=|sendOriginalDataHandler\s*=/);
+  // 只允许删除 SDK 安装级的旧恢复 UUID；不得读取/收养旧目标或碰账号数据。
+  // 真实 getter 的惰性重载和保留数据由 recovery_session 宿主执行用例覆盖。
+  const eraseLegacyRecovery = '[NSUserDefaults.standardUserDefaults removeObjectForKey:NSStringFromClass(CEProductK6.class)];';
+  assert.equal(bridge.split(eraseLegacyRecovery).length - 1, 1);
+  const disable = bridge.slice(bridge.indexOf('- (void)disableVendorRecovery'), bridge.indexOf('- (void)initializeSDK'));
+  assert.ok(disable.indexOf(eraseLegacyRecovery) < disable.indexOf('lastConnectUUId = nil'));
+  assert.doesNotMatch(bridge.replace(diagnostic, '').replace(transport, '').replace(eraseLegacyRecovery, ''), /NSLog\(|NSUserDefaults|receiveOriginalDataHandler\s*=|sendOriginalDataHandler\s*=/);
   assert.match(bridge, /lastConnectUUId = nil/);
   assert.match(bridge, /UUIDStr = nil/);
 });
@@ -236,4 +242,19 @@ test('find protocol requires a fresh stop ACK and cancels bounded operations', (
   assert.match(cancel, /finishFind:/);
   assert.match(cancel, /self.findSupported = NO/);
   assert.match(bridge, /triggerDeviceAction[\s\S]*?else \[self findDevice:args probe:NO result:result\]/);
+});
+
+// This source gate prevents the previously repeated settings-write regression;
+// packet accounting itself is exercised by native_coolwear_policy_test.m.
+test('iOS history explicitly reads ranges without writing time or ring settings', () => {
+  const sync = bridge.slice(bridge.indexOf('- (void)startHistorySync:'), bridge.indexOf('- (void)receiveScan:'));
+  assert.match(sync, /CoolWearReadHistoryCmd/);
+  assert.match(bridge, /@implementation CoolWearReadHistoryCmd[\s\S]*?cmdRequestType \{ return K6_CMD_TYPE_REQUEST; \}/);
+  assert.match(sync, /@\[@5, @6\]/);
+  assert.match(sync, /@\[@9, @4\]/);
+  assert.doesNotMatch(sync, /CE_SyncTimeCmd|CE_ClearDataCmd|CE_SyncResetCmd|CE_SyncLongSit|CE_SyncHeartRateCmd/);
+  assert.match(sync, /generation != weakSelf.connectionGeneration/);
+  assert.match(sync, /sync != weakSelf.syncGeneration/);
+  assert.match(sync, /25 \* NSEC_PER_SEC/);
+  assert.match(bridge, /@"protocolChecks": unknownRri/);
 });

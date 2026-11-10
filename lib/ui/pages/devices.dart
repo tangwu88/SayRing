@@ -1074,18 +1074,26 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   Future<void> _findCachedOrScan() async {
     if (!mounted || !widget.controller.canSearchForDevice) return;
-    final session = widget.controller.session;
-    // Always discover nearby devices first. A system-cached choice may be
-    // offline and must not suppress a fresh search when opening this page.
-    await _startScan();
-    if (mounted &&
-        identical(session, widget.controller.session) &&
-        widget.controller.canSearchForDevice &&
-        widget.controller.deviceState != DeviceConnectionState.error &&
-        widget.controller.deviceScanIssue == null &&
-        widget.controller.supportsBondedDeviceSelection &&
-        ModalRoute.of(context)?.isCurrent == true) {
-      await _findBondedDevices();
+    if (!widget.controller.supportsBondedDeviceSelection) {
+      await _startScan();
+      return;
+    }
+    if (_bondedLookupInFlight || _scanInFlight) return;
+    setState(() => _bondedLookupInFlight = true);
+    try {
+      final session = widget.controller.session;
+      widget.controller.clearError();
+      await widget.controller.listBondedDevicesForSelection();
+      // 缓存候选可以立即连接，但不能代替这次附近搜索。保留本轮缓存项并继续
+      // 接收广播；换号、连接成功或离开页面后，旧查询不得重新启动扫描。
+      if (mounted &&
+          identical(session, widget.controller.session) &&
+          widget.controller.canSearchForDevice &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        await _startScan(preserveCandidates: true);
+      }
+    } finally {
+      if (mounted) setState(() => _bondedLookupInFlight = false);
     }
   }
 
@@ -1099,7 +1107,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     super.dispose();
   }
 
-  Future<void> _startScan() async {
+  Future<void> _startScan({bool preserveCandidates = false}) async {
     if (!mounted ||
         !widget.controller.canSearchForDevice ||
         _connectingDeviceId != null ||
@@ -1109,7 +1117,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _scanInFlight = true;
     try {
       widget.controller.clearError();
-      await widget.controller.scanDevices();
+      await widget.controller.scanDevices(
+        preserveCandidates: preserveCandidates,
+      );
     } finally {
       _scanInFlight = false;
     }

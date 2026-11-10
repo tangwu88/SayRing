@@ -25,6 +25,15 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (K6_CMD_TYPE)cmdRequestType { return K6_CMD_TYPE_REQUEST; }
 @end
 
+// 历史同步只读：不复用设置同步、校时、恢复出厂或提醒写命令。
+@interface CoolWearReadHistoryCmd : CE_Cmd
+@property(nonatomic) K6_DataFuncType historyType;
+@end
+@implementation CoolWearReadHistoryCmd
+- (K6_DataFuncType)funcType { return self.historyType; }
+- (K6_CMD_TYPE)cmdRequestType { return K6_CMD_TYPE_REQUEST; }
+@end
+
 @interface CoolWearPreservingLongSitCmd : CE_SyncLongSitRemindCmd
 @end
 @implementation CoolWearPreservingLongSitCmd
@@ -78,6 +87,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, CoolWearHistoryBatch *> *syncBatches;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *syncRecords;
 @property(nonatomic) BOOL historySnapshotDelivered;
+@property(nonatomic, copy) NSArray<NSNumber *> *requiredSyncTypes;
 @property(nonatomic) BOOL currentActivitySeen;
 @property(nonatomic) BOOL freshActivityInSync;
 @property(nonatomic, copy) FlutterResult pendingSync;
@@ -184,6 +194,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)disableVendorRecovery {
+    if (!self.product) return;
+    // 原版 SDK 的 getter 在属性为 nil 时，会按类名重新读取安装级 UUID。
+    // 仅清除这一项旧 SDK 恢复缓存，再清内存；否则蓝牙打开/断连回调可能
+    // 私自连接旧目标，与账号专属恢复争用。账号绑定、健康库和戒指设置不动。
+    // 不能用空字符串代替：SDK 会将其传入 NSUUID/NSArray，可能直接异常。
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:NSStringFromClass(CEProductK6.class)];
     self.product.lastConnectUUId = nil;
     self.product.UUIDStr = nil;
     // Do not call startAutoConnect/saveConnectedUUid: account-owned Flutter
@@ -288,7 +304,22 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)attemptRecovery:(NSUInteger)generation {
     if (generation != self.recoveryGeneration || !self.recoveryID || [self isResolved]) return;
-    if (self.cancelling || self.target || self.pendingConnect || self.pendingScan ||
+    if (self.cancelling) {
+        // 原有短轮询结束后，SDK 可能才真正关闭。续试只重新核对物理状态，
+        // 不按经过的时间释放取消屏障，也不重复发送断开/设置命令。
+        [self checkCancellation];
+        [self scheduleRecovery];
+        return;
+    }
+    // 回前台时可能已错过状态通知。只在外设确实关闭、没有未完成握手时
+    // 收尾旧连接，复用原取消屏障；不能仅凭等待超时强行开放另一次连接。
+    if (self.target && !self.pendingConnect &&
+        self.target.state == CBPeripheralStateDisconnected) {
+        [self connectionNote:@"peripheral_closed_before_recovery" appInitiated:NO];
+        [self failConnection:@"COOLWEAR_DISCONNECTED" message:@"戒指连接已断开"];
+        return;
+    }
+    if (self.target || self.pendingConnect || self.pendingScan ||
         self.product.state != CBManagerStatePoweredOn) { [self scheduleRecovery]; return; }
     self.recoveryScanning = YES;
     [self emit:@"recoveryState" payload:@{@"status": @"waiting", @"deviceId": self.recoveryID}];
@@ -921,7 +952,11 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (NSDictionary *)syncSnapshot {
     NSMutableDictionary *statuses = [NSMutableDictionary dictionary];
-    NSMutableSet *metrics = [NSMutableSet setWithArray:[self capabilities][@"historyMetrics"]];
+    NSMutableSet *metrics = [NSMutableSet set];
+    for (NSNumber *type in self.requiredSyncTypes) {
+        NSString *metric = CoolWearHistoryMetric(type.integerValue);
+        if (metric) [metrics addObject:metric];
+    }
     // A malformed observed batch must remain visible in the result even if
     // it cannot enable a current device capability.
     for (NSNumber *type in self.syncBatches) {
@@ -935,7 +970,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
         if ([metric isEqual:@"sleep"] && batch.rows.count && CoolWearClosedSleepSummaries(batch.rows.allValues, NSDate.date).count == 0) statuses[metric] = @"partial";
     }
     if (self.freshActivityInSync) statuses[@"steps"] = CoolWearActivitySyncStatus(statuses[@"steps"], YES);
-    return @{@"records": self.syncRecords.allValues, @"statuses": statuses};
+    // 旧固件的 hrvSupport 不代表支持新版 RRI 历史 61。未知协议独立
+    // 留待确认，不谎报空数据，也不阻塞已确认范围的正常更新。
+    BOOL unknownRri = SRActivitySleepMetricAllowed(@"hrv") && CoolWearFlag(self.flags, @"hrvSupport") &&
+        !self.historyBatches[@61];
+    return @{@"records": self.syncRecords.allValues, @"statuses": statuses,
+             @"protocolChecks": unknownRri ? @[@"hrv"] : @[]};
 }
 
 - (void)finishSync {
@@ -1049,13 +1089,34 @@ static void CoolWearOnMain(dispatch_block_t block) {
         self.historySnapshotDelivered = YES;
     }
     [CE_SensorCmd open];
-    CE_SyncTimeCmd *cmd = [[CE_SyncTimeCmd alloc] initWithAbsTime:NSDate.date.timeIntervalSince1970
-        offset:[NSTimeZone.localTimeZone secondsFromGMT] format:1 mdFormat:0];
-    cmd.overtime = 6; cmd.repeatSendTimes = 0;
-    // The vendor pushes history automatically; this ACK is never completion.
-    [self.product sendCmdToDevice:cmd complete:^(NSError *error) {}];
-    [self publishSyncReception];
+    NSMutableArray<NSNumber *> *required = [NSMutableArray arrayWithArray:@[@5, @6]];
+    NSDictionary *map = @{@"heart_rate":@8, @"blood_oxygen":@40, @"body_temperature":@47};
+    for (NSString *metric in [self capabilities][@"historyMetrics"]) {
+        NSNumber *type = map[metric];
+        if (type && SRActivitySleepMetricAllowed(metric)) [required addObject:type];
+    }
+    if (SRActivitySleepMetricAllowed(@"hrv") && self.historyBatches[@61]) [required addObject:@61];
+    self.requiredSyncTypes = required;
+    NSMutableArray<NSNumber *> *queries = [NSMutableArray arrayWithArray:@[@9, @4]];
+    [queries addObjectsFromArray:required];
+    if (SRActivitySleepMetricAllowed(@"hrv") && CoolWearFlag(self.flags, @"hrvSupport") &&
+        ![required containsObject:@61]) [queries addObject:@61];
     __weak typeof(self) weakSelf = self;
+    [queries enumerateObjectsUsingBlock:^(NSNumber *type, NSUInteger index, BOOL *stop) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(index * 450 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+            if (!weakSelf || generation != weakSelf.connectionGeneration || sync != weakSelf.syncGeneration ||
+                !weakSelf.pendingSync || ![weakSelf isResolved]) return;
+            NSString *metric = CoolWearHistoryMetric(type.integerValue);
+            if (metric && !SRActivitySleepMetricAllowed(metric)) return;
+            CoolWearReadHistoryCmd *query = [CoolWearReadHistoryCmd new];
+            query.historyType = type.integerValue;
+            query.overtime = 2; query.repeatSendTimes = 0;
+            // SDK 队列负责请求顺序；真正的数据批次在 receiveData 中处理。
+            // 超时或 ACK 都不能被当成“无记录”，更不能触发写设置重试。
+            [weakSelf.product sendCmdToDevice:query complete:^(NSError *error) {}];
+        });
+    }];
+    [self publishSyncReception];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (generation == weakSelf.connectionGeneration && sync == weakSelf.syncGeneration && weakSelf.pendingSync) {
             [weakSelf finalizeSleepHistory];
@@ -1194,12 +1255,25 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)receiveStatus:(ProductStatus)status {
     [self disableVendorRecovery];
-    if (self.target && (status == ProductStatus_powerOff || status == ProductStatus_disconnected)) {
+    // SDK 通知可能先入队、后由主线程处理；期间同一目标已经恢复并完成握手。
+    // 只有蓝牙仍开启、SDK 当前完成且精确外设仍连接时，才丢弃旧结束通知；
+    // 真实 SDK 断开、关蓝牙和取消屏障不能靠旧的“已完成”快照绕过。
+    if ((status == ProductStatus_disconnected || status == ProductStatus_powerOff) &&
+        self.product.state == CBManagerStatePoweredOn && [self isResolved]) {
+        [self connectionNote:@"stale_disconnect_ignored" appInitiated:NO];
+        return;
+    }
+    // 未保存 SDK 安装级 UUID 时，原厂对真实断连/连接错误发布 none，
+    // 不一定发布 disconnected。必须同时核对外设状态，避免旧 target
+    // 永久阻塞恢复；单独的 none 不得打断仍连接或正在连接的外设。
+    BOOL linkEnded = status == ProductStatus_powerOff || status == ProductStatus_disconnected ||
+        (status == ProductStatus_none && self.target && self.target.state == CBPeripheralStateDisconnected);
+    if (self.target && linkEnded) {
         [self connectionNote:self.cancelling ? @"sdk_disconnected_after_app_cleanup" : status == ProductStatus_powerOff ? @"bluetooth_power_off" : @"sdk_link_lost" appInitiated:self.cancelling];
     }
     if (self.cancelling) { [self checkCancellation]; return; }
     if (!self.target) return;
-    if (status == ProductStatus_powerOff || status == ProductStatus_disconnected) {
+    if (linkEnded) {
         [self failConnection:@"COOLWEAR_DISCONNECTED" message:@"戒指连接已断开"]; return;
     }
     if (status != ProductStatus_completed || ![self matchesTarget] || !self.pendingConnect || self.awaitingInfo) return;

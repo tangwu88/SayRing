@@ -361,7 +361,7 @@ class _FakeController extends Fake implements AppController {
   }
 
   @override
-  Future<void> scanDevices() async {
+  Future<void> scanDevices({bool preserveCandidates = false}) async {
     scanCount++;
     deviceMachine.transition(DeviceConnectionState.scanning);
     scannedDevices = available;

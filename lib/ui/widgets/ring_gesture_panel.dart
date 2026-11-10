@@ -192,13 +192,11 @@ class RingGesturePanel extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        // 仅真实读回且支持的敲击短视频模式展示专属引导；不以说明卡绕过
-        // 未确认／断线状态，也不替用户修改 iOS 辅助功能或戒指灵敏度。
-        if (tapControl &&
-            defaultTargetPlatform == TargetPlatform.iOS &&
+        // iPhone 系统准备适用于两类手势，不按供应商或敲击类型遗漏入口。
+        // 仍须当前模式真实确认；说明本身不写系统开关或戒指参数。
+        if (defaultTargetPlatform == TargetPlatform.iOS &&
             enabled &&
             !uncertainControl &&
-            readbackConfirmed &&
             confirmedMode == 1 &&
             availableModes.contains(1))
           const RingGestureIosSetup()

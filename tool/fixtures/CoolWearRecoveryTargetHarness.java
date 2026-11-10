@@ -19,6 +19,12 @@ public final class CoolWearRecoveryTargetHarness {
     private final String businessBinding = "owner-target", systemBond = "system-bond";
     private final int healthRecords = 134;
     private int disconnectedEvents;
+    private int cancelledClears;
+    private void finishHistoryClear(boolean acknowledged, String code) {
+        assert !acknowledged : "connection failure must not confirm a clear";
+        assert "CONNECT_CANCELLED".equals(code);
+        cancelledClears++;
+    }
     private void emit(String type, Map<String, Object> data) {
         assert "disconnected".equals(type);
         assert !recoveryTarget.isActive() : "controller notified while SDK recovery still owns transport";
@@ -88,11 +94,13 @@ public final class CoolWearRecoveryTargetHarness {
         bridge.recoveryTarget.activate("authorized-target", bridge.recoverySdk);
         final CoolWearRecoveryTargetHarness first = bridge;
         bridge.pendingConnect = (code, message, details) -> {
+            assert first.cancelledClears == 1 : "pending clear must terminate before connection result";
             assert !first.recoveryTarget.isActive() : "result returned before revoking target";
             assert BleFactory.getInstance().proxy.stored.isEmpty() : "result returned before cache cleanup";
         };
         bridge.failConnect("CONNECT_CANCELLED", "cancelled");
         assert bridge.measurementGeneration == 1 && bridge.activeMeasurement == null;
+        assert bridge.cancelledClears == 1;
         assert BleFactory.getInstance().proxy.stored.isEmpty() : "old target would be restored by vendor timer";
         assert bridge.helper.disconnects == 1;
         assert bridge.connectedId == null;

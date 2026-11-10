@@ -106,7 +106,7 @@ jobs:
       - run: flutter build ios --debug --no-codesign
       - name: Check wearable SDK integrity, native policy and QRing recovery
         run: |
-          node --test tool/test_coolwear_ios_integration.mjs tool/coolwear_ios_hrv_session.test.mjs tool/test_qring_reconnect_integration.mjs tool/qring_recovery_state.test.mjs tool/qring_capability_handshake.test.mjs tool/ring_initialization_intent.test.mjs tool/qring_photo_session.test.mjs
+          node --test tool/test_coolwear_ios_integration.mjs tool/coolwear_ios_hrv_session.test.mjs tool/coolwear_ios_recovery_session.test.mjs tool/test_qring_reconnect_integration.mjs tool/qring_recovery_state.test.mjs tool/qring_capability_handshake.test.mjs tool/ring_initialization_intent.test.mjs tool/qring_photo_session.test.mjs
           xcrun clang -fobjc-arc -framework Foundation test/native_coolwear_policy_test.m -o build/coolwear-policy-test
           build/coolwear-policy-test
       - run: flutter build ios --profile --no-codesign

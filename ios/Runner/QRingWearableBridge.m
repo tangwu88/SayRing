@@ -81,6 +81,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, copy, nullable) NSString *activeMetric;
 @property(nonatomic, copy, nullable) NSString *activeSportMode;
 @property(nonatomic, assign) NSInteger activeSportType;
+@property(nonatomic, assign) NSUInteger sportGeneration;
 @property(nonatomic, copy) NSString *recoveryTargetID;
 @property(nonatomic, copy) NSString *recoveryContext;
 @property(nonatomic, copy) NSString *recoveryTargetName;
@@ -136,6 +137,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)dispose {
+    [self resetSportReception];
     [self resetRemoteCamera];
     [self finishCamera:[self error:@"BRIDGE_DISPOSED" message:@"戒指通信已关闭"]];
     self.recoveryTargetID = @"";
@@ -1042,10 +1044,15 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         return;
     }
     __weak typeof(self) weakSelf = self;
+    NSUInteger connection = self.connectionGeneration, operation = ++self.sportGeneration;
     [QCSDKCmdCreator operateSportModeWithType:type state:QCSportStateStart finish:^(__unused id value, NSError *error) {
+        if (!weakSelf || ![weakSelf isCurrentConnection:connection] || operation != weakSelf.sportGeneration) {
+            result([FlutterError errorWithCode:@"SPORT_SESSION_CHANGED" message:@"连接已变化，请重试" details:nil]); return;
+        }
         if (error) { result([weakSelf error:@"QRING_SPORT_START_FAILED" message:@"戒指未能开始运动"]); return; }
         weakSelf.activeSportType = type;
         weakSelf.activeSportMode = mode;
+        [weakSelf registerSportReception];
         [weakSelf emit:@"sportState" payload:@{@"value": @"running", @"mode": mode ?: @""}];
         result(nil);
     }];
@@ -1059,13 +1066,43 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     NSInteger type = self.activeSportType;
     NSString *mode = self.activeSportMode ?: @"";
     __weak typeof(self) weakSelf = self;
+    NSUInteger connection = self.connectionGeneration, operation = self.sportGeneration;
     [QCSDKCmdCreator operateSportModeWithType:type state:QCSportStateStop finish:^(__unused id value, NSError *error) {
+        if (!weakSelf || ![weakSelf isCurrentConnection:connection] || operation != weakSelf.sportGeneration) {
+            result([FlutterError errorWithCode:@"SPORT_SESSION_CHANGED" message:@"连接已变化，请重试" details:nil]); return;
+        }
         if (error) { result([weakSelf error:@"QRING_SPORT_STOP_FAILED" message:@"戒指未能结束运动"]); return; }
         weakSelf.activeSportType = -1;
         weakSelf.activeSportMode = nil;
+        [weakSelf resetSportReception];
         [weakSelf emit:@"sportState" payload:@{@"value": @"stopped", @"mode": mode}];
         result(nil);
     }];
+}
+
+- (void)resetSportReception {
+    self.sportGeneration++;
+    [QCSDKManager shareInstance].currentSportInfo = nil;
+}
+
+- (void)registerSportReception {
+    NSUInteger epoch = ++self.sportGeneration, connection = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    // 厂商已提供运动实时回调；此前未接入，只读到了结束后的汇总。
+    // 仅接收本连接、本轮运动，不启动额外测量、不修改监测频率。
+    [QCSDKManager shareInstance].currentSportInfo = ^(QCSportInfoModel *info) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!weakSelf || epoch != weakSelf.sportGeneration ||
+                ![weakSelf isCurrentConnection:connection] || weakSelf.activeSportType < 0 ||
+                info.sportType != weakSelf.activeSportType) return;
+            NSMutableDictionary *values = [NSMutableDictionary dictionary];
+            if (info.duration >= 0) values[@"durationSeconds"] = @(info.duration);
+            if (info.step >= 0) values[@"steps"] = @(info.step);
+            if (info.distance >= 0) values[@"distanceMeters"] = @(info.distance);
+            values[@"heartRate"] = (info.hr >= 20 && info.hr <= 250) ? @(info.hr) : @0;
+            [weakSelf emit:@"sportData" payload:values];
+        });
+    };
 }
 
 - (NSDictionary *)sportRecord:(OdmGeneralExerciseSummaryModel *)item {
@@ -2110,6 +2147,9 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         [self resolveCapabilities]; return;
     }
     if (state == QCStateDisconnected || state == QCStateUnbind) {
+        [self resetSportReception];
+        self.activeSportType = -1;
+        self.activeSportMode = nil;
         // The central reports state before its failure callback. Preserve the
         // failed handshake cooldown before retiring its in-flight flags; normal
         // established-session drops still re-arm on the next main-loop turn.

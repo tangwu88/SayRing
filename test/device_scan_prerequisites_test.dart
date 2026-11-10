@@ -185,7 +185,8 @@ void main() {
         await _pumpSearch(tester, controller, settle: false);
         await tester.pump();
         expect(wearable.lookups, 1);
-        expect(wearable.scans, 1);
+        // 先读取缓存；查询未返回时，尚未开始附近扫描。
+        expect(wearable.scans, 0);
 
         // 用真实控制器连接推进代次，不能直接赋值伪造 ready 状态。
         // 添加页旧缓存查询仍在等待；后台恢复或另一路连接已经成功。
@@ -213,7 +214,7 @@ void main() {
         expect(controller.deviceCapabilityState, DeviceCapabilityState.ready);
         expect(controller.deviceState, DeviceConnectionState.ready);
         expect(controller.errorMessage, isNull);
-        expect(wearable.scans, 1);
+        expect(wearable.scans, 0);
         expect(tester.takeException(), isNull);
       },
     );

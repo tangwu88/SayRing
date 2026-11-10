@@ -48,6 +48,10 @@ class _Ui extends Fake implements AppController {
   @override
   bool get isWellnessOnly => false;
   @override
+  bool isMetricAvailableInRelease(HealthMetric metric) => true;
+  @override
+  int? get liveSportHeartRate => 88;
+  @override
   bool get isSportStarting => false;
   @override
   DeviceInfo? get connectedDevice =>
