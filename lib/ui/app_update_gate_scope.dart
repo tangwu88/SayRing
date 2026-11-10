@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:flutter/widgets.dart';
 
 import '../services/app_update_service.dart';
@@ -19,7 +20,7 @@ class AppUpdateGateController {
   Future<void> checkNow() async {
     final handler = _handler;
     if (handler == null) {
-      throw const AppUpdateException('在线更新服务暂时不可用');
+      throw AppUpdateException(uiCopy(null, "在线更新服务暂时不可用"));
     }
     await handler();
   }

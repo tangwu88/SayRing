@@ -32,7 +32,12 @@ class _AppShellState extends State<AppShell> {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text(userFacingMessage(message, fallback: '操作未完成，请重试')),
+            content: Text(
+              userFacingMessage(
+                message,
+                fallback: uiCopy(context, "操作未完成，请重试"),
+              ),
+            ),
           ),
         );
       controller.clearError();
@@ -303,7 +308,7 @@ class DashboardPage extends StatelessWidget {
                       InlineNotice(
                         key: const Key('dashboard-health-empty-notice'),
                         message: hasEligibleCards && !controller.isWellnessOnly
-                            ? '首页暂无卡片，点击编辑添加'
+                            ? uiCopy(context, "首页暂无卡片，点击编辑添加")
                             : disconnected
                             ? context.l10n.connectWatchForData
                             : context.l10n.noHealthData,
@@ -369,7 +374,7 @@ class DashboardPage extends StatelessWidget {
                   child: UsageInfoButton(
                     key: const Key('dashboard-health-notice'),
                     message: controller.isWellnessOnly
-                        ? '活动和睡眠为戒指估算，仅供日常作息参考。'
+                        ? uiCopy(context, "活动和睡眠为戒指估算，仅供日常作息参考。")
                         : context.l10n.healthDisclaimer,
                   ),
                 ),
@@ -501,13 +506,15 @@ class _MindBodyReadinessCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '身心准备度',
+                  Text(
+                    uiCopy(context, "身心准备度"),
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    available == inputs.length ? '继续佩戴，积累个人记录' : '记录还不够，请继续佩戴',
+                    available == inputs.length
+                        ? uiCopy(context, "继续佩戴，积累个人记录")
+                        : uiCopy(context, "记录还不够，请继续佩戴"),
                     style: const TextStyle(
                       color: SaydianColors.muted,
                       fontSize: 15,
@@ -719,12 +726,20 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
     final controller = widget.controller;
     final latest = _latest;
     final caption = _loading
-        ? '正在读取睡眠记录'
+        ? uiCopy(context, "正在读取睡眠记录")
         : _failed
-        ? '睡眠缓存刷新失败，点击查看或重试'
+        ? uiCopy(context, "睡眠缓存刷新失败，点击查看或重试")
         : latest == null
-        ? '暂无睡眠记录'
-        : '最近一次 · ${DateFormat('M月d日').format(DateTime.parse(sleepRecordSdkDate(latest)))}';
+        ? uiCopy(context, "暂无睡眠记录")
+        : uiCopy(
+            context,
+            "最近一次 · {p0}",
+            parameters: [
+              DateFormat(
+                uiCopy(context, "M月d日"),
+              ).format(DateTime.parse(sleepRecordSdkDate(latest))),
+            ],
+          );
     return Material(
       key: const Key('home-sleep-overview-entry'),
       color: SaydianColors.techVioletSoft,
@@ -742,7 +757,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
+              Row(
                 children: [
                   Icon(
                     Icons.bedtime_outlined,
@@ -752,7 +767,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
                   SizedBox(width: 9),
                   Expanded(
                     child: Text(
-                      '睡眠概览',
+                      uiCopy(context, "睡眠概览"),
                       style: TextStyle(
                         fontSize: 19,
                         fontWeight: FontWeight.w600,
@@ -800,7 +815,7 @@ class SleepOverviewPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     key: const Key('sleep-overview-page'),
-    appBar: AppBar(title: const Text('睡眠')),
+    appBar: AppBar(title: Text(uiCopy(context, "睡眠"))),
     body: SleepDayDetails(
       controller: controller,
       onOpenTrend: (date) => Navigator.of(context).push(
@@ -1022,7 +1037,7 @@ class _DashboardActivityState extends State<_DashboardActivity>
         TextButton.icon(
           onPressed: _load,
           icon: const Icon(Icons.refresh_rounded),
-          label: const Text('今日活动读取失败，点击重试'),
+          label: Text(uiCopy(context, "今日活动读取失败，点击重试")),
         ),
     ],
   );
@@ -1065,10 +1080,14 @@ class _TodayHealthOverview extends StatelessWidget {
       ],
     );
     final rings = Semantics(
-      label: '今日活动目标进度，点击查看步数趋势',
+      label: uiCopy(context, "今日活动目标进度，点击查看步数趋势"),
       value: latest.isEmpty
-          ? '暂无数据'
-          : '步数 ${step ?? '--'}，距离 ${latest[HealthMetric.distance] ?? '--'} 公里',
+          ? uiCopy(context, "暂无数据")
+          : uiCopy(
+              context,
+              "步数 {p0}，距离 {p1} 公里",
+              parameters: [step ?? '--', latest[HealthMetric.distance] ?? '--'],
+            ),
       button: true,
       excludeSemantics: true,
       onTap: () => onOpenMetric(HealthMetric.steps),
@@ -1101,7 +1120,13 @@ class _TodayHealthOverview extends StatelessWidget {
                     strokeCap: StrokeCap.round,
                     color: color,
                     backgroundColor: color.withValues(alpha: .10),
-                    semanticsLabel: '${["步数", "距离"][index]}目标',
+                    semanticsLabel: uiCopy(
+                      context,
+                      '{p0}目标',
+                      parameters: [
+                        index == 0 ? context.l10n.steps : context.l10n.distance,
+                      ],
+                    ),
                   ),
                 ),
               const Icon(
@@ -1168,8 +1193,8 @@ class _TodayHealthOverview extends StatelessWidget {
             ),
             if (latest.isEmpty) ...[
               const SizedBox(height: 12),
-              const Text(
-                '暂无今日活动数据',
+              Text(
+                uiCopy(context, "暂无今日活动数据"),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: SaydianColors.muted, fontSize: 15),
               ),
@@ -1200,10 +1225,16 @@ class _GoalProgressRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final unit = switch (metric) {
-      HealthMetric.distance => '公里',
-      HealthMetric.calories => '千卡',
-      _ => metric.defaultUnit,
+      HealthMetric.distance =>
+        context.l10n.localeName.startsWith('zh') ? uiCopy(context, "公里") : 'km',
+      HealthMetric.calories => uiCopy(context, "千卡"),
+      _ => uiCopy(context, metric.defaultUnit),
     };
+    // 目标值只本地化显示，不改目标存储或计量值；英文单位留空格并保持紧凑。
+    final chinese = context.l10n.localeName.startsWith('zh');
+    final targetLabel = metric == HealthMetric.steps && !chinese
+        ? context.l10n.stepCount(target.round())
+        : '${_format(target)}${chinese ? '' : ' '}$unit';
     return Semantics(
       button: true,
       child: InkWell(
@@ -1258,7 +1289,7 @@ class _GoalProgressRow extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '/${_format(target)}$unit',
+                          '/$targetLabel',
                           style: const TextStyle(
                             fontSize: 14,
                             color: SaydianColors.muted,
@@ -1433,7 +1464,7 @@ class _DeviceHero extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        device?.displayName ?? '尚未连接戒指',
+                        device?.displayName ?? uiCopy(context, "尚未连接戒指"),
                         style: const TextStyle(
                           color: SaydianColors.ink,
                           fontSize: 19,
@@ -1446,7 +1477,7 @@ class _DeviceHero extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   device == null
-                      ? '连接后同步健康数据'
+                      ? uiCopy(context, "连接后同步健康数据")
                       : controller.syncStatus.isEmpty
                       ? device.displayModel
                       : '${device.displayModel} · ${controller.syncStatus}',
@@ -1464,7 +1495,9 @@ class _DeviceHero extends StatelessWidget {
               minimumSize: const Size(0, 40),
               padding: const EdgeInsets.symmetric(horizontal: 14),
             ),
-            child: Text(device == null ? '连接' : '管理'),
+            child: Text(
+              device == null ? uiCopy(context, "连接") : uiCopy(context, "管理"),
+            ),
           ),
         ],
       ),
@@ -1522,7 +1555,7 @@ class HealthMetricCard extends StatelessWidget {
       _HomeMetricStatus.noData,
     }.contains(status);
     final statusLabel = record != null && hasUnconfirmedCalorieUnit(record!)
-        ? '单位待确认'
+        ? uiCopy(context, "单位待确认")
         : switch (status) {
             _HomeMetricStatus.normal => context.l10n.statusNormal,
             _HomeMetricStatus.recorded => context.l10n.statusRecorded,
@@ -1653,7 +1686,7 @@ class HealthMetricCard extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       DateFormat(
-                        'M月d日 HH:mm',
+                        uiCopy(context, "M月d日 HH:mm"),
                       ).format(record!.measuredAt.toLocal()),
                       style: const TextStyle(
                         fontSize: 14,
@@ -1860,7 +1893,8 @@ class _SectionTitle extends StatelessWidget {
         ),
       ],
     );
-    final heading = enlargedText
+    // 手机窄屏把日期说明放在标题下，避免英文标题与操作按钮相互挤压。
+    final heading = enlargedText || MediaQuery.sizeOf(context).width < 600
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1900,7 +1934,7 @@ class _SectionTitle extends StatelessWidget {
           TextButton(
             key: const Key('edit-home-health-cards'),
             onPressed: onEdit,
-            child: const Text('编辑'),
+            child: Text(uiCopy(context, "编辑")),
           ),
         allDataAction,
       ],

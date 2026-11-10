@@ -231,6 +231,7 @@ class MainActivity : FlutterActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var adapter: VeepooWearableAdapter
     private var coolWearBridge: CoolWearRingBridge? = null
+    private lateinit var urion: UrionGattTransport
     private var qringBridge: QRingBridge? = null
     private var eventSink: EventChannel.EventSink? = null
     private var pendingPermissionCall: Pair<MethodCall, MethodChannel.Result>? = null
@@ -248,11 +249,30 @@ class MainActivity : FlutterActivity() {
         // FlutterActivity may configure the engine from super.onCreate before
         // this Activity's onCreate body resumes.
         if (!::adapter.isInitialized) adapter = VeepooWearableAdapter(applicationContext)
+        if (!::urion.isInitialized) urion = UrionGattTransport(applicationContext)
         super.configureFlutterEngine(flutterEngine)
         healthReminderNotifications = HealthReminderNotifications(this, flutterEngine.dartExecutor.binaryMessenger)
         CycleNotifications(this, flutterEngine.dartExecutor.binaryMessenger)
         healthReminderSound?.dispose()
         healthReminderSound = HealthReminderSound(this, flutterEngine.dartExecutor.binaryMessenger)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            URION_METHODS_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            mainHandler.post { urion.handle(call, result) }
+        }
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            URION_EVENTS_CHANNEL,
+        ).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                urion.eventListener = { payload -> mainHandler.post { events?.success(payload) } }
+            }
+
+            override fun onCancel(arguments: Any?) {
+                urion.eventListener = null
+            }
+        })
         coolWearBridge = CoolWearRingBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         qringBridge = QRingBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(
@@ -776,6 +796,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         healthReminderSound?.dispose()
         healthReminderSound = null
+        if (::urion.isInitialized) urion.close()
         qringBridge?.dispose()
         qringBridge = null
         coolWearBridge?.dispose()
@@ -845,6 +866,8 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
+        private const val URION_METHODS_CHANNEL = "cc.saidian/urion_methods"
+        private const val URION_EVENTS_CHANNEL = "cc.saidian/urion_events"
         private const val METHODS_CHANNEL = "cc.saidian/wearable_methods"
         private const val EVENTS_CHANNEL = "cc.saidian/wearable_events"
         private const val PAYMENTS_CHANNEL = "cc.saidian/app_payments"

@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:flutter/material.dart';
 
 import '../domain/sleep_timeline.dart';
@@ -23,12 +24,12 @@ class _ReviewDemoPageState extends State<ReviewDemoPage> {
   Widget build(BuildContext context) => Scaffold(
     key: const Key('review-demo-page'),
     appBar: AppBar(
-      title: const Text('功能演示'),
+      title: Text(uiCopy(context, "功能演示")),
       actions: [
         TextButton(
           key: const Key('review-demo-exit'),
           onPressed: widget.onExit,
-          child: const Text('退出演示'),
+          child: Text(uiCopy(context, "退出演示")),
         ),
       ],
     ),
@@ -50,10 +51,19 @@ class _ReviewDemoPageState extends State<ReviewDemoPage> {
     bottomNavigationBar: NavigationBar(
       selectedIndex: _tab,
       onDestinationSelected: (index) => setState(() => _tab = index),
-      destinations: const [
-        NavigationDestination(icon: Icon(Icons.favorite_outline), label: '健康'),
-        NavigationDestination(icon: Icon(Icons.circle_outlined), label: '设备'),
-        NavigationDestination(icon: Icon(Icons.person_outline), label: '我的'),
+      destinations: [
+        NavigationDestination(
+          icon: Icon(Icons.favorite_outline),
+          label: uiCopy(context, "健康"),
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.circle_outlined),
+          label: uiCopy(context, "设备"),
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.person_outline),
+          label: uiCopy(context, "我的"),
+        ),
       ],
     ),
   );
@@ -82,7 +92,7 @@ class _DemoNotice extends StatelessWidget {
     width: double.infinity,
     color: SaydianColors.techBlueSoft,
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-    child: const Row(
+    child: Row(
       children: [
         Icon(
           Icons.visibility_outlined,
@@ -92,7 +102,7 @@ class _DemoNotice extends StatelessWidget {
         SizedBox(width: 8),
         Expanded(
           child: Text(
-            '示例数据 · 非戒指实测',
+            uiCopy(context, "示例数据 · 非戒指实测"),
             style: TextStyle(
               color: SaydianColors.techBlueDark,
               fontWeight: FontWeight.w700,
@@ -115,7 +125,10 @@ class _DemoHealthPage extends StatelessWidget {
     key: const Key('review-demo-health'),
     padding: const EdgeInsets.all(16),
     children: [
-      Text('健康概览', style: Theme.of(context).textTheme.headlineSmall),
+      Text(
+        uiCopy(context, "健康概览"),
+        style: Theme.of(context).textTheme.headlineSmall,
+      ),
       const SizedBox(height: 16),
       Card(
         child: ListTile(
@@ -124,15 +137,15 @@ class _DemoHealthPage extends StatelessWidget {
             Icons.bedtime_outlined,
             color: SaydianColors.techIndigo,
           ),
-          title: const Text('睡眠详情'),
-          subtitle: const Text('夜间睡眠 7小时50分 · 含阶段时间轴与小睡'),
+          title: Text(uiCopy(context, "睡眠详情")),
+          subtitle: Text(uiCopy(context, "夜间睡眠 7小时50分 · 含阶段时间轴与小睡")),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => onOpen(
-            '睡眠详情 · 示例',
+            uiCopy(context, "睡眠详情 · 示例"),
             ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                const Text('示例日期：2026年10月1日'),
+                Text(uiCopy(context, "示例日期：2026年10月1日")),
                 const SizedBox(height: 8),
                 SleepTimelineCard(
                   timeline: reviewDemoSleepTimeline,
@@ -144,7 +157,10 @@ class _DemoHealthPage extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 12),
-      Text('近期数据 · 示例', style: Theme.of(context).textTheme.titleMedium),
+      Text(
+        uiCopy(context, "近期数据 · 示例"),
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
       const SizedBox(height: 8),
       for (final metric in _demoMetrics)
         Card(
@@ -157,13 +173,13 @@ class _DemoHealthPage extends StatelessWidget {
               style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
             ),
             onTap: () => onOpen(
-              '${metric.title} · 示例',
+              uiCopy(context, "{p0} · 示例", parameters: [metric.title]),
               _DemoMetricDetail(metric: metric),
             ),
           ),
         ),
       const SizedBox(height: 16),
-      const UsageInfoButton(message: '本应用记录健康趋势，不用于疾病诊断、治疗或紧急情况处理。'),
+      UsageInfoButton(message: uiCopy(context, "本应用记录健康趋势，不用于疾病诊断、治疗或紧急情况处理。")),
     ],
   );
 }
@@ -178,9 +194,15 @@ class _DemoMetric {
   final String unit;
 }
 
-const _demoMetrics = [
+final _demoMetrics = [
   _DemoMetric('heart', '心率', '72 bpm', Icons.favorite_outline, '次/分钟'),
-  _DemoMetric('oxygen', '血氧', '98%', Icons.water_drop_outlined, '%'),
+  _DemoMetric(
+    'oxygen',
+    uiCopy(null, "血氧"),
+    '98%',
+    Icons.water_drop_outlined,
+    '%',
+  ),
   _DemoMetric('steps', '步数', '8,250 步', Icons.directions_walk, '步'),
 ];
 
@@ -207,16 +229,18 @@ class _DemoMetricDetail extends StatelessWidget {
                   color: SaydianColors.techIndigo,
                 ),
               ),
-              Text('单位：${metric.unit} · 演示数值'),
+              Text(
+                uiCopy(context, "单位：{p0} · 演示数值", parameters: [metric.unit]),
+              ),
             ],
           ),
         ),
       ),
       const SizedBox(height: 12),
-      const ListTile(
+      ListTile(
         leading: Icon(Icons.info_outline),
-        title: Text('如何查看自己的记录'),
-        subtitle: Text('登录后连接戒指，点「同步数据」。'),
+        title: Text(uiCopy(context, "如何查看自己的记录")),
+        subtitle: Text(uiCopy(context, "登录后连接戒指，点「同步数据」。")),
       ),
     ],
   );
@@ -232,34 +256,40 @@ class _DemoDevicePage extends StatelessWidget {
     key: const Key('review-demo-device'),
     padding: const EdgeInsets.all(16),
     children: [
-      Text('设备', style: Theme.of(context).textTheme.headlineSmall),
+      Text(
+        uiCopy(context, "设备"),
+        style: Theme.of(context).textTheme.headlineSmall,
+      ),
       const SizedBox(height: 8),
-      const Card(
+      Card(
         child: ListTile(
           leading: Icon(Icons.circle_outlined),
-          title: Text('R21 戒指 · 示例'),
-          subtitle: Text('演示不会连接戒指。'),
+          title: Text(uiCopy(context, "R21 戒指 · 示例")),
+          subtitle: Text(uiCopy(context, "演示不会连接戒指。")),
         ),
       ),
       Card(
         child: ListTile(
           key: const Key('review-demo-device-guide'),
           leading: const Icon(Icons.bluetooth_searching),
-          title: const Text('了解连接流程'),
+          title: Text(uiCopy(context, "了解连接流程")),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => onOpen(
-            '连接戒指 · 流程说明',
+            uiCopy(context, "连接戒指 · 流程说明"),
             ListView(
               padding: EdgeInsets.all(20),
               children: [
-                ListTile(title: Text('1. 登录并允许蓝牙'), subtitle: Text('打开手机蓝牙。')),
                 ListTile(
-                  title: Text('2. 选择身边的兼容戒指'),
-                  subtitle: Text('把戒指放在手机旁，点「连接」。'),
+                  title: Text(uiCopy(context, "1. 登录并允许蓝牙")),
+                  subtitle: Text(uiCopy(context, "打开手机蓝牙。")),
                 ),
                 ListTile(
-                  title: Text('3. 同步与恢复'),
-                  subtitle: Text('连接后可同步数据。再次靠近时会尝试重连。'),
+                  title: Text(uiCopy(context, "2. 选择身边的兼容戒指")),
+                  subtitle: Text(uiCopy(context, "把戒指放在手机旁，点「连接」。")),
+                ),
+                ListTile(
+                  title: Text(uiCopy(context, "3. 同步与恢复")),
+                  subtitle: Text(uiCopy(context, "连接后可同步数据。再次靠近时会尝试重连。")),
                 ),
               ],
             ),
@@ -281,36 +311,40 @@ class _DemoProfilePage extends StatelessWidget {
     key: const Key('review-demo-profile'),
     padding: const EdgeInsets.all(16),
     children: [
-      const Card(
+      Card(
         child: ListTile(
           leading: CircleAvatar(child: Icon(Icons.person_outline)),
-          title: Text('演示用户'),
-          subtitle: Text('未登录账号'),
+          title: Text(uiCopy(context, "演示用户")),
+          subtitle: Text(uiCopy(context, "未登录账号")),
         ),
       ),
       Card(
         child: ListTile(
           key: const Key('review-demo-profile-guide'),
           leading: const Icon(Icons.manage_accounts_outlined),
-          title: const Text('资料与账号管理'),
-          subtitle: const Text('昵称、头像与账号注销'),
+          title: Text(uiCopy(context, "资料与账号管理")),
+          subtitle: Text(uiCopy(context, "昵称、头像与账号注销")),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => onOpen(
-            '资料与账号 · 流程说明',
+            uiCopy(context, "资料与账号 · 流程说明"),
             ListView(
               padding: EdgeInsets.all(20),
               children: [
                 ListTile(
-                  title: Text('个人资料'),
-                  subtitle: Text('登录后可在“我的 → 个人资料”修改昵称和头像。'),
+                  title: Text(uiCopy(context, "个人资料")),
+                  subtitle: Text(uiCopy(context, "登录后可在“我的 → 个人资料”修改昵称和头像。")),
                 ),
                 ListTile(
-                  title: Text('注销账号'),
-                  subtitle: Text('登录后可在“我的 → 账号与安全”发起注销；演示模式没有可注销的账号。'),
+                  title: Text(uiCopy(context, "注销账号")),
+                  subtitle: Text(
+                    uiCopy(context, "登录后可在“我的 → 账号与安全”发起注销；演示模式没有可注销的账号。"),
+                  ),
                 ),
                 ListTile(
-                  title: Text('隐私与支持'),
-                  subtitle: Text('登录页可查看用户协议与隐私政策；“我的”页面可联系客户服务。'),
+                  title: Text(uiCopy(context, "隐私与支持")),
+                  subtitle: Text(
+                    uiCopy(context, "登录页可查看用户协议与隐私政策；“我的”页面可联系客户服务。"),
+                  ),
                 ),
               ],
             ),
@@ -321,7 +355,7 @@ class _DemoProfilePage extends StatelessWidget {
       FilledButton(
         key: const Key('review-demo-sign-in'),
         onPressed: onExit,
-        child: const Text('退出演示并登录'),
+        child: Text(uiCopy(context, "退出演示并登录")),
       ),
     ],
   );

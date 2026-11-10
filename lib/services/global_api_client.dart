@@ -148,6 +148,10 @@ abstract interface class SayRingReadOnlyHealthApi {
   Future<ReadOnlyHealthFeatureSnapshot> getReadOnlyHealthFeatures();
 }
 
+abstract interface class SayRingU19HealthApi {
+  Future<U19HealthSnapshot> getU19HealthFeatures();
+}
+
 abstract interface class SayRingModuleVisibilityApi {
   Future<ModuleVisibilitySnapshot> getModuleVisibility();
 }
@@ -255,6 +259,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         SayRingBindingDecisionApi,
         SayRingAppDisplayApi,
         SayRingReadOnlyHealthApi,
+        SayRingU19HealthApi,
         SayRingModuleVisibilityApi,
         GlobalCommerceApi,
         GlobalShopPaymentApi,
@@ -592,6 +597,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
       throw const ApiException('健康数据配置暂时无法读取');
     }
   }
+
+  @override
+  Future<U19HealthSnapshot> getU19HealthFeatures() async =>
+      U19HealthSnapshot.fromMap(await _ringIosDisplay());
 
   Future<Map<String, Object?>>? _ringIosDisplayPending;
   Future<Map<String, Object?>> _ringIosDisplay() {

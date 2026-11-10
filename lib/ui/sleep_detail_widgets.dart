@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -26,21 +27,27 @@ bool sleepSyncUnavailable(AppController controller) {
 
 String sleepMinutesLabel(double minutes) {
   final seconds = (minutes * 60).round();
-  if (seconds < 60) return '$seconds秒';
+  if (seconds < 60) return uiCopy(null, "{p0}秒", parameters: [seconds]);
   final wholeMinutes = seconds ~/ 60;
   final label = wholeMinutes < 60
-      ? '$wholeMinutes分钟'
-      : '${wholeMinutes ~/ 60}小时${wholeMinutes % 60}分';
-  return seconds % 60 == 0 ? label : '$label${seconds % 60}秒';
+      ? uiCopy(null, "{p0}分钟", parameters: [wholeMinutes])
+      : uiCopy(
+          null,
+          "{p0}小时{p1}分",
+          parameters: [wholeMinutes ~/ 60, wholeMinutes % 60],
+        );
+  return seconds % 60 == 0
+      ? label
+      : uiCopy(null, "{p0}{p1}秒", parameters: [label, seconds % 60]);
 }
 
 String _stageLabel(SleepStage stage) => switch (stage) {
-  SleepStage.awake => '清醒',
-  SleepStage.light => '浅睡',
-  SleepStage.deep => '深睡',
-  SleepStage.rem => '快速眼动',
-  SleepStage.unknown => '暂未分类',
-  SleepStage.notWorn => '未佩戴',
+  SleepStage.awake => uiCopy(null, "清醒"),
+  SleepStage.light => uiCopy(null, "浅睡"),
+  SleepStage.deep => uiCopy(null, "深睡"),
+  SleepStage.rem => uiCopy(null, "快速眼动"),
+  SleepStage.unknown => uiCopy(null, "暂未分类"),
+  SleepStage.notWorn => uiCopy(null, "未佩戴"),
 };
 
 Color _stageColor(SleepStage stage) => switch (stage) {
@@ -201,7 +208,9 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
             children: [
               Expanded(
                 child: Text(
-                  _chooseLatest ? '最近一次睡眠' : '按日期查看',
+                  _chooseLatest
+                      ? uiCopy(context, "最近一次睡眠")
+                      : uiCopy(context, "按日期查看"),
                   key: const Key('sleep-selection-mode'),
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
@@ -218,7 +227,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                     unawaited(_load());
                   },
                   icon: const Icon(Icons.history_rounded, size: 18),
-                  label: const Text('最近一次'),
+                  label: Text(uiCopy(context, "最近一次")),
                 ),
             ],
           ),
@@ -230,7 +239,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                 children: [
                   IconButton(
                     key: const Key('sleep-previous-day'),
-                    tooltip: '前一天',
+                    tooltip: uiCopy(context, "前一天"),
                     onPressed: () => _selectDate(
                       DateTime(_date.year, _date.month, _date.day - 1),
                     ),
@@ -241,14 +250,14 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                       key: const Key('sleep-select-date'),
                       onPressed: _pickDate,
                       child: Text(
-                        DateFormat('yyyy年M月d日').format(_date),
+                        DateFormat(uiCopy(context, "yyyy年M月d日")).format(_date),
                         textAlign: TextAlign.center,
                       ),
                     ),
                   ),
                   IconButton(
                     key: const Key('sleep-next-day'),
-                    tooltip: '后一天',
+                    tooltip: uiCopy(context, "后一天"),
                     onPressed:
                         !_date.isBefore(DateUtils.dateOnly(DateTime.now()))
                         ? null
@@ -272,20 +281,20 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               _SleepNotice(
                 message: record == null
                     ? syncUnavailable
-                          ? '暂时无法查看睡眠记录，请稍后重试'
-                          : '睡眠记录暂时无法更新，请连接戒指后重试'
-                    : '睡眠记录暂未更新，以下为已保存的记录',
+                          ? uiCopy(context, "暂时无法查看睡眠记录，请稍后重试")
+                          : uiCopy(context, "睡眠记录暂时无法更新，请连接戒指后重试")
+                    : uiCopy(context, "睡眠记录暂未更新，以下为已保存的记录"),
                 icon: Icons.error_outline_rounded,
               ),
             if (record == null)
               _SleepNotice(
                 message: failed
-                    ? '你可以稍后下拉重试，或选择其他日期查看'
+                    ? uiCopy(context, "你可以稍后下拉重试，或选择其他日期查看")
                     : syncUnavailable
-                    ? '这一天暂无睡眠记录，你可以选择其他日期查看'
+                    ? uiCopy(context, "这一天暂无睡眠记录，你可以选择其他日期查看")
                     : status == 'noData'
-                    ? '这一天暂无睡眠记录，佩戴戒指入睡后，可在次日更新查看'
-                    : '这一天暂无睡眠记录，佩戴戒指入睡后，请连接更新',
+                    ? uiCopy(context, "这一天暂无睡眠记录，佩戴戒指入睡后，可在次日更新查看")
+                    : uiCopy(context, "这一天暂无睡眠记录，佩戴戒指入睡后，请连接更新"),
                 icon: Icons.bedtime_outlined,
               )
             else ...[
@@ -296,7 +305,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Row(
+                      Row(
                         children: [
                           Icon(
                             Icons.bedtime_rounded,
@@ -306,7 +315,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '睡眠总时长',
+                              uiCopy(context, "睡眠总时长"),
                               style: TextStyle(
                                 color: SaydianColors.ink,
                                 fontWeight: FontWeight.w700,
@@ -334,7 +343,9 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                 SleepTimelineCard(timeline: timeline!)
               else
                 _SleepNotice(
-                  message: syncUnavailable ? '仅有总时长，暂无分段' : '仅有总时长。连接戒指后可下拉更新。',
+                  message: syncUnavailable
+                      ? uiCopy(context, "仅有总时长，暂无分段")
+                      : uiCopy(context, "仅有总时长。连接戒指后可下拉更新。"),
                   icon: Icons.schedule_outlined,
                 ),
               const SizedBox(height: 16),
@@ -348,12 +359,12 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
             child: ExpansionTile(
               key: const Key('sleep-reference-details'),
               leading: const Icon(Icons.info_outline_rounded),
-              title: const Text('睡眠说明'),
-              subtitle: const Text('戒指估算 · 日常作息参考'),
+              title: Text(uiCopy(context, "睡眠说明")),
+              subtitle: Text(uiCopy(context, "戒指估算 · 日常作息参考")),
               childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              children: const [
+              children: [
                 Text(
-                  '总时长含夜间睡眠和小睡，不含清醒和未分类时段。生成报告前会请你同意上传汇总。',
+                  uiCopy(context, "总时长含夜间睡眠和小睡，不含清醒和未分类时段。生成报告前会请你同意上传汇总。"),
                   style: TextStyle(color: SaydianColors.muted, height: 1.6),
                 ),
               ],
@@ -364,7 +375,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
             key: const Key('sleep-open-trend'),
             onPressed: () => widget.onOpenTrend(_date),
             icon: const Icon(Icons.show_chart_rounded),
-            label: const Text('查看睡眠趋势与记录'),
+            label: Text(uiCopy(context, "查看睡眠趋势与记录")),
           ),
         ],
       ),
@@ -398,8 +409,8 @@ class _SleepStageDistribution extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '睡眠阶段分布',
+            Text(
+              uiCopy(context, "睡眠阶段分布"),
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 16),
@@ -445,8 +456,8 @@ class _SleepStageDistribution extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            const Text(
-              '各睡眠阶段占比',
+            Text(
+              uiCopy(context, "各睡眠阶段占比"),
               style: TextStyle(fontSize: 14, color: SaydianColors.muted),
             ),
           ],
@@ -496,8 +507,16 @@ class SleepTimelineCard extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 12),
           child: Text(
             isDemo
-                ? '演示时间轴 · 全部为示例数据（UTC${timeline.timezone}）'
-                : '时间按记录时区 UTC${timeline.timezone} 显示',
+                ? uiCopy(
+                    context,
+                    "演示时间轴 · 全部为示例数据（UTC{p0}）",
+                    parameters: [timeline.timezone],
+                  )
+                : uiCopy(
+                    context,
+                    "时间按记录时区 UTC{p0} 显示",
+                    parameters: [timeline.timezone],
+                  ),
             style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
           ),
         ),
@@ -509,9 +528,13 @@ class SleepTimelineCard extends StatelessWidget {
             session: session,
             isDemo: isDemo,
             title: switch (session.kind) {
-              SleepSessionKind.night => '夜间睡眠',
-              SleepSessionKind.nap => '小睡 ${++naps}',
-              SleepSessionKind.unknown => '睡眠记录',
+              SleepSessionKind.night => uiCopy(context, "夜间睡眠"),
+              SleepSessionKind.nap => uiCopy(
+                context,
+                "小睡 {p0}",
+                parameters: [++naps],
+              ),
+              SleepSessionKind.unknown => uiCopy(context, "睡眠记录"),
             },
           ),
       ],
@@ -531,45 +554,57 @@ class _SleepSessionCard extends StatelessWidget {
   final String title;
   final bool isDemo;
 
-  String _time(DateTime instant) =>
-      DateFormat('M月d日 HH:mm').format(timeline.displayTime(instant));
+  String _time(DateTime instant) => DateFormat(
+    uiCopy(null, "M月d日 HH:mm"),
+  ).format(timeline.displayTime(instant));
 
   double _minutes(SleepStageSegment segment) =>
       segment.endAt.difference(segment.startAt).inSeconds / 60;
 
-  Future<void> _showSegment(BuildContext context, SleepStageSegment segment) =>
-      showModalBottomSheet<void>(
-        context: context,
-        showDragHandle: true,
-        isScrollControlled: true,
-        builder: (context) => SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _stageLabel(segment.stage),
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text('开始：${_time(segment.startAt)}'),
-                Text('结束：${_time(segment.endAt)}'),
-                Text('持续：${sleepMinutesLabel(_minutes(segment))}'),
-                const SizedBox(height: 12),
-                Text(
-                  isDemo ? '示例展示，并非你的睡眠记录。' : '时间按这条记录的时区显示。',
-                  style: TextStyle(color: SaydianColors.muted),
-                ),
-              ],
+  Future<void> _showSegment(
+    BuildContext context,
+    SleepStageSegment segment,
+  ) => showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _stageLabel(segment.stage),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
             ),
-          ),
+            const SizedBox(height: 16),
+            Text(
+              uiCopy(context, "开始：{p0}", parameters: [_time(segment.startAt)]),
+            ),
+            Text(
+              uiCopy(context, "结束：{p0}", parameters: [_time(segment.endAt)]),
+            ),
+            Text(
+              uiCopy(
+                context,
+                "持续：{p0}",
+                parameters: [sleepMinutesLabel(_minutes(segment))],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              isDemo
+                  ? uiCopy(context, "示例展示，并非你的睡眠记录。")
+                  : uiCopy(context, "时间按这条记录的时区显示。"),
+              style: TextStyle(color: SaydianColors.muted),
+            ),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -597,7 +632,11 @@ class _SleepSessionCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              '有效睡眠 ${asleep > 0 ? sleepMinutesLabel(asleep) : '--'}',
+              uiCopy(
+                context,
+                "有效睡眠 {p0}",
+                parameters: [asleep > 0 ? sleepMinutesLabel(asleep) : '--'],
+              ),
               style: const TextStyle(
                 color: Color(0xFF7164C5),
                 fontWeight: FontWeight.w700,
@@ -606,8 +645,15 @@ class _SleepSessionCard extends StatelessWidget {
             const SizedBox(height: 16),
             LayoutBuilder(
               builder: (context, constraints) => Semantics(
-                label:
-                    '$title阶段时间轴，${session.segments.length}个${isDemo ? '示例' : '真实'}时间段。展开时间明细可逐段查看。',
+                label: uiCopy(
+                  context,
+                  "{p0}阶段时间轴，{p1}个{p2}时间段。展开时间明细可逐段查看。",
+                  parameters: [
+                    title,
+                    session.segments.length,
+                    isDemo ? uiCopy(context, "示例") : uiCopy(context, "真实"),
+                  ],
+                ),
                 child: GestureDetector(
                   key: const Key('sleep-stage-chart'),
                   behavior: HitTestBehavior.opaque,
@@ -741,7 +787,7 @@ class _SleepSessionCard extends StatelessWidget {
               key: PageStorageKey(
                 'sleep-session-details-${session.startedAt!.toIso8601String()}',
               ),
-              title: const Text('展开时间明细'),
+              title: Text(uiCopy(context, "展开时间明细")),
               tilePadding: EdgeInsets.zero,
               children: [
                 Align(
@@ -749,11 +795,18 @@ class _SleepSessionCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('开始 ${_time(start)}'),
-                      Text('结束 ${_time(end)}'),
+                      Text(
+                        uiCopy(context, "开始 {p0}", parameters: [_time(start)]),
+                      ),
+                      Text(
+                        uiCopy(context, "结束 {p0}", parameters: [_time(end)]),
+                      ),
                       const SizedBox(height: 12),
-                      const Text(
-                        '点击色块可查看对应时间；空白表示该时段暂无记录。占比按已记录的睡眠计算，清醒、暂未分类及未佩戴时段不计入。',
+                      Text(
+                        uiCopy(
+                          context,
+                          "点击色块可查看对应时间；空白表示该时段暂无记录。占比按已记录的睡眠计算，清醒、暂未分类及未佩戴时段不计入。",
+                        ),
                         style: TextStyle(color: SaydianColors.muted),
                       ),
                     ],
@@ -765,7 +818,15 @@ class _SleepSessionCard extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     title: Text(_stageLabel(session.segments[index].stage)),
                     subtitle: Text(
-                      '${_time(session.segments[index].startAt)} 至 ${_time(session.segments[index].endAt)}\n${sleepMinutesLabel(_minutes(session.segments[index]))}',
+                      uiCopy(
+                        context,
+                        "{p0} 至 {p1}\n{p2}",
+                        parameters: [
+                          _time(session.segments[index].startAt),
+                          _time(session.segments[index].endAt),
+                          sleepMinutesLabel(_minutes(session.segments[index])),
+                        ],
+                      ),
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () => _showSegment(context, session.segments[index]),
@@ -848,8 +909,21 @@ class SleepStageMiniBar extends StatelessWidget {
     }
     if (durations.isEmpty) return const SizedBox.shrink();
     return Semantics(
-      label:
-          '睡眠阶段分布：${durations.entries.map((e) => '${_stageLabel(e.key)}${(e.value / 60).round()}分钟').join('，')}',
+      label: uiCopy(
+        context,
+        "睡眠阶段分布：{p0}",
+        parameters: [
+          durations.entries
+              .map(
+                (e) => uiCopy(
+                  context,
+                  "{p0}{p1}分钟",
+                  parameters: [_stageLabel(e.key), (e.value / 60).round()],
+                ),
+              )
+              .join(', '),
+        ],
+      ),
       child: Padding(
         padding: const EdgeInsets.only(top: 16),
         child: ClipRRect(

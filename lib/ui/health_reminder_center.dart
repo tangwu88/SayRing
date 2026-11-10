@@ -889,7 +889,7 @@ class _HealthReminderDetailPageState extends State<HealthReminderDetailPage> {
                             _copy(
                               context,
                               '来源：${event.reminder!.deviceName ?? event.origin.label}',
-                              'Source: ${event.reminder!.deviceName ?? event.origin.label}',
+                              'Source: ${event.reminder!.deviceName ?? uiCopy(context, event.origin.label)}',
                             ),
                           ),
                         ],

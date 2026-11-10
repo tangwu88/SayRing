@@ -1,3 +1,4 @@
+import '../l10n/global_locale_controller.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
@@ -48,6 +49,7 @@ class CycleNotifications {
             'owner': owner,
             'plans': plans,
             'request': request,
+            'locale': GlobalLocaleController.instance.locale.toLanguageTag(),
           }) ??
           false;
     } on MissingPluginException {
@@ -500,6 +502,15 @@ class CycleTrackingService extends ChangeNotifier {
     await _reschedule(o, request: enabled);
     _notify();
   });
+
+  /// 系统语言变化时只重排原有通知，不申请权限、不更改用户提醒偏好。
+  Future<void> refreshNotificationLanguage() async {
+    if (_disposed || !loaded || _owner == null || store == null) return;
+    await _serial((g, o) async {
+      if (_current(g, o)) await _reschedule(o);
+    });
+  }
+
   Future<void> _reschedule(String o, {bool request = false}) async {
     if (o != _owner) return;
     final generation = _generation;

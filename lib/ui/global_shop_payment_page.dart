@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -139,10 +140,10 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
     if (!_current) return;
     setState(
       () => _message = result.isCancelled
-          ? '已取消支付，订单仍可稍后付款'
+          ? uiCopy(context, "已取消支付，订单仍可稍后付款")
           : result.isSuccess
-          ? '正在确认付款结果，请稍候'
-          : '付款尚未完成，请查看订单后重试',
+          ? uiCopy(context, "正在确认付款结果，请稍候")
+          : uiCopy(context, "付款尚未完成，请查看订单后重试"),
     );
     if (result.isCancelled) _keys.remove(_selected);
   }
@@ -175,22 +176,25 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
       if (result != null) {
         _showResult(result);
       } else {
-        setState(() => _message = '请在微信中完成付款，返回后将更新订单状态');
+        setState(() => _message = uiCopy(context, "请在微信中完成付款，返回后将更新订单状态"));
       }
     } on ApiException catch (error) {
       if (_current) {
         setState(() {
           _launchedProvider = null;
           _message = error.statusCode != null && error.statusCode! >= 500
-              ? '支付暂时无法使用，请稍后重试'
-              : userFacingMessage(error.message, fallback: '支付暂时无法使用，请稍后重试');
+              ? uiCopy(context, "支付暂时无法使用，请稍后重试")
+              : userFacingMessage(
+                  error.message,
+                  fallback: uiCopy(context, "支付暂时无法使用，请稍后重试"),
+                );
         });
       }
     } catch (_) {
       if (_current) {
         setState(() {
           _launchedProvider = null;
-          _message = '支付暂时无法使用，请稍后重试';
+          _message = uiCopy(context, "支付暂时无法使用，请稍后重试");
         });
       }
     } finally {
@@ -210,13 +214,15 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
         if (!_current) return;
         setState(() => _order = order);
         if (!_pending) {
-          setState(() => _message = '订单状态已更新，请返回查看订单详情');
+          setState(() => _message = uiCopy(context, "订单状态已更新，请返回查看订单详情"));
           break;
         }
         if (attempt < 3) await Future<void>.delayed(const Duration(seconds: 2));
       }
     } catch (_) {
-      if (_current) setState(() => _message = '订单状态暂未更新，请稍后刷新查看');
+      if (_current) {
+        setState(() => _message = uiCopy(context, "订单状态暂未更新，请稍后刷新查看"));
+      }
     } finally {
       if (_current) setState(() => _checking = false);
     }
@@ -232,20 +238,23 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
   Widget _buildContent(BuildContext context) {
     if (_closed || _owner == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('订单付款')),
-        body: const Center(child: Text('请登录后重新打开订单')),
+        appBar: AppBar(title: Text(uiCopy(context, "订单付款"))),
+        body: Center(child: Text(uiCopy(context, "请登录后重新打开订单"))),
       );
     }
     final order = _order ?? const <String, Object?>{};
     final cents = commerceCents(order['payableCents']);
     return Scaffold(
       key: const Key('global-shop-payment-page'),
-      appBar: AppBar(title: const Text('订单付款')),
+      appBar: AppBar(title: Text(uiCopy(context, "订单付款"))),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _failed
           ? Center(
-              child: TextButton(onPressed: _load, child: const Text('重新加载订单')),
+              child: TextButton(
+                onPressed: _load,
+                child: Text(uiCopy(context, "重新加载订单")),
+              ),
             )
           : ListView(
               padding: const EdgeInsets.all(20),
@@ -278,12 +287,12 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
                         ),
                         title: Text(
                           provider == AppPaymentProvider.wechat
-                              ? '微信支付'
-                              : '支付宝支付',
+                              ? uiCopy(context, "微信支付")
+                              : uiCopy(context, "支付宝支付"),
                         ),
                         subtitle: _enabled(provider)
                             ? null
-                            : const Text('暂不可用'),
+                            : Text(uiCopy(context, "暂不可用")),
                         trailing: _selected == provider
                             ? const Icon(Icons.check_circle_outline)
                             : null,
@@ -293,12 +302,12 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
                       ),
                     ),
                   if (_selected == null)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(vertical: 12),
-                      child: Text('当前暂无可用的支付方式，请稍后再试或联系客服'),
+                      child: Text(uiCopy(context, "当前暂无可用的支付方式，请稍后再试或联系客服")),
                     ),
                 ] else
-                  const Text('订单状态已更新，请返回订单详情查看'),
+                  Text(uiCopy(context, "订单状态已更新，请返回订单详情查看")),
                 if (_message != null)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 16),
@@ -307,7 +316,11 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
                 TextButton.icon(
                   onPressed: _paying || _checking ? null : _load,
                   icon: const Icon(Icons.refresh),
-                  label: Text(_checking ? '正在核对订单状态…' : '刷新订单状态'),
+                  label: Text(
+                    _checking
+                        ? uiCopy(context, "正在核对订单状态…")
+                        : uiCopy(context, "刷新订单状态"),
+                  ),
                 ),
               ],
             ),
@@ -326,10 +339,10 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
                     : null,
                 child: Text(
                   _paying
-                      ? '正在打开支付…'
+                      ? uiCopy(context, "正在打开支付…")
                       : _checking
-                      ? '正在确认订单…'
-                      : '确认付款',
+                      ? uiCopy(context, "正在确认订单…")
+                      : uiCopy(context, "确认付款"),
                 ),
               ),
             )

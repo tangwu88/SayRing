@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -139,7 +140,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     'password' => l.enterPassword,
     'passwordLength' => l.passwordRequirement,
     'login' => l.loginFailed,
-    'register' => '账号尚未注册，请先使用密码和验证码注册',
+    'register' => uiCopy(context, "账号尚未注册，请先使用密码和验证码注册"),
     'age' =>
       Localizations.localeOf(context).languageCode == 'zh'
           ? '请确认已满14周岁后继续'
@@ -545,7 +546,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                         ? l.phoneNumber
                         : l.email,
                     hintText: _channel == AccountChannel.sms
-                        ? '请输入11位手机号'
+                        ? uiCopy(context, "请输入11位手机号")
                         : null,
                   ),
                   onChanged: (_) => setState(_resetChallenge),
@@ -561,7 +562,11 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                             _password.clear();
                             _resetChallenge();
                           }),
-                    child: Text(_passwordMode ? '使用验证码登录' : '使用密码登录'),
+                    child: Text(
+                      _passwordMode
+                          ? uiCopy(context, "使用验证码登录")
+                          : uiCopy(context, "使用密码登录"),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -711,7 +716,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     key: const Key('local-ring-use-entry'),
                     onPressed: _busy ? null : _enterLocalMode,
                     icon: const Icon(Icons.watch_outlined),
-                    label: Text(_busy ? l.pleaseWait : '游客进入'),
+                    label: Text(_busy ? l.pleaseWait : uiCopy(context, "游客进入")),
                   ),
                 ] else ...[
                   const SizedBox(height: 12),
@@ -719,12 +724,12 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     key: const Key('review-demo-entry'),
                     onPressed: _busy ? null : widget.controller.enterPreview,
                     icon: const Icon(Icons.visibility_outlined),
-                    label: const Text('免登录看演示'),
+                    label: Text(uiCopy(context, "免登录看演示")),
                   ),
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.only(top: 6),
                     child: Text(
-                      '仅含示例，不连接戒指或保存资料。',
+                      uiCopy(context, "仅含示例，不连接戒指或保存资料。"),
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 12),
                     ),
@@ -741,7 +746,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                       Icons.wechat_rounded,
                       color: Color(0xFF07C160),
                     ),
-                    label: const Text('微信授权登录'),
+                    label: Text(uiCopy(context, "微信授权登录")),
                   ),
                 ],
               ],
@@ -844,7 +849,7 @@ class _GlobalWechatPhoneBindingPageState
 
   Future<void> _bind() async {
     if (!_ageConfirmed) {
-      setState(() => _error = '请确认已满14周岁后继续');
+      setState(() => _error = uiCopy(context, "请确认已满14周岁后继续"));
       return;
     }
     final challenge = _challenge;
@@ -888,7 +893,7 @@ class _GlobalWechatPhoneBindingPageState
   @override
   Widget build(BuildContext context) => Scaffold(
     key: const Key('global-wechat-phone-binding-page'),
-    appBar: AppBar(title: const Text('绑定手机号')),
+    appBar: AppBar(title: Text(uiCopy(context, "绑定手机号"))),
     body: SafeArea(
       child: Center(
         child: ConstrainedBox(
@@ -898,8 +903,8 @@ class _GlobalWechatPhoneBindingPageState
             children: [
               const Icon(Icons.phone_android, size: 52),
               const SizedBox(height: 16),
-              const Text(
-                '首次使用微信登录需要验证并绑定手机号，绑定后再次微信授权可直接进入。',
+              Text(
+                uiCopy(context, "首次使用微信登录需要验证并绑定手机号，绑定后再次微信授权可直接进入。"),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
@@ -915,7 +920,7 @@ class _GlobalWechatPhoneBindingPageState
                 ],
                 decoration: InputDecoration(
                   labelText: l.phoneNumber,
-                  hintText: '请输入11位手机号',
+                  hintText: uiCopy(context, "请输入11位手机号"),
                 ),
                 onChanged: (_) => setState(() {
                   _challenge = null;
@@ -971,12 +976,15 @@ class _GlobalWechatPhoneBindingPageState
                 onChanged: _busy
                     ? null
                     : (value) => setState(() => _ageConfirmed = value == true),
-                title: const Text('我确认已满14周岁', style: TextStyle(fontSize: 12)),
+                title: Text(
+                  uiCopy(context, "我确认已满14周岁"),
+                  style: TextStyle(fontSize: 12),
+                ),
               ),
               FilledButton(
                 key: const Key('wechat-bind-submit'),
                 onPressed: _busy ? null : _bind,
-                child: Text(_busy ? l.pleaseWait : '绑定并登录'),
+                child: Text(_busy ? l.pleaseWait : uiCopy(context, "绑定并登录")),
               ),
             ],
           ),

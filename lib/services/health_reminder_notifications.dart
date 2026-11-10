@@ -1,3 +1,4 @@
+import '../l10n/global_locale_controller.dart';
 import 'package:flutter/services.dart';
 
 enum ReminderNotificationPermission {
@@ -59,6 +60,7 @@ final class MethodChannelHealthReminderNotifications
       await channel.invokeMethod<bool>('show', {
         'owner': owner,
         'eventId': eventId,
+        'locale': GlobalLocaleController.instance.locale.toLanguageTag(),
       }) ??
       false;
 

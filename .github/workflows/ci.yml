@@ -28,7 +28,7 @@ jobs:
       - name: Run Harmony host-side contracts and service regressions
         run: node --test harmony-native/tests/*.test.mjs
       - name: Check Android vendor log privacy controls
-        run: node --test tool/test_native_log_privacy.mjs
+        run: node --test tool/test_native_log_privacy.mjs tool/test_urion_native_lifecycle.mjs
       - name: Check international authentication smoke boundaries
         run: node --test tool/global_auth_smoke.test.mjs
       - name: Check isolated authentication QA safety (offline only)

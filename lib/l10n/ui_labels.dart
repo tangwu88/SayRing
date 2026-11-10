@@ -36,6 +36,10 @@ extension LocalizedModelLabels on AppLocalizations {
   };
 
   String deviceFeatureName(DeviceFeature feature) => switch (feature) {
+    DeviceFeature.basicSettings =>
+      localeName.startsWith('zh') ? '基本设置' : 'Device settings',
+    DeviceFeature.u19Pulse =>
+      localeName.startsWith('zh') ? '脉搏指数' : 'Pulse indices',
     DeviceFeature.watchFaces => watchFaces,
     DeviceFeature.photoWatchFace => photoWatchFace,
     DeviceFeature.findWatch => findWatch,

@@ -1,22 +1,30 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:flutter/material.dart';
 import '../domain/cycle_tracking.dart';
 import 'cycle_day_widgets.dart';
 
-const cycleFields = [
+final cycleFields = [
   ('flow', '经量', Icons.water_drop_outlined),
   ('pain', '疼痛', Icons.bolt_outlined),
   ('mood', '心情', Icons.sentiment_satisfied_alt),
   ('fatigue', '疲劳', Icons.battery_4_bar_rounded),
 ];
 
-List<String> diarySummary(Map<String, Object?> data) => [
+List<String> diarySummary(
+  Map<String, Object?> data, {
+  BuildContext? context,
+}) => [
   for (final f in cycleFields)
     if (cycleFeelingChoices[f.$1]?[data[f.$1]] case final String value)
-      value == '无' ? '无${f.$2}' : '${f.$2}$value',
+      context == null || Localizations.localeOf(context).languageCode == 'zh'
+          ? (value == '无' ? '无${f.$2}' : '${f.$2}$value')
+          : '${uiCopy(context, f.$2)}: ${uiCopy(context, value)}',
   for (final k in (data['symptoms'] as List? ?? const []))
-    if (cycleSymptomLabels[k] case final String label) label,
+    if (cycleSymptomLabels[k] case final String label)
+      context == null ? label : uiCopy(context, label),
   for (final k in (data['tags'] as List? ?? const []))
-    if (cycleTagLabels[k] case final String label) label,
+    if (cycleTagLabels[k] case final String label)
+      context == null ? label : uiCopy(context, label),
 ];
 
 class CycleDiarySheet extends StatefulWidget {
@@ -70,7 +78,7 @@ class _CycleDiarySheetState extends State<CycleDiarySheet> {
   Widget multiChip(String field, String key, String label) => FilterChip(
     selected: (data[field] as List? ?? const []).contains(key),
     showCheckmark: true,
-    label: Text(label),
+    label: Text(uiCopy(context, label)),
     onSelected: (v) => multi(field, key, v),
   );
   @override
@@ -86,7 +94,11 @@ class _CycleDiarySheetState extends State<CycleDiarySheet> {
               children: [
                 Expanded(
                   child: Text(
-                    '${cycleShort(widget.date)} · 记感受',
+                    uiCopy(
+                      context,
+                      "{p0} · 记感受",
+                      parameters: [cycleShort(widget.date)],
+                    ),
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 21,
@@ -94,7 +106,7 @@ class _CycleDiarySheetState extends State<CycleDiarySheet> {
                   ),
                 ),
                 IconButton(
-                  tooltip: '取消',
+                  tooltip: uiCopy(context, "取消"),
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
                 ),
@@ -106,13 +118,13 @@ class _CycleDiarySheetState extends State<CycleDiarySheet> {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
               children: [
                 for (final f in cycleFields)
-                  group(f.$2, f.$3, [
+                  group(uiCopy(context, f.$2), f.$3, [
                     for (final v in cycleFeelingChoices[f.$1]!.entries)
                       ChoiceChip(
                         key: ValueKey('diary-${f.$1}-${v.key}'),
                         selected: data[f.$1] == v.key,
                         showCheckmark: true,
-                        label: Text(v.value),
+                        label: Text(uiCopy(context, v.value)),
                         onSelected: (on) => setState(() {
                           if (on) {
                             data[f.$1] = v.key;
@@ -124,7 +136,7 @@ class _CycleDiarySheetState extends State<CycleDiarySheet> {
                   ]),
                 ExpansionTile(
                   tilePadding: EdgeInsets.zero,
-                  title: const Text('更多感受'),
+                  title: Text(uiCopy(context, "更多感受")),
                   initiallyExpanded:
                       (widget.initial['symptoms'] as List? ?? const [])
                           .isNotEmpty ||
@@ -134,11 +146,11 @@ class _CycleDiarySheetState extends State<CycleDiarySheet> {
                     color: cyclePlum,
                   ),
                   children: [
-                    group('身体感受', Icons.spa_outlined, [
+                    group(uiCopy(context, "身体感受"), Icons.spa_outlined, [
                       for (final e in cycleSymptomLabels.entries)
                         multiChip('symptoms', e.key, e.value),
                     ]),
-                    group('生活标记', Icons.bookmark_outline, [
+                    group(uiCopy(context, "生活标记"), Icons.bookmark_outline, [
                       for (final e in cycleTagLabels.entries)
                         multiChip('tags', e.key, e.value),
                     ]),
@@ -153,7 +165,7 @@ class _CycleDiarySheetState extends State<CycleDiarySheet> {
               key: const Key('diary-save'),
               onPressed: () => Navigator.pop(context, data),
               icon: const Icon(Icons.check),
-              label: const Text('保存'),
+              label: Text(uiCopy(context, "保存")),
             ),
           ),
         ],

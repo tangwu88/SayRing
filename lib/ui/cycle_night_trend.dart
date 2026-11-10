@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../domain/cycle_tracking.dart';
@@ -47,8 +48,8 @@ class CycleTrendSeries {
 }
 
 String _name(String s) => switch (s) {
-  'skin_temperature' => '夜间皮温',
-  'sleep_heart_rate' => '睡眠心率',
+  'skin_temperature' => uiCopy(null, "夜间皮温"),
+  'sleep_heart_rate' => uiCopy(null, "睡眠心率"),
   'hrv_sdnn' => 'HRV · SDNN',
   'hrv_rmssd' => 'HRV · RMSSD',
   _ => '',
@@ -111,7 +112,7 @@ class _CycleNightTrendState extends State<CycleNightTrend> {
                 ),
                 if (s.points.length > 1)
                   PopupMenuButton<String>(
-                    tooltip: '逐晚查看',
+                    tooltip: uiCopy(context, "逐晚查看"),
                     icon: const Icon(Icons.list_alt_outlined),
                     initialValue: point.date,
                     onSelected: (v) => setState(() => picked = v),
@@ -151,7 +152,13 @@ class _CycleNightTrendState extends State<CycleNightTrend> {
                 color: cyclePlum,
               ),
             ),
-            Text('${cycleShort(point.date)} · 相对个人均值 · ${s.points.length}晚'),
+            Text(
+              uiCopy(
+                context,
+                "{p0} · 相对个人均值 · {p1}晚",
+                parameters: [cycleShort(point.date), s.points.length],
+              ),
+            ),
             const SizedBox(height: 12),
             Semantics(
               label:

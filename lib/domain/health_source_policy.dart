@@ -15,6 +15,19 @@ List<HealthRecord> ringPreferredHealthRecords(
     groups.putIfAbsent(key, () => <HealthRecord>[]).add(record);
   }
   for (final group in groups.values) {
+    final selectedWatch = preferredDeviceId?.startsWith('urion:') == true
+        ? _usableCategory(group, 'watch')
+              .where(
+                (r) =>
+                    r.deviceId == preferredDeviceId &&
+                    r.sourceDeviceCategory == 'watch',
+              )
+              .toList()
+        : <HealthRecord>[];
+    if (selectedWatch.isNotEmpty) {
+      selectedIds.addAll(_collapseCumulative(selectedWatch).map((r) => r.id));
+      continue;
+    }
     final unknown = group.where(
       (record) =>
           record.sourceDeviceCategory != 'ring' &&

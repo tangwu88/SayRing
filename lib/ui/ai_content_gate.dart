@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:flutter/material.dart';
 
 import '../services/app_controller.dart';
@@ -44,7 +45,7 @@ class _AiContentGateState extends State<AiContentGate> {
       _closeHiddenRoute();
       return Scaffold(
         appBar: AppBar(),
-        body: const Center(child: Text('此功能暂未开放')),
+        body: Center(child: Text(uiCopy(context, "此功能暂未开放"))),
       );
     },
   );

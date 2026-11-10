@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
@@ -45,8 +46,12 @@ class ReportVisualSummary extends StatelessWidget {
                     children: [
                       Semantics(
                         label: value == null
-                            ? '证据不足，未评分'
-                            : '睡眠参考评分 $value / 100',
+                            ? uiCopy(context, "证据不足，未评分")
+                            : uiCopy(
+                                context,
+                                "睡眠参考评分 {p0} / 100",
+                                parameters: [value],
+                              ),
                         child: SizedBox.square(
                           dimension: 160,
                           child: Stack(
@@ -87,18 +92,21 @@ class ReportVisualSummary extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const Column(
+                      Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '睡眠参考评分',
+                            uiCopy(context, "睡眠参考评分"),
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 16,
                             ),
                           ),
                           SizedBox(height: 5),
-                          Text('AI 估算，非设备评分', style: TextStyle(fontSize: 12)),
+                          Text(
+                            uiCopy(context, "AI 估算，非设备评分"),
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ],
                       ),
                     ],
@@ -116,22 +124,34 @@ class ReportVisualSummary extends StatelessWidget {
                   const SizedBox(height: 16),
                   _facts(context, [
                     (
-                      '睡眠时长',
+                      uiCopy(context, "睡眠时长"),
                       _duration(_number(sleep['totalSeconds'])),
                       Icons.bedtime_outlined,
                     ),
                     (
-                      '醒来次数',
+                      uiCopy(context, "醒来次数"),
                       _number(sleep['wakeCount']) == null
-                          ? '未记录'
-                          : '${_format(_number(sleep['wakeCount']))} 次',
+                          ? uiCopy(context, "未记录")
+                          : uiCopy(
+                              context,
+                              "{p0} 次",
+                              parameters: [
+                                _format(_number(sleep['wakeCount'])),
+                              ],
+                            ),
                       Icons.wb_twilight_outlined,
                     ),
                     (
-                      '睡眠记录',
+                      uiCopy(context, "睡眠记录"),
                       _number(sleep['sessionCount']) == null
-                          ? '未记录'
-                          : '${_format(_number(sleep['sessionCount']))} 段',
+                          ? uiCopy(context, "未记录")
+                          : uiCopy(
+                              context,
+                              "{p0} 段",
+                              parameters: [
+                                _format(_number(sleep['sessionCount'])),
+                              ],
+                            ),
                       Icons.layers_outlined,
                     ),
                   ]),
@@ -149,7 +169,7 @@ class ReportVisualSummary extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Text(
-              '数据一览',
+              uiCopy(context, "数据一览"),
               style: Theme.of(
                 context,
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -160,10 +180,10 @@ class ReportVisualSummary extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 12),
               child: _metric(context, metric),
             ),
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(bottom: 12),
             child: Text(
-              '图中为每日样本均值；活动数据并非全天累计。',
+              uiCopy(context, "图中为每日样本均值；活动数据并非全天累计。"),
               style: TextStyle(fontSize: 12, height: 1.6),
             ),
           ),
@@ -230,7 +250,8 @@ class ReportVisualSummary extends StatelessWidget {
     final other = _number(sleep['unclassifiedSeconds']);
     final entries = [
       ...stages,
-      if (other != null) <String, Object?>{'label': '未分类', 'seconds': other},
+      if (other != null)
+        <String, Object?>{'label': uiCopy(context, "未分类"), 'seconds': other},
     ];
     const colors = [
       Color(0xff655abd),
@@ -260,14 +281,14 @@ class ReportVisualSummary extends StatelessWidget {
       Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            '睡眠阶段',
+          Text(
+            uiCopy(context, "睡眠阶段"),
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
           ),
           const SizedBox(height: 16),
           if (segments.isNotEmpty)
             Semantics(
-              label: '睡眠阶段时长占比，具体数值见下方图例',
+              label: uiCopy(context, "睡眠阶段时长占比，具体数值见下方图例"),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: Row(children: segments),
@@ -305,8 +326,8 @@ class ReportVisualSummary extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 8),
-          const Text(
-            '缺失阶段显示“未记录”，未分类时长单独保留。',
+          Text(
+            uiCopy(context, "缺失阶段显示“未记录”，未分类时长单独保留。"),
             style: TextStyle(fontSize: 12, height: 1.6),
           ),
         ],
@@ -329,7 +350,7 @@ class ReportVisualSummary extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            '${metric['label'] ?? '健康指标'}',
+            '${metric['label'] ?? uiCopy(context, "健康指标")}',
             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
@@ -348,7 +369,7 @@ class ReportVisualSummary extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
-                  '$unit · 样本均值',
+                  uiCopy(context, "{p0} · 样本均值", parameters: [unit]),
                   style: const TextStyle(fontSize: 12),
                 ),
               ),
@@ -357,8 +378,11 @@ class ReportVisualSummary extends StatelessWidget {
           if (points.isNotEmpty) ...[
             const SizedBox(height: 16),
             Semantics(
-              label:
-                  '${metric['label']}每日样本均值趋势，共${points.length}个有记录日期；下方可查看数值',
+              label: uiCopy(
+                context,
+                "{p0}每日样本均值趋势，共{p1}个有记录日期；下方可查看数值",
+                parameters: [metric['label'], points.length],
+              ),
               child: SizedBox(
                 height: 90,
                 child: CustomPaint(
@@ -385,13 +409,24 @@ class ReportVisualSummary extends StatelessWidget {
           ],
           const SizedBox(height: 10),
           Text(
-            '最近 ${_format(_number(metric['latest']))} $unit · ${_format(_number(metric['sampleCount']))} 个样本',
+            uiCopy(
+              context,
+              "最近 {p0} {p1} · {p2} 个样本",
+              parameters: [
+                _format(_number(metric['latest'])),
+                unit,
+                _format(_number(metric['sampleCount'])),
+              ],
+            ),
             style: const TextStyle(fontSize: 12),
           ),
           if (points.isNotEmpty)
             ExpansionTile(
               tilePadding: EdgeInsets.zero,
-              title: const Text('查看每日数值', style: TextStyle(fontSize: 12)),
+              title: Text(
+                uiCopy(context, "查看每日数值"),
+                style: TextStyle(fontSize: 12),
+              ),
               children: [
                 for (final point in points)
                   Padding(
@@ -447,7 +482,7 @@ class ReportAdviceList extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Semantics(
-                  label: '建议 ${i + 1}',
+                  label: uiCopy(context, "建议 {p0}", parameters: [i + 1]),
                   child: Text(
                     '${i + 1}'.padLeft(2, '0'),
                     style: TextStyle(
@@ -536,7 +571,7 @@ String _format(num? value) => value == null
     ? value.toInt().toString()
     : value.toStringAsFixed(2);
 String _duration(num? seconds) {
-  if (seconds == null) return '未记录';
+  if (seconds == null) return uiCopy(null, "未记录");
   final minutes = (seconds / 60).round();
-  return '${minutes ~/ 60}小时${minutes % 60}分';
+  return uiCopy(null, "{p0}小时{p1}分", parameters: [minutes ~/ 60, minutes % 60]);
 }

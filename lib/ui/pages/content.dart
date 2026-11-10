@@ -213,10 +213,10 @@ class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
                           onPressed: _loadingMore ? null : _loadMore,
                           child: Text(
                             _loadingMore
-                                ? '加载中'
+                                ? uiCopy(context, "加载中")
                                 : _moreFailed
-                                ? '加载失败，重试'
-                                : '加载更多',
+                                ? uiCopy(context, "加载失败，重试")
+                                : uiCopy(context, "加载更多"),
                           ),
                         ),
                     ],
@@ -315,8 +315,8 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '健康分类',
+                Text(
+                  uiCopy(context, "健康分类"),
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 10),
@@ -334,7 +334,7 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
                         const SizedBox(width: 8),
                         ChoiceChip(
                           label: Text(
-                            '${category['title'] ?? category['name'] ?? '健康知识'}',
+                            '${category['title'] ?? category['name'] ?? uiCopy(context, "健康知识")}',
                           ),
                           selected:
                               _selectedCategoryId ==
@@ -361,9 +361,9 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
                     onRefresh: _load,
                     child: ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
-                      children: const [
+                      children: [
                         SizedBox(height: 180),
-                        Center(child: Text('该分类暂无百科内容')),
+                        Center(child: Text(uiCopy(context, "该分类暂无百科内容"))),
                       ],
                     ),
                   )
@@ -466,7 +466,7 @@ class _ArticleListPageState extends State<ArticleListPage> {
           : error != null
           ? _ArticleLoadFailure(onRetry: _load)
           : _articles.isEmpty
-          ? const Center(child: Text('该分类暂无百科内容'))
+          ? Center(child: Text(uiCopy(context, "该分类暂无百科内容")))
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView.separated(

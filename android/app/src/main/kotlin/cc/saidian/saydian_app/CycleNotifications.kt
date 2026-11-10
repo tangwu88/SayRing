@@ -24,7 +24,7 @@ internal class CycleNotifications(private val activity:Activity,messenger:Binary
      val plans=call.argument<List<Map<String,Any>>>("plans")?:emptyList()
      if(plans.size>40||plans.any{!CycleSchedule.valid(it)}){result.success(false)}else{
       CycleSchedule.cancel(activity)
-      prefs.edit().putString("plans",JSONArray(plans).toString()).apply()
+      prefs.edit().putString("plans",JSONArray(plans).toString()).putString("locale",call.argument<String>("locale") ?: "en").apply()
       if(call.argument<Boolean>("request")==true&&Build.VERSION.SDK_INT>=33&&activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){activity.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),27158)}
       CycleSchedule.install(activity)
       result.success(NotificationManagerCompat.from(activity).areNotificationsEnabled())
@@ -64,10 +64,11 @@ internal object CycleSchedule {
   val now=System.currentTimeMillis();val target=try{at(p)}catch(_:Exception){return};if(now<target||now-target>6*60*60*1000||!NotificationManagerCompat.from(c).areNotificationsEnabled())return
   val delivered="delivered-$owner-$id";if(prefs.getBoolean(delivered,false))return
   val manager=c.getSystemService(Context.NOTIFICATION_SERVICE)as NotificationManager
-  if(Build.VERSION.SDK_INT>=26)manager.createNotificationChannel(NotificationChannel(CHANNEL,"周期记录",NotificationManager.IMPORTANCE_DEFAULT).apply{enableVibration(false)})
+  val chinese=prefs.getString("locale","en")?.startsWith("zh")==true
+  if(Build.VERSION.SDK_INT>=26)manager.createNotificationChannel(NotificationChannel(CHANNEL,if(chinese) "周期记录" else "Cycle tracking",NotificationManager.IMPORTANCE_DEFAULT).apply{enableVibration(false)})
   val open=Intent(c,MainActivity::class.java).setAction(OPEN).setData(Uri.parse("sayring-cycle://$owner/$id")).putExtra("cycle-owner",owner).putExtra("cycle-plan",id).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
   val pi=PendingIntent.getActivity(c,0,open,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-  val n=NotificationCompat.Builder(c,CHANNEL).setSmallIcon(c.applicationInfo.icon).setContentTitle("记录提醒").setContentText("您有一条记录提醒，请打开查看。").setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPriority(NotificationCompat.PRIORITY_DEFAULT).setContentIntent(pi).setAutoCancel(true).build()
+  val n=NotificationCompat.Builder(c,CHANNEL).setSmallIcon(c.applicationInfo.icon).setContentTitle(if(chinese) "记录提醒" else "Tracking reminder").setContentText(if(chinese) "您有一条记录提醒，请打开查看。" else "You have a tracking reminder. Open the app to view it.").setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPriority(NotificationCompat.PRIORITY_DEFAULT).setContentIntent(pi).setAutoCancel(true).build()
   try{manager.notify("sayring-cycle-$owner",id.hashCode(),n);prefs.edit().putBoolean(delivered,true).apply()}catch(_:SecurityException){}
  }
 }

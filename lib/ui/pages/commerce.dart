@@ -42,7 +42,7 @@ class _AfterSalesPageState extends State<AfterSalesPage> {
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(24),
-              children: const [
+              children: [
                 SizedBox(height: 80),
                 Icon(
                   Icons.support_agent_outlined,
@@ -51,13 +51,13 @@ class _AfterSalesPageState extends State<AfterSalesPage> {
                 ),
                 SizedBox(height: 16),
                 Text(
-                  '暂无可申请售后的订单',
+                  uiCopy(context, "暂无可申请售后的订单"),
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                 ),
                 SizedBox(height: 8),
                 Text(
-                  '已付款订单可按商品提交退款或退货退款申请。',
+                  uiCopy(context, "已付款订单可按商品提交退款或退货退款申请。"),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: SaydianColors.muted),
                 ),
@@ -82,7 +82,16 @@ class _AfterSalesPageState extends State<AfterSalesPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '订单号 ${order['order_sn'] ?? widget.orderNumber ?? order['id'] ?? ''}',
+                        uiCopy(
+                          context,
+                          "订单号 {p0}",
+                          parameters: [
+                            order['order_sn'] ??
+                                widget.orderNumber ??
+                                order['id'] ??
+                                '',
+                          ],
+                        ),
                         style: const TextStyle(
                           color: SaydianColors.muted,
                           fontSize: 14,
@@ -102,7 +111,7 @@ class _AfterSalesPageState extends State<AfterSalesPage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      '${product['product_name'] ?? '商品'}',
+                                      '${product['product_name'] ?? uiCopy(context, "商品")}',
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
@@ -125,8 +134,8 @@ class _AfterSalesPageState extends State<AfterSalesPage> {
                                         child: Text(
                                           '${product['is_customer'] ?? 0}' ==
                                                   '1'
-                                              ? '查看售后状态'
-                                              : '申请售后',
+                                              ? uiCopy(context, "查看售后状态")
+                                              : uiCopy(context, "申请售后"),
                                         ),
                                       ),
                                     ),
@@ -222,9 +231,17 @@ class _AfterSalesApplyPageState extends State<_AfterSalesApplyPage> {
           Card(
             child: ListTile(
               leading: _OrderProductImage(product: widget.product),
-              title: Text('${widget.product['product_name'] ?? '商品'}'),
+              title: Text(
+                '${widget.product['product_name'] ?? uiCopy(context, "商品")}',
+              ),
               subtitle: Text(
-                '订单号 ${widget.order['order_sn'] ?? widget.order['id'] ?? ''}',
+                uiCopy(
+                  context,
+                  "订单号 {p0}",
+                  parameters: [
+                    widget.order['order_sn'] ?? widget.order['id'] ?? '',
+                  ],
+                ),
               ),
             ),
           ),
@@ -241,9 +258,12 @@ class _AfterSalesApplyPageState extends State<_AfterSalesApplyPage> {
               decoration: InputDecoration(
                 labelText: context.l10n.afterSalesType,
               ),
-              items: const [
-                DropdownMenuItem(value: 1, child: Text('仅退款')),
-                DropdownMenuItem(value: 2, child: Text('退货退款')),
+              items: [
+                DropdownMenuItem(value: 1, child: Text(uiCopy(context, "仅退款"))),
+                DropdownMenuItem(
+                  value: 2,
+                  child: Text(uiCopy(context, "退货退款")),
+                ),
               ],
               onChanged: (value) => setState(() => _refundType = value ?? 1),
             ),
@@ -272,7 +292,9 @@ class _AfterSalesApplyPageState extends State<_AfterSalesApplyPage> {
             const SizedBox(height: 18),
             FilledButton(
               onPressed: _submitting ? null : _submit,
-              child: Text(_submitting ? '提交中…' : '提交申请'),
+              child: Text(
+                _submitting ? uiCopy(context, "提交中…") : uiCopy(context, "提交申请"),
+              ),
             ),
           ],
         ],
@@ -286,7 +308,7 @@ class _AfterSalesApplyPageState extends State<_AfterSalesApplyPage> {
     if (productId == null || amount == null || amount <= 0) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请检查商品和申请金额')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "请检查商品和申请金额"))));
       return;
     }
     setState(() => _submitting = true);
@@ -301,7 +323,9 @@ class _AfterSalesApplyPageState extends State<_AfterSalesApplyPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          success ? '售后申请已提交' : widget.controller.errorMessage ?? '提交失败',
+          success
+              ? uiCopy(context, "售后申请已提交")
+              : widget.controller.errorMessage ?? uiCopy(context, "提交失败"),
         ),
       ),
     );
@@ -325,13 +349,13 @@ class OrdersPage extends StatefulWidget {
 
 class _OrdersPageState extends State<OrdersPage> {
   late int? _status;
-  static const _filters = <(int?, String)>[
-    (null, '全部'),
-    (0, '待支付'),
-    (1, '待发货'),
-    (2, '待收货'),
-    (3, '已完成'),
-    (-1, '售后'),
+  List<(int?, String)> get _filters => <(int?, String)>[
+    (null, uiCopy(context, "全部")),
+    (0, uiCopy(context, "待支付")),
+    (1, uiCopy(context, "待发货")),
+    (2, uiCopy(context, "待收货")),
+    (3, uiCopy(context, "已完成")),
+    (-1, uiCopy(context, "售后")),
   ];
 
   @override
@@ -479,15 +503,15 @@ class _OrderCard extends StatelessWidget {
         ? order['product'] as List
         : const [];
     final status = switch (int.tryParse('${order['order_status'] ?? ''}')) {
-      0 => '待付款',
-      1 => '待发货',
-      2 => '待收货',
-      3 => '已完成',
-      4 => '已完成',
-      -1 => '申请退款',
-      -2 => '退款中',
-      -3 => '已退款',
-      _ => '订单处理中',
+      0 => uiCopy(context, "待付款"),
+      1 => uiCopy(context, "待发货"),
+      2 => uiCopy(context, "待收货"),
+      3 => uiCopy(context, "已完成"),
+      4 => uiCopy(context, "已完成"),
+      -1 => uiCopy(context, "申请退款"),
+      -2 => uiCopy(context, "退款中"),
+      -3 => uiCopy(context, "已退款"),
+      _ => uiCopy(context, "订单处理中"),
     };
     final statusColor = status.contains('退款') || status.contains('售后')
         ? SaydianColors.danger
@@ -515,7 +539,11 @@ class _OrderCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '订单号 ${order['order_sn'] ?? order['id'] ?? ''}',
+                      uiCopy(
+                        context,
+                        "订单号 {p0}",
+                        parameters: [order['order_sn'] ?? order['id'] ?? ''],
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -546,7 +574,7 @@ class _OrderCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${product['product_name'] ?? product['title'] ?? '商品'}',
+                            '${product['product_name'] ?? product['title'] ?? uiCopy(context, "商品")}',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontWeight: FontWeight.w700),
@@ -593,7 +621,11 @@ class _OrderCard extends StatelessWidget {
                   spacing: 6,
                   children: [
                     Text(
-                      '共 ${products.length} 件',
+                      uiCopy(
+                        context,
+                        "共 {p0} 件",
+                        parameters: [products.length],
+                      ),
                       style: const TextStyle(
                         color: SaydianColors.muted,
                         fontSize: 14,
@@ -818,7 +850,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            '${(products[index] as Map)['product_name'] ?? '商品'}',
+                                            '${(products[index] as Map)['product_name'] ?? uiCopy(context, "商品")}',
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
@@ -873,14 +905,14 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                         child: Column(
                           children: [
                             _OrderAmountRow(
-                              label: '商品金额',
+                              label: uiCopy(context, "商品金额"),
                               value: '¥${_order['order_money'] ?? '--'}',
                             ),
                             const SizedBox(height: 10),
                             const Divider(height: 1),
                             const SizedBox(height: 12),
                             _OrderAmountRow(
-                              label: '实付款',
+                              label: uiCopy(context, "实付款"),
                               value: '¥${_order['pay_money'] ?? '--'}',
                               emphasized: true,
                             ),
@@ -894,10 +926,13 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                         padding: const EdgeInsets.all(16),
                         child: Column(
                           children: [
-                            _OrderInfoRow(label: '订单编号', value: orderNumber),
+                            _OrderInfoRow(
+                              label: uiCopy(context, "订单编号"),
+                              value: orderNumber,
+                            ),
                             const SizedBox(height: 10),
                             _OrderInfoRow(
-                              label: '下单时间',
+                              label: uiCopy(context, "下单时间"),
                               value: '${_order['created_at'] ?? '--'}',
                             ),
                           ],
@@ -974,21 +1009,21 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
   }
 
   String _orderStatusLabel(int? status) => switch (status) {
-    0 => '等待付款',
-    1 => '等待发货',
-    2 => '等待收货',
-    3 => '交易完成',
-    4 => '交易完成',
-    _ => '${_order['order_status_name'] ?? '订单处理中'}',
+    0 => uiCopy(context, "等待付款"),
+    1 => uiCopy(context, "等待发货"),
+    2 => uiCopy(context, "等待收货"),
+    3 => uiCopy(context, "交易完成"),
+    4 => uiCopy(context, "交易完成"),
+    _ => '${_order['order_status_name'] ?? uiCopy(context, "订单处理中")}',
   };
 
   String _orderStatusDescription(int? status) => switch (status) {
-    0 => '请在订单有效期内完成支付',
-    1 => '商家正在准备您的商品',
-    2 => '商品已发出，请注意查收',
-    3 => '感谢您使用${context.l10n.shop}',
-    4 => '感谢您使用${context.l10n.shop}',
-    _ => '订单状态以商城最新数据为准',
+    0 => uiCopy(context, "请在订单有效期内完成支付"),
+    1 => uiCopy(context, "商家正在准备您的商品"),
+    2 => uiCopy(context, "商品已发出，请注意查收"),
+    3 => uiCopy(context, "感谢您使用{p0}", parameters: [context.l10n.shop]),
+    4 => uiCopy(context, "感谢您使用{p0}", parameters: [context.l10n.shop]),
+    _ => uiCopy(context, "订单状态以商城最新数据为准"),
   };
 
   Future<void> _confirmReceipt() async {
@@ -1015,7 +1050,9 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          success ? '已确认收货' : widget.controller.errorMessage ?? '确认收货失败',
+          success
+              ? uiCopy(context, "已确认收货")
+              : widget.controller.errorMessage ?? uiCopy(context, "确认收货失败"),
         ),
       ),
     );

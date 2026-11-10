@@ -9,6 +9,105 @@ import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
   test(
+    'U19 routing retains watch source, pressure pair and daily provenance',
+    () async {
+      const watch = DeviceInfo(id: 'watch-01', name: 'U19S');
+      final native = _FakeWearableBridge(
+        scanned: const [watch],
+        connectedDetails: watch,
+      );
+      final bridge = RoutedWearableBridge(urion: native);
+      addTearDown(bridge.dispose);
+      await bridge.scanDevices();
+      await bridge.connect('urion:watch-01', profile: _profile);
+      final at = DateTime.utc(2026, 11, 10);
+      native.history = [
+        HealthRecord(
+          id: 'bp',
+          deviceId: watch.id,
+          metric: HealthMetric.bloodPressure,
+          values: const {'systolic': 120, 'diastolic': 80, 'pulse': 65},
+          unit: 'mmHg',
+          measuredAt: at,
+          firmwareVersion: 'verified-fw',
+          timezone: '+08:00',
+          quality: 'valid',
+          source: MeasurementSource.wearable,
+          rawVersion: 1,
+          sourceDeviceCategory: 'watch',
+          sourceVendor: 'urion',
+        ),
+        HealthRecord(
+          id: 'steps',
+          deviceId: watch.id,
+          metric: HealthMetric.steps,
+          values: const {'value': 52},
+          unit: '步',
+          measuredAt: at,
+          firmwareVersion: 'verified-fw',
+          timezone: '+08:00',
+          quality: 'valid',
+          source: MeasurementSource.wearable,
+          rawVersion: 1,
+          provenance: const {
+            'timePrecision': 'day',
+            'aggregationLocalDate': '2026-11-10',
+          },
+        ),
+      ];
+      final result = await bridge.syncHealthData();
+      expect(
+        result.every(
+          (record) =>
+              record.sourceDeviceCategory == 'watch' &&
+              record.sourceVendor == 'urion',
+        ),
+        true,
+      );
+      expect(
+        result.every((record) => record.deviceId == 'urion:watch-01'),
+        true,
+      );
+      expect(result.first.values, native.history.first.values);
+      expect(result.first.firmwareVersion, 'verified-fw');
+      expect(result.last.provenance, native.history.last.provenance);
+    },
+  );
+  test(
+    'verified U19 provider keeps its custom name across saved recovery',
+    () async {
+      const watch = DeviceInfo(id: 'AA:BB:CC:DD:EE:01', name: 'Custom watch');
+      final native = _FakeWearableBridge(
+        scanned: const [watch],
+        connectedDetails: watch,
+      );
+      final preference = _MemoryBoundPreference(null);
+      final bridge = RoutedWearableBridge(
+        urion: native,
+        preferenceStore: preference,
+        restoreOnlyBoundDevice: true,
+        requireOwnerScopedBinding: true,
+      );
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(
+        ownerKey: 'fixture-owner',
+        profile: _profile,
+      );
+      final scanned = (await bridge.scanDevices()).single;
+      expect(scanned.id, 'urion:AA:BB:CC:DD:EE:01');
+      await bridge.connect(scanned.id, profile: _profile);
+      expect(preference.binding?.transport, WearableTransport.urion);
+      expect((await bridge.readRememberedDevice())?.name, 'Custom watch');
+      expect(await bridge.canAutomaticallyRecoverRememberedDevice(), isTrue);
+      await bridge.disconnect();
+      expect(
+        (await bridge.restoreConnection(profile: _profile))?.id,
+        scanned.id,
+      );
+    },
+  );
+
+  test(
     'routing preserves unknown RRI protocol evidence after scoping records',
     () async {
       final fixture = await _connectedCoolWearFixture();

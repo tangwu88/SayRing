@@ -28,6 +28,9 @@ import 'health_reminder_report.dart';
 import '../domain/wellness_release_policy.dart';
 import '../domain/health_cloud_upload_policy.dart';
 import '../domain/read_only_health_features.dart';
+import '../domain/u19_health_features.dart';
+import '../domain/urion_pulse_record.dart';
+import 'u19_health_service.dart';
 import '../domain/module_visibility.dart';
 import '../domain/sleep_timeline.dart';
 import '../domain/global_account.dart';
@@ -116,7 +119,7 @@ class AppController extends ChangeNotifier {
       defaultValue: false,
     ),
   }) : _commerceCeiling = commerceEnabled,
-       healthReleasePolicy =
+       _baseHealthReleasePolicy =
            healthReadPolicy ?? WellnessReleasePolicy(enabled: wellnessOnly),
        _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
        _storeKitPurchaseBridge =
@@ -164,6 +167,7 @@ class AppController extends ChangeNotifier {
       enabled: wellnessOnly,
       readOnlyFeatures: wellnessOnly ? ReadOnlyHealthFeatures() : null,
       manualFeatures: wellnessOnly ? ManualHealthFeatures() : null,
+      u19Features: wellnessOnly ? U19HealthFeatures() : null,
     );
     return AppController(
       vault,
@@ -203,7 +207,10 @@ class AppController extends ChangeNotifier {
   final SessionVault _vault;
   final bool _allowAutomaticWearableRestore;
   final SaydianApi _api;
-  final WellnessReleasePolicy healthReleasePolicy;
+  final WellnessReleasePolicy _baseHealthReleasePolicy;
+  WellnessReleasePolicy get healthReleasePolicy =>
+      _baseHealthReleasePolicy.forDevice(connectedDevice?.id);
+  U19HealthFeatureService? _u19HealthFeatureService;
   ReadOnlyHealthFeatureService? _readOnlyHealthFeatureService;
   int _healthReadUiGeneration = 0;
   bool _readOnlyHealthSyncQueued = false;
@@ -276,6 +283,16 @@ class AppController extends ChangeNotifier {
       bridge: bridge as WearableReadOnlyHealthPolicyBridge,
     )..addListener(_handleReadOnlyHealthChanged);
     await _readOnlyHealthFeatureService!.refresh();
+    if (api is SayRingU19HealthApi &&
+        bridge is WearableU19HealthPolicyBridge &&
+        _baseHealthReleasePolicy.u19Features != null) {
+      _u19HealthFeatureService ??= U19HealthFeatureService(
+        features: _baseHealthReleasePolicy.u19Features!,
+        api: api as SayRingU19HealthApi,
+        bridge: bridge as WearableU19HealthPolicyBridge,
+      )..addListener(_handleReadOnlyHealthChanged);
+      await _u19HealthFeatureService!.refresh();
+    }
   }
 
   void _handleReadOnlyHealthChanged() {
@@ -305,7 +322,9 @@ class AppController extends ChangeNotifier {
         await refreshDeviceCapabilities(announceFailure: false);
         if (!current() ||
             connectedDevice?.id != deviceId ||
-            healthReleasePolicy.readOnlyFeatures!.metrics.isEmpty) {
+            (connectedDevice?.sdkSource == WearableSdkSource.urion
+                ? healthReleasePolicy.u19Features?.readMetrics.isEmpty != false
+                : healthReleasePolicy.readOnlyFeatures!.metrics.isEmpty)) {
           return;
         }
         if (_activeMeasurementMetric != null) return;
@@ -326,7 +345,9 @@ class AppController extends ChangeNotifier {
   // Ordinary sedentary/drinking settings only. Other providers and clinical
   // health assessment remain subject to the unchanged release ceiling.
   bool _allowsDeviceFeature(DeviceFeature feature) =>
-      healthReleasePolicy.allowsFeature(feature) ||
+      (feature == DeviceFeature.u19Pulse
+          ? connectedDevice?.sdkSource == WearableSdkSource.urion
+          : healthReleasePolicy.allowsFeature(feature)) ||
       (feature == DeviceFeature.healthReminders &&
           connectedDevice?.id.startsWith('coolwear:') == true);
 
@@ -1360,7 +1381,11 @@ class AppController extends ChangeNotifier {
           isDeviceReconnecting);
   bool _rememberedDeviceReadFailed = false;
   // Internal diagnostic only. Consumer UI uses ordinary connection/sync feedback.
-  String? firstRingBindingStatus;
+  String? _firstRingBindingStatus;
+  String? get firstRingBindingStatus => _firstRingBindingStatus == null
+      ? null
+      : appStatusCopy(_firstRingBindingStatus!);
+  set firstRingBindingStatus(String? value) => _firstRingBindingStatus = value;
   Future<void>? _wearableReconnectInFlight;
   int _wearableReconnectGeneration = 0;
   bool _wearableAccountRecoveryAllowed = true;
@@ -1377,7 +1402,12 @@ class AppController extends ChangeNotifier {
   bool isWearableRecovering = false;
   Timer? _wearableRecoveryRetryTimer;
   int _wearableRecoveryRetryAttempt = 0;
-  String? wearableRecoveryMessage;
+  String? _wearableRecoveryMessage;
+  String? get wearableRecoveryMessage => _wearableRecoveryMessage == null
+      ? null
+      : appStatusCopy(_wearableRecoveryMessage!);
+  set wearableRecoveryMessage(String? value) =>
+      _wearableRecoveryMessage = value;
   String _activeHealthOwner = 'anonymous';
   ({DeviceInfo device, int generation})? _accountWearableResume;
   DeviceInfo? _latestDeviceDetails;
@@ -1424,8 +1454,16 @@ class AppController extends ChangeNotifier {
   bool _localMode = false;
   Session? session;
   int selectedTab = 0;
-  String? errorMessage;
-  String? measurementErrorMessage;
+  String? _errorMessage;
+  String? get errorMessage =>
+      _errorMessage == null ? null : appStatusCopy(_errorMessage!);
+  set errorMessage(String? value) => _errorMessage = value;
+  String? _measurementErrorMessage;
+  String? get measurementErrorMessage => _measurementErrorMessage == null
+      ? null
+      : appStatusCopy(_measurementErrorMessage!);
+  set measurementErrorMessage(String? value) =>
+      _measurementErrorMessage = value;
   HealthRecord? _measurementResult;
   DateTime? _measurementStartedAt;
   (int, String)? _measurementResultOwner;
@@ -1437,11 +1475,19 @@ class AppController extends ChangeNotifier {
   bool measurementWearConfirmed = true;
   List<num> measurementSamples = const [];
   int measurementSampleFrequency = 250;
-  String storageStatus = '正在准备数据';
-  String sdkStatus = '等待连接';
-  String syncStatus = '尚未同步';
+  String _storageStatus = '正在准备数据';
+  String get storageStatus => appStatusCopy(_storageStatus);
+  set storageStatus(String value) => _storageStatus = value;
+  String _sdkStatus = '等待连接';
+  String get sdkStatus => appStatusCopy(_sdkStatus);
+  set sdkStatus(String value) => _sdkStatus = value;
+  String _syncStatus = '尚未同步';
+  String get syncStatus => appStatusCopy(_syncStatus);
+  set syncStatus(String value) => _syncStatus = value;
   int deviceSyncReceivedRecords = 0;
-  String cloudSyncStatus = '尚未上传';
+  String _cloudSyncStatus = '尚未上传';
+  String get cloudSyncStatus => appStatusCopy(_cloudSyncStatus);
+  set cloudSyncStatus(String value) => _cloudSyncStatus = value;
   DeviceInfo? connectedDevice;
   DeviceCapabilities? capabilities;
   DeviceCapabilityState deviceCapabilityState =
@@ -1506,9 +1552,13 @@ class AppController extends ChangeNotifier {
       : SportHistoryReadStatus.idle;
   List<Map<String, Object?>> careMembers = const [];
   List<Map<String, Object?>> careInvitations = const [];
-  String careStatus = '等待加载';
+  String _careStatus = '等待加载';
+  String get careStatus => appStatusCopy(_careStatus);
+  set careStatus(String value) => _careStatus = value;
   String? careErrorMessage;
-  String careInvitationStatus = '等待加载';
+  String _careInvitationStatus = '等待加载';
+  String get careInvitationStatus => appStatusCopy(_careInvitationStatus);
+  set careInvitationStatus(String value) => _careInvitationStatus = value;
   List<Map<String, Object?>> aiArticles = const [];
   List<Map<String, Object?>> aiMessages = const [];
   String? articleCategoryLoadError;
@@ -1533,9 +1583,15 @@ class AppController extends ChangeNotifier {
   Map<String, Object?> memberProfile = const {};
   String? memberProfileReadError;
   final Map<int, String> _aiSessionIds = {};
-  String aiStatus = '等待加载';
-  String notificationStatus = '等待加载';
-  String orderStatus = '等待加载';
+  String _aiStatus = '等待加载';
+  String get aiStatus => appStatusCopy(_aiStatus);
+  set aiStatus(String value) => _aiStatus = value;
+  String _notificationStatus = '等待加载';
+  String get notificationStatus => appStatusCopy(_notificationStatus);
+  set notificationStatus(String value) => _notificationStatus = value;
+  String _orderStatus = '等待加载';
+  String get orderStatus => appStatusCopy(_orderStatus);
+  set orderStatus(String value) => _orderStatus = value;
   int stepGoal = 10000;
   double distanceGoal = 6;
   int calorieGoal = 800;
@@ -1551,7 +1607,9 @@ class AppController extends ChangeNotifier {
   int cameraRemoteStopSequence = 0;
   int heartRateWarning = 120;
   bool heartRateWarningSupported = false;
-  String deviceSettingsStatus = '连接戒指后可读取';
+  String _deviceSettingsStatus = '连接戒指后可读取';
+  String get deviceSettingsStatus => appStatusCopy(_deviceSettingsStatus);
+  set deviceSettingsStatus(String value) => _deviceSettingsStatus = value;
   HealthWarningSettings healthWarningSettings = const HealthWarningSettings();
   List<HealthWarningAlert> healthWarningAlerts = const [];
   HealthWarningAlert? activeHealthWarningAlert;
@@ -4157,9 +4215,15 @@ class AppController extends ChangeNotifier {
       _deviceSyncErrorMessage =
           '设备已连接，但${_wearableErrorMessage(error, fallback: initial ? '首次数据同步失败' : '历史数据同步失败')}';
       errorMessage = _deviceSyncErrorMessage;
-    } catch (_) {
+    } catch (error, stack) {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
+      }
+      // Profile 真机仅记录失败类别与代码位置，不输出账号、读数或原始包。
+      if (!kReleaseMode) {
+        debugPrint(
+          '[DeviceSync] ${error.runtimeType}\n${stack.toString().split('\n').take(4).join('\n')}',
+        );
       }
       syncStatus = '设备已连接，${initial ? '首次数据同步失败' : '历史数据同步失败'}';
       _deviceSyncErrorMessage = '设备已连接，但数据读取失败，请稍后重试';
@@ -4177,13 +4241,19 @@ class AppController extends ChangeNotifier {
           if (!_disposed &&
               connectedDevice?.id == deviceId &&
               _isCurrentSessionGeneration(sessionGeneration) &&
-              healthReleasePolicy.readOnlyFeatures?.metrics.isNotEmpty ==
+              healthReleasePolicy.allowedMetrics?.any(
+                    (m) =>
+                        !WellnessReleasePolicy.activitySleepMetrics.contains(m),
+                  ) ==
                   true) {
             scheduleMicrotask(() {
               if (!_disposed &&
                   connectedDevice?.id == deviceId &&
                   _isCurrentSessionGeneration(sessionGeneration) &&
-                  healthReleasePolicy.readOnlyFeatures?.metrics.isNotEmpty ==
+                  healthReleasePolicy.allowedMetrics?.any(
+                        (m) => !WellnessReleasePolicy.activitySleepMetrics
+                            .contains(m),
+                      ) ==
                       true) {
                 unawaited(_syncDeviceData(deviceId, initial: true));
               }
@@ -4256,7 +4326,7 @@ class AppController extends ChangeNotifier {
   }
 
   void _clearDeviceSyncError() {
-    if (errorMessage == _deviceSyncErrorMessage) {
+    if (_errorMessage == _deviceSyncErrorMessage) {
       errorMessage = null;
     }
     _deviceSyncErrorMessage = null;
@@ -4799,6 +4869,7 @@ class AppController extends ChangeNotifier {
         _measurementOperationGeneration == operation &&
         connectedDevice?.id == deviceId;
     final canSendStop =
+        capabilities?.supportsStopMeasurement(metric) != false &&
         connectedDevice != null &&
         deviceState != DeviceConnectionState.disconnected;
     _cancelMeasurementWait();
@@ -5989,11 +6060,20 @@ class AppController extends ChangeNotifier {
         connectedDevice?.id == deviceId;
     _setDeviceFeatureBusy(feature, true);
     try {
-      final value = await _readAfterCoolWearQueue(
+      var value = await _readAfterCoolWearQueue(
         () => _wearable.readDeviceFeature(feature),
         () => isCurrent() && availabilityFor(feature).isReady,
       );
       if (!isCurrent()) return const {};
+      if (feature == DeviceFeature.u19Pulse && deviceId != null) {
+        value = await _mergeU19PulseHistory(
+          value,
+          deviceId,
+          generation,
+          settingsGeneration,
+        );
+        if (!isCurrent()) return const {};
+      }
       errorMessage = null;
       deviceFeatureData = {...deviceFeatureData, feature: value};
       return value;
@@ -6027,6 +6107,82 @@ class AppController extends ChangeNotifier {
     } finally {
       if (isCurrent()) _setDeviceFeatureBusy(feature, false);
     }
+  }
+
+  Future<Map<String, Object?>> _mergeU19PulseHistory(
+    Map<String, Object?> value,
+    String id,
+    int sessionGeneration,
+    int settingsGeneration,
+  ) async {
+    final owner = _healthOwnerFor(session);
+    bool current() =>
+        !_disposed &&
+        sessionGeneration == _sessionGeneration &&
+        settingsGeneration == _deviceSettingsGeneration &&
+        connectedDevice?.id == id &&
+        owner == _healthOwnerFor(session);
+    if (!current() || !id.startsWith('urion:')) return const {};
+    final store = _healthStore;
+    if (store is! UrionPulseHistoryStore) return value;
+    final incoming = <UrionPulseRecord>[
+      for (final raw in [
+        if (value['pulseHistory'] is List) ...value['pulseHistory'] as List,
+        value['pulse'],
+      ])
+        ?UrionPulseRecord.tryParse(raw, deviceId: id),
+    ];
+    await (store as UrionPulseHistoryStore).saveUrionPulseHistory(
+      incoming,
+      ownerId: owner,
+    );
+    if (!current()) return const {};
+    final saved = await (store as UrionPulseHistoryStore).readUrionPulseHistory(
+      ownerId: owner,
+      deviceId: id,
+    );
+    if (!current()) return const {};
+    return {
+      ...value,
+      'pulseHistory': saved.map((r) => r.toMap()).toList(),
+      if (saved.isNotEmpty) 'pulse': saved.first.toMap(),
+    };
+  }
+
+  Future<void> _cacheU19FeatureEvent(
+    DeviceFeature feature,
+    Map<String, Object?> value,
+  ) async {
+    final id = connectedDevice?.id;
+    final sessionGeneration = _sessionGeneration;
+    final settingsGeneration = _deviceSettingsGeneration;
+    if (id == null || !id.startsWith('urion:')) return;
+    final merged = feature == DeviceFeature.u19Pulse
+        ? await _mergeU19PulseHistory(
+            value,
+            id,
+            sessionGeneration,
+            settingsGeneration,
+          )
+        : value;
+    if (_disposed ||
+        sessionGeneration != _sessionGeneration ||
+        settingsGeneration != _deviceSettingsGeneration ||
+        connectedDevice?.id != id) {
+      return;
+    }
+    deviceFeatureData = {...deviceFeatureData, feature: merged};
+    notifyListeners();
+  }
+
+  Future<bool> confirmU19MeasurementIdle() async {
+    if (connectedDevice?.sdkSource != WearableSdkSource.urion) return false;
+    final id = connectedDevice!.id;
+    final generation = _sessionGeneration;
+    await _wearable.writeDeviceFeature(DeviceFeature.basicSettings, const {
+      'operation': 'confirmMeasurementIdle',
+    });
+    return generation == _sessionGeneration && connectedDevice?.id == id;
   }
 
   Future<Map<String, Object?>> readWatchFaceProfile() async {
@@ -6821,6 +6977,7 @@ class AppController extends ChangeNotifier {
   void setAppForeground(bool foreground) {
     _appIsForeground = foreground;
     _readOnlyHealthFeatureService?.setForeground(foreground);
+    _u19HealthFeatureService?.setForeground(foreground);
     _moduleVisibilityService?.setForeground(foreground);
     _scheduleDeviceDetailsPoll();
     if (!foreground) {
@@ -6852,6 +7009,7 @@ class AppController extends ChangeNotifier {
     unawaited(refreshAppDisplayConfig());
     unawaited(refreshModuleVisibility());
     _readOnlyHealthFeatureService?.setForeground(true);
+    _u19HealthFeatureService?.setForeground(true);
     unawaited(refreshReadOnlyHealthFeatures());
     _appIsForeground = true;
     if (!_accountTransitioning &&
@@ -8980,6 +9138,23 @@ class AppController extends ChangeNotifier {
     } else if (event.type == 'cameraRemoteStopped') {
       if (event.payload['deviceId'] != connectedDevice?.id) return;
       cameraRemoteStopSequence += 1;
+    } else if (event.type == 'deviceFeatureData') {
+      if (event.payload['deviceId'] != connectedDevice?.id) return;
+      final feature = DeviceFeature.tryFromWire(
+        '${event.payload['feature'] ?? ''}',
+      );
+      if (feature != null &&
+          connectedDevice?.sdkSource == WearableSdkSource.urion) {
+        final data = {...event.payload}
+          ..remove('feature')
+          ..remove('deviceId');
+        unawaited(
+          _cacheU19FeatureEvent(feature, {
+            ...?deviceFeatureData[feature],
+            ...data,
+          }),
+        );
+      }
     } else if (event.type == 'deviceFeatureProgress') {
       final feature = DeviceFeature.tryFromWire(
         '${event.payload['feature'] ?? ''}',
@@ -9563,6 +9738,7 @@ class AppController extends ChangeNotifier {
     _disposed = true;
     _cancelWearableRecoveryRetry();
     _readOnlyHealthFeatureService?.dispose();
+    _u19HealthFeatureService?.dispose();
     _moduleVisibilityService?.dispose();
     _wearableRestoreGeneration++;
     final bridge = _wearable;

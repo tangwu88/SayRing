@@ -1,3 +1,4 @@
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
@@ -17,25 +18,37 @@ class RingGestureIosSetup extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            'iPhone 短视频设置',
+          Text(
+            uiCopy(context, "iPhone 短视频设置"),
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
-          const Text(
-            '设置 → 无障碍 → 触控 → 辅助触控',
+          Text(
+            uiCopy(context, "设置 → 无障碍 → 触控 → 辅助触控"),
             style: TextStyle(fontSize: 14, height: 1.4),
           ),
           const SizedBox(height: 12),
-          const Text(
-            '旧版 iOS 中“无障碍”名为“辅助功能”。',
+          Text(
+            uiCopy(context, "旧版 iOS 中“无障碍”名为“辅助功能”。"),
             style: TextStyle(fontSize: 13, color: SaydianColors.muted),
           ),
           const SizedBox(height: 8),
-          for (final step in const [
-            (Icons.accessibility_new_rounded, '辅助触控', '需开启'),
-            (Icons.touch_app_outlined, '执行触控手势', '需开启'),
-            (Icons.speed_rounded, '跟踪灵敏度', '调至最高'),
+          for (final step in [
+            (
+              Icons.accessibility_new_rounded,
+              uiCopy(context, "辅助触控"),
+              uiCopy(context, "需开启"),
+            ),
+            (
+              Icons.touch_app_outlined,
+              uiCopy(context, "执行触控手势"),
+              uiCopy(context, "需开启"),
+            ),
+            (
+              Icons.speed_rounded,
+              uiCopy(context, "跟踪灵敏度"),
+              uiCopy(context, "调至最高"),
+            ),
           ])
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -63,8 +76,8 @@ class RingGestureIosSetup extends StatelessWidget {
             ),
           const RingGestureActions(),
           const SizedBox(height: 6),
-          const Text(
-            '请在系统中核对以上设置；部分手机、固件或 App 可能不支持。',
+          Text(
+            uiCopy(context, "请在系统中核对以上设置；部分手机、固件或 App 可能不支持。"),
             key: ValueKey('gesture-phone-compatibility'),
             style: TextStyle(
               fontSize: 13,
@@ -88,8 +101,8 @@ class RingGestureQuickStart extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            '三步开始',
+          Text(
+            uiCopy(context, "三步开始"),
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 10),
@@ -105,10 +118,22 @@ class RingGestureQuickStart extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 10,
                 children: [
-                  for (final step in const [
-                    (Icons.touch_app_outlined, '1 选场景', '点下方卡片'),
-                    (Icons.check_circle_outline_rounded, '2 等确认', '确认后再操作'),
-                    (Icons.open_in_new_rounded, '3 去使用', '打开对应 App'),
+                  for (final step in [
+                    (
+                      Icons.touch_app_outlined,
+                      uiCopy(context, "1 选场景"),
+                      uiCopy(context, "点下方卡片"),
+                    ),
+                    (
+                      Icons.check_circle_outline_rounded,
+                      uiCopy(context, "2 等确认"),
+                      uiCopy(context, "确认后再操作"),
+                    ),
+                    (
+                      Icons.open_in_new_rounded,
+                      uiCopy(context, "3 去使用"),
+                      uiCopy(context, "打开对应 App"),
+                    ),
                   ])
                     SizedBox(
                       width: width,
@@ -145,8 +170,8 @@ class RingGestureQuickStart extends StatelessWidget {
             },
           ),
           const SizedBox(height: 12),
-          const Text(
-            '效果取决于戒指、手机和目标 App，部分手机型号可能不支持。',
+          Text(
+            uiCopy(context, "效果取决于戒指、手机和目标 App，部分手机型号可能不支持。"),
             key: ValueKey('gesture-phone-compatibility'),
             style: TextStyle(
               fontSize: 13,
@@ -156,8 +181,8 @@ class RingGestureQuickStart extends StatelessWidget {
           ),
           if (defaultTargetPlatform == TargetPlatform.android) ...[
             const SizedBox(height: 8),
-            const Text(
-              '若弹出蓝牙配对请求，核对是当前戒指后再确认。',
+            Text(
+              uiCopy(context, "若弹出蓝牙配对请求，核对是当前戒指后再确认。"),
               style: TextStyle(
                 fontSize: 13,
                 height: 1.4,
@@ -179,9 +204,17 @@ class RingGestureActions extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      for (final action in const [
-        (Icons.waving_hand_outlined, '晃动手指', '轻晃佩戴戒指的手指'),
-        (Icons.touch_app_outlined, '双击戒指', '连续轻敲戒指两下'),
+      for (final action in [
+        (
+          Icons.waving_hand_outlined,
+          uiCopy(context, "晃动手指"),
+          uiCopy(context, "轻晃佩戴戒指的手指"),
+        ),
+        (
+          Icons.touch_app_outlined,
+          uiCopy(context, "双击戒指"),
+          uiCopy(context, "连续轻敲戒指两下"),
+        ),
       ])
         ListTile(
           contentPadding: EdgeInsets.zero,
@@ -189,8 +222,8 @@ class RingGestureActions extends StatelessWidget {
           title: Text(action.$2),
           subtitle: Text(action.$3),
         ),
-      const Text(
-        '打开短视频 App，尝试戒指支持的动作。',
+      Text(
+        uiCopy(context, "打开短视频 App，尝试戒指支持的动作。"),
         style: TextStyle(fontSize: 14, height: 1.4),
       ),
     ],
@@ -206,12 +239,16 @@ class RingGestureGuide extends StatelessWidget {
   final bool tapControl;
 
   static String modeHint(int mode) => switch (mode) {
-    0 => '用完后关闭，避免误操作和额外耗电',
-    1 => '打开支持的短视频 App，再按戒指说明操作',
-    2 => '打开音乐播放器，再按戒指说明操作',
-    3 => '打开支持翻页的阅读 App，再按戒指说明操作',
-    4 => '尝试控制系统相机；App 内拍照请用“${DeviceFeature.camera.label}”',
-    5 => '按戒指说明控制支持的通话，不等于开启来电提醒',
+    0 => uiCopy(null, "用完后关闭，避免误操作和额外耗电"),
+    1 => uiCopy(null, "打开支持的短视频 App，再按戒指说明操作"),
+    2 => uiCopy(null, "打开音乐播放器，再按戒指说明操作"),
+    3 => uiCopy(null, "打开支持翻页的阅读 App，再按戒指说明操作"),
+    4 => uiCopy(
+      null,
+      "尝试控制系统相机；App 内拍照请用“{p0}”",
+      parameters: [uiCopy(null, DeviceFeature.camera.label)],
+    ),
+    5 => uiCopy(null, "按戒指说明控制支持的通话，不等于开启来电提醒"),
     _ => '',
   };
 
@@ -225,28 +262,39 @@ class RingGestureGuide extends StatelessWidget {
       tilePadding: EdgeInsets.zero,
       childrenPadding: const EdgeInsets.only(bottom: 12),
       leading: const Icon(Icons.help_outline_rounded),
-      title: const Text('使用说明'),
-      subtitle: const Text('手势怎么做？没有反应怎么办？'),
+      title: Text(uiCopy(context, "使用说明")),
+      subtitle: Text(uiCopy(context, "手势怎么做？没有反应怎么办？")),
       expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _GuideSection('操作方法', [
-          '晃动手指或双击戒指，具体动作以戒指支持为准。',
-          'App 内拍照：到设备页打开“${DeviceFeature.camera.label}”，允许相机与照片保存权限，并保持拍照页在前台。',
-          '用完可选择“关闭”，减少误操作。',
+        _GuideSection(uiCopy(context, "操作方法"), [
+          uiCopy(context, "晃动手指或双击戒指，具体动作以戒指支持为准。"),
+          uiCopy(
+            context,
+            "App 内拍照：到设备页打开“{p0}”，允许相机与照片保存权限，并保持拍照页在前台。",
+            parameters: [uiCopy(null, DeviceFeature.camera.label)],
+          ),
+          uiCopy(context, "用完可选择“关闭”，减少误操作。"),
         ]),
         if (defaultTargetPlatform == TargetPlatform.iOS)
-          const _GuideSection('iPhone 短视频设置', [
-            '设置 → 无障碍（旧版称“辅助功能”）→ 触控 → 辅助触控。开启“辅助触控”和“执行触控手势”，将“跟踪灵敏度”调至最高。',
-            '设置完成后，打开短视频 App 试用。',
+          _GuideSection(uiCopy(context, "iPhone 短视频设置"), [
+            uiCopy(
+              context,
+              "设置 → 无障碍（旧版称“辅助功能”）→ 触控 → 辅助触控。开启“辅助触控”和“执行触控手势”，将“跟踪灵敏度”调至最高。",
+            ),
+            uiCopy(context, "设置完成后，打开短视频 App 试用。"),
           ]),
-        const _GuideSection('阅读翻页', [
-          '若阅读 App 提供“音量键翻页”，请先开启；部分 App 还需要切换翻页方式。',
+        _GuideSection(uiCopy(context, "阅读翻页"), [
+          uiCopy(context, "若阅读 App 提供“音量键翻页”，请先开启；部分 App 还需要切换翻页方式。"),
         ]),
-        _GuideSection('没有反应？', [
-          '先确认戒指仍已连接、场景已确认，目标 App 在前台。',
-          '到$phone“设置 → 蓝牙”确认配对；出现请求时，选择当前戒指。',
-          '若戒指连接了其他手机或戒指 App，先断开那边。',
-          '仍无反应时关闭模式再重选。部分手机、固件或 App 不支持手势控制。',
+        _GuideSection(uiCopy(context, "没有反应？"), [
+          uiCopy(context, "先确认戒指仍已连接、场景已确认，目标 App 在前台。"),
+          uiCopy(
+            context,
+            "到{p0}“设置 → 蓝牙”确认配对；出现请求时，选择当前戒指。",
+            parameters: [phone],
+          ),
+          uiCopy(context, "若戒指连接了其他手机或戒指 App，先断开那边。"),
+          uiCopy(context, "仍无反应时关闭模式再重选。部分手机、固件或 App 不支持手势控制。"),
         ]),
       ],
     );

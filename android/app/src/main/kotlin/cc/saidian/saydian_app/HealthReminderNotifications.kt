@@ -59,7 +59,7 @@ internal class HealthReminderNotifications(private val activity: Activity, messe
                         result.success(false)
                     } else {
                         if (Build.VERSION.SDK_INT >= 26) {
-                            manager.createNotificationChannel(NotificationChannel(CHANNEL, "健康提醒", NotificationManager.IMPORTANCE_HIGH))
+                            manager.createNotificationChannel(NotificationChannel(CHANNEL, if (call.argument<String>("locale")?.startsWith("zh") == true) "健康提醒" else "Health reminders", NotificationManager.IMPORTANCE_HIGH))
                         }
                         val intent = Intent(activity, MainActivity::class.java).apply {
                             action = this@HealthReminderNotifications.action
@@ -72,8 +72,8 @@ internal class HealthReminderNotifications(private val activity: Activity, messe
                             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                         val notification = NotificationCompat.Builder(activity, CHANNEL)
                             .setSmallIcon(activity.applicationInfo.icon)
-                            .setContentTitle("健康提醒")
-                            .setContentText("有一条健康提醒，请打开查看测量时间与详情。")
+                            .setContentTitle(if (call.argument<String>("locale")?.startsWith("zh") == true) "健康提醒" else "Health reminder")
+                            .setContentText(if (call.argument<String>("locale")?.startsWith("zh") == true) "有一条健康提醒，请打开查看测量时间与详情。" else "You have a health reminder. Open the app for details.")
                             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                             .setPriority(NotificationCompat.PRIORITY_HIGH)
                             .setContentIntent(pending).setAutoCancel(true).build()

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:saydian_app/domain/models.dart';
@@ -143,6 +144,7 @@ Future<void> _mount(
   _Controller controller, {
   double width = 390,
   double textScale = 1,
+  Locale locale = const Locale('zh'),
   bool shell = false,
   Widget? page,
 }) async {
@@ -157,7 +159,7 @@ Future<void> _mount(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildSaydianTheme(),
-      locale: const Locale('zh'),
+      locale: locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       builder: (context, child) => MediaQuery(
@@ -180,7 +182,33 @@ Future<void> _mount(
 }
 
 void main() {
-  setUpAll(() => initializeDateFormatting('zh_Hans'));
+  setUpAll(() async {
+    await initializeDateFormatting('zh_Hans');
+    await initializeDateFormatting('en');
+  });
+  for (final (width, scale) in [(414.0, 1.0), (320.0, 1.0), (320.0, 2.0)]) {
+    testWidgets('English home units and heading fit $width at $scale', (
+      tester,
+    ) async {
+      final controller = _Controller(MemoryHealthStore());
+      await _mount(
+        tester,
+        controller,
+        width: width,
+        textScale: scale,
+        locale: const Locale('en'),
+      );
+      await tester.pumpAndSettle();
+      expect(_activityText('/10000 steps'), findsOneWidget);
+      expect(_activityText('/6.00 km'), findsOneWidget);
+      final heading = find.text('Health data');
+      await tester.ensureVisible(heading);
+      await tester.pumpAndSettle();
+      final paragraph = tester.renderObject<RenderParagraph>(heading);
+      expect(paragraph.didExceedMaxLines, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets(
     'opening sports only loads saved activity; pull refresh still reads the ring',
     (tester) async {

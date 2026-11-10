@@ -29,21 +29,21 @@ class SharingManagementPage extends StatelessWidget {
       });
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('共享管理')),
+      appBar: AppBar(title: Text(uiCopy(context, "共享管理"))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const FeatureStateCard(
-            message: '默认不共享任何健康数据',
-            detail: '家人接受邀请并选择允许的健康项目后，对方才能查看。',
+          FeatureStateCard(
+            message: uiCopy(context, "默认不共享任何健康数据"),
+            detail: uiCopy(context, "家人接受邀请并选择允许的健康项目后，对方才能查看。"),
             icon: Icons.privacy_tip_outlined,
             color: SaydianColors.green,
           ),
           const SizedBox(height: 14),
           if (targets.isEmpty)
-            const FeatureStateCard(
-              message: '暂无需要授权的关爱人',
-              detail: '收到并同意家人的关爱邀请后，可在这里选择允许对方查看的健康项目。',
+            FeatureStateCard(
+              message: uiCopy(context, "暂无需要授权的关爱人"),
+              detail: uiCopy(context, "收到并同意家人的关爱邀请后，可在这里选择允许对方查看的健康项目。"),
               icon: Icons.group_outlined,
             )
           else
@@ -57,7 +57,9 @@ class SharingManagementPage extends StatelessWidget {
                     );
                     if (memberId == null || memberId == 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('成员信息不完整，暂时无法设置共享项目')),
+                        SnackBar(
+                          content: Text(uiCopy(context, "成员信息不完整，暂时无法设置共享项目")),
+                        ),
                       );
                       return;
                     }
@@ -81,12 +83,20 @@ class SharingManagementPage extends StatelessWidget {
                   title: Text(
                     '${member['nickname'] ?? ''}'.trim().isNotEmpty
                         ? '${member['nickname']}'.trim()
-                        : '关爱邀请人',
+                        : uiCopy(context, "关爱邀请人"),
                   ),
                   subtitle: Text(
                     '${member['mobile'] ?? ''}'.trim().isNotEmpty
-                        ? '${member['mobile']} · 设置允许查看的健康项目'
-                        : '邀请人账号 ID：${member['member_id']} · 设置允许查看的健康项目',
+                        ? uiCopy(
+                            context,
+                            "{p0} · 设置允许查看的健康项目",
+                            parameters: [member['mobile']],
+                          )
+                        : uiCopy(
+                            context,
+                            "邀请人账号 ID：{p0} · 设置允许查看的健康项目",
+                            parameters: [member['member_id']],
+                          ),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
@@ -114,22 +124,22 @@ class CareShareSettingsPage extends StatefulWidget {
 }
 
 class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
-  static const _dailyKeys = <String, String>{
-    'steps': '步数',
-    'reliang': '卡路里',
-    'juli': '距离',
-    'sleep': '总睡眠',
+  Map<String, String> get _dailyKeys => <String, String>{
+    'steps': uiCopy(context, "步数"),
+    'reliang': uiCopy(context, "卡路里"),
+    'juli': uiCopy(context, "距离"),
+    'sleep': uiCopy(context, "总睡眠"),
   };
-  static const _healthKeys = <String, String>{
-    'bloodPressure': '血压',
-    'bloodGlucose': '血糖',
-    'bloodOxygen': '血氧',
-    'bodyTemperature': '体温',
-    'ecg': '心电图',
-    'heartReat': '心率',
+  Map<String, String> get _healthKeys => <String, String>{
+    'bloodPressure': uiCopy(context, "血压"),
+    'bloodGlucose': uiCopy(context, "血糖"),
+    'bloodOxygen': uiCopy(context, "血氧"),
+    'bodyTemperature': uiCopy(context, "体温"),
+    'ecg': uiCopy(context, "心电图"),
+    'heartReat': uiCopy(context, "心率"),
     'HRV': 'HRV',
-    'bodycomposition': '身体成分',
-    'bloodcomposition': '血液成分',
+    'bodycomposition': uiCopy(context, "身体成分"),
+    'bloodcomposition': uiCopy(context, "血液成分"),
   };
 
   Set<String> _enabled = const {};
@@ -193,7 +203,7 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
     } catch (_) {
       if (!_isCurrentRequest(generation)) return;
       setState(() {
-        _error = '共享设置读取失败，请重新读取';
+        _error = uiCopy(context, "共享设置读取失败，请重新读取");
         _loading = false;
       });
     }
@@ -219,26 +229,26 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
     if (!mounted || !_isCurrentRequest(generation)) return;
     setState(() {
       _saving = false;
-      _error = succeeded ? null : '保存未确认，请重新读取后重试';
+      _error = succeeded ? null : uiCopy(context, "保存未确认，请重新读取后重试");
     });
     if (succeeded) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('共享设置已保存')));
+      ).showSnackBar(SnackBar(content: Text(uiCopy(context, "共享设置已保存"))));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final name =
-        '${widget.member['nickname'] ?? widget.member['mobile'] ?? '关爱成员'}';
+        '${widget.member['nickname'] ?? widget.member['mobile'] ?? uiCopy(context, "关爱成员")}';
     return Scaffold(
-      appBar: AppBar(title: const Text('共享数据管理')),
+      appBar: AppBar(title: Text(uiCopy(context, "共享数据管理"))),
       body: !_sessionCurrent
-          ? const Padding(
+          ? Padding(
               padding: EdgeInsets.all(16),
               child: FeatureStateCard(
-                message: '账号已变化，请返回后重新查看',
+                message: uiCopy(context, "账号已变化，请返回后重新查看"),
                 icon: Icons.person_outline,
               ),
             )
@@ -249,7 +259,7 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
               children: [
                 FeatureStateCard(
                   message: name,
-                  detail: '仅共享已开启的项目，更改后请保存',
+                  detail: uiCopy(context, "仅共享已开启的项目，更改后请保存"),
                   icon: Icons.privacy_tip_outlined,
                   color: SaydianColors.green,
                 ),
@@ -261,9 +271,9 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
                   ),
                 ],
                 const SizedBox(height: 14),
-                _permissionGroup('每日数据', _dailyKeys),
+                _permissionGroup(uiCopy(context, "每日数据"), _dailyKeys),
                 const SizedBox(height: 12),
-                _permissionGroup('健康数据', _healthKeys),
+                _permissionGroup(uiCopy(context, "健康数据"), _healthKeys),
                 const SizedBox(height: 18),
                 FilledButton.icon(
                   onPressed: _canEdit ? _save : null,
@@ -273,13 +283,17 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.save_outlined),
-                  label: Text(_saving ? '保存中' : '保存共享设置'),
+                  label: Text(
+                    _saving
+                        ? uiCopy(context, "保存中")
+                        : uiCopy(context, "保存共享设置"),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
                   onPressed: _saving ? null : _load,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('重新读取共享设置'),
+                  label: Text(uiCopy(context, "重新读取共享设置")),
                 ),
               ],
             ),
@@ -300,7 +314,9 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
               onPressed: _canEdit
                   ? () => _setGroup(values.keys, !allEnabled)
                   : null,
-              child: Text(allEnabled ? '全部关闭' : '全选'),
+              child: Text(
+                allEnabled ? uiCopy(context, "全部关闭") : uiCopy(context, "全选"),
+              ),
             ),
           ),
           for (final entry in values.entries) ...[
@@ -354,7 +370,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
       return GlobalCarePage(controller: widget.controller);
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('关爱邀请')),
+      appBar: AppBar(title: Text(uiCopy(context, "关爱邀请"))),
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
@@ -380,13 +396,13 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                 children: [
                   FeatureStateCard(
                     message: targeted != null
-                        ? '该关爱邀请已处理'
+                        ? uiCopy(context, "该关爱邀请已处理")
                         : targetId != null &&
                               widget.controller.careInvitationStatus != '加载中'
-                        ? '该关爱邀请已处理或撤销'
+                        ? uiCopy(context, "该关爱邀请已处理或撤销")
                         : widget.controller.careInvitationStatus == '服务暂不可用'
-                        ? '关爱邀请服务暂不可用'
-                        : '暂无新的关爱邀请',
+                        ? uiCopy(context, "关爱邀请服务暂不可用")
+                        : uiCopy(context, "暂无新的关爱邀请"),
                     icon: Icons.mark_email_unread_outlined,
                   ),
                 ],
@@ -434,7 +450,9 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    nickname.isEmpty ? 'Say Ring 用户' : nickname,
+                                    nickname.isEmpty
+                                        ? uiCopy(context, "Say Ring 用户")
+                                        : nickname,
                                     style: const TextStyle(
                                       fontSize: 17,
                                       fontWeight: FontWeight.w800,
@@ -445,8 +463,12 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                                     mobile.isNotEmpty
                                         ? mobile
                                         : inviterId.isNotEmpty
-                                        ? '邀请人账号 ID：$inviterId'
-                                        : '邀请人信息暂不可用',
+                                        ? uiCopy(
+                                            context,
+                                            "邀请人账号 ID：{p0}",
+                                            parameters: [inviterId],
+                                          )
+                                        : uiCopy(context, "邀请人信息暂不可用"),
                                     style: const TextStyle(
                                       color: SaydianColors.muted,
                                       fontSize: 14,
@@ -459,8 +481,8 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                         ),
                         if (nickname.isEmpty && mobile.isEmpty) ...[
                           const SizedBox(height: 8),
-                          const Text(
-                            '请确认邀请人后再接受',
+                          Text(
+                            uiCopy(context, "请确认邀请人后再接受"),
                             style: TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 12,
@@ -474,14 +496,14 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                             Expanded(
                               child: OutlinedButton(
                                 onPressed: () => _respond(invite, false),
-                                child: const Text('拒绝'),
+                                child: Text(uiCopy(context, "拒绝")),
                               ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: FilledButton(
                                 onPressed: () => _respond(invite, true),
-                                child: const Text('同意'),
+                                child: Text(uiCopy(context, "同意")),
                               ),
                             ),
                           ],
