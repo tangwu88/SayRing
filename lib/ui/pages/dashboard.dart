@@ -1568,7 +1568,11 @@ class HealthMetricCard extends StatelessWidget {
             _HomeMetricStatus.low => context.l10n.statusLow,
             _HomeMetricStatus.high => context.l10n.statusHigh,
           };
-    // 迷你图只显示今天。旧记录仍显示真实日期，但无需为不存在的今日曲线留白。
+    // Use the same slots for today's, older and absent readings. Loading or
+    // receiving a reading must not resize a row underneath a scrolling finger.
+    // Only today's genuine samples are charted; reserved space is not data.
+    final textScale = MediaQuery.textScalerOf(context);
+    final chartHeight = 44.0 + 6 + (textScale.scale(13) * 1.5).ceil();
     final hasToday =
         record != null &&
         DateUtils.isSameDay(
@@ -1577,7 +1581,7 @@ class HealthMetricCard extends StatelessWidget {
         );
     return ConstrainedBox(
       key: ValueKey('health-metric-${metric.name}'),
-      constraints: BoxConstraints(minHeight: hasToday ? 170 : 120),
+      constraints: const BoxConstraints(minHeight: 170),
       child: DecoratedBox(
         key: ValueKey('health-metric-surface-${metric.name}'),
         decoration: BoxDecoration(
@@ -1612,8 +1616,8 @@ class HealthMetricCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 26),
+                  SizedBox(
+                    height: math.max(26, textScale.scale(15) * 1.3 * 2),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1622,8 +1626,11 @@ class HealthMetricCard extends StatelessWidget {
                         Expanded(
                           child: Text(
                             context.l10n.metricName(metric),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 15,
+                              height: 1.3,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -1638,65 +1645,88 @@ class HealthMetricCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.end,
-                    spacing: 5,
-                    children: [
-                      Text(
-                        _healthDisplayValue(record, controller),
-                        style: const TextStyle(
-                          fontSize: 32,
-                          height: 1.15,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -.8,
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 3),
-                        child: Text(
-                          _healthDisplayUnit(metric, record, controller),
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: SaydianColors.muted,
+                  SizedBox(
+                    height: textScale.scale(32) * 1.15,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            _healthDisplayValue(record, controller),
+                            style: const TextStyle(
+                              fontSize: 32,
+                              height: 1.15,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -.8,
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 5),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 3),
+                            child: Text(
+                              _healthDisplayUnit(metric, record, controller),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                color: SaydianColors.muted,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    statusLabel,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: needsAttention
-                          ? SaydianColors.danger
-                          : SaydianColors.muted,
+                  SizedBox(
+                    height: textScale.scale(14) * 1.3,
+                    child: Text(
+                      statusLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.3,
+                        color: needsAttention
+                            ? SaydianColors.danger
+                            : SaydianColors.muted,
+                      ),
                     ),
                   ),
-                  if (hasToday) ...[
-                    const SizedBox(height: 12),
-                    HealthMetricMiniChart(
-                      controller: controller,
-                      metric: metric,
-                      color: style.accent,
-                      showEmptyLabel: false,
-                      height: 44,
-                      fitToSamples: true,
-                      records: readOnly ? records ?? const [] : records,
-                    ),
-                  ],
-                  if (record != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      DateFormat(
-                        uiCopy(context, "M月d日 HH:mm"),
-                      ).format(record!.measuredAt.toLocal()),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: chartHeight,
+                    child: hasToday
+                        ? HealthMetricMiniChart(
+                            controller: controller,
+                            metric: metric,
+                            color: style.accent,
+                            showEmptyLabel: false,
+                            height: 44,
+                            fitToSamples: true,
+                            records: readOnly ? records ?? const [] : records,
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    height: textScale.scale(14) * 1.3,
+                    child: Text(
+                      record == null
+                          ? ''
+                          : DateFormat(
+                              uiCopy(context, "M月d日 HH:mm"),
+                            ).format(record!.measuredAt.toLocal()),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 14,
+                        height: 1.3,
                         color: SaydianColors.muted,
                       ),
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),

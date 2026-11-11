@@ -308,7 +308,7 @@ void main() {
     },
   );
   testWidgets(
-    'old measurements show their timestamp without a blank today chart',
+    'old measurements retain their timestamp without fabricating a today chart',
     (tester) async {
       final c = _Controller(MemoryHealthStore());
       final at = _today().subtract(const Duration(days: 2));
@@ -332,6 +332,112 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final width in [332.0, 364.0]) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets(
+        'mixed health cards align and stay stable when data arrives at $width/$scale',
+        (tester) async {
+          final c = _Controller(MemoryHealthStore());
+          const metrics = [
+            HealthMetric.heartRate,
+            HealthMetric.bloodOxygen,
+            HealthMetric.hrv,
+            HealthMetric.bodyTemperature,
+          ];
+          c.capabilities = const DeviceCapabilities(metrics: {...metrics});
+          final today = _today();
+          final old = today.subtract(const Duration(days: 2));
+          final readings = <HealthMetric, HealthRecord>{
+            HealthMetric.heartRate: _record(
+              'today',
+              metrics[0],
+              74,
+              today.add(const Duration(minutes: 10)),
+            ),
+            HealthMetric.hrv: _record('old', metrics[2], 79, old),
+          };
+          await _mount(
+            tester,
+            c,
+            width: width,
+            textScale: scale,
+            page: Scaffold(
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: ListenableBuilder(
+                  listenable: c,
+                  builder: (context, _) {
+                    final columns = scale == 1 ? 2 : 1;
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        for (final metric in metrics)
+                          SizedBox(
+                            width: (width - 32 - (columns - 1) * 12) / columns,
+                            child: HealthMetricCard(
+                              controller: c,
+                              metric: metric,
+                              record: readings[metric],
+                              records: [
+                                if (metric == HealthMetric.heartRate)
+                                  _record('earlier', metric, 72, today),
+                                ?readings[metric],
+                              ],
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final cards = [
+            for (final metric in metrics)
+              find.byKey(ValueKey('health-metric-${metric.name}')),
+          ];
+          final original = [for (final card in cards) tester.getRect(card)];
+          for (final rect in original) {
+            expect(rect.height, closeTo(original.first.height, .01));
+          }
+          // No fake graph or date is shown for an absent/older reading.
+          expect(find.byType(HealthMetricMiniChart), findsOneWidget);
+          expect(find.byType(LineChart), findsOneWidget);
+          for (final card in cards.skip(1)) {
+            expect(
+              find.descendant(of: card, matching: find.byType(LineChart)),
+              findsNothing,
+            );
+          }
+          expect(find.text('--'), findsNWidgets(2));
+          expect(
+            find.textContaining('${old.month}月${old.day}日'),
+            findsOneWidget,
+          );
+          if (scale == 1) {
+            expect(original[0].top, original[1].top);
+            expect(original[2].top, original[3].top);
+          }
+          readings[HealthMetric.bloodOxygen] = _record(
+            'new-oxygen',
+            HealthMetric.bloodOxygen,
+            98,
+            today,
+          );
+          c.announceChange();
+          await tester.pumpAndSettle();
+          expect(find.text('98'), findsOneWidget);
+          for (var i = 0; i < cards.length; i++) {
+            expect(tester.getRect(cards[i]), original[i]);
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
 
   for (final (unit, provenance) in [
     for (final unit in ['kcal', 'unknown'])

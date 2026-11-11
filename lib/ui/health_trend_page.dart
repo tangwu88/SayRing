@@ -259,25 +259,37 @@ class _HealthMetricMiniChartState extends State<HealthMetricMiniChart> {
                       Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              firstLabel,
-                              key: const Key('health-mini-first-time'),
-                              style: const TextStyle(
-                                color: SaydianColors.muted,
-                                fontSize: 13,
-                                height: 1.5,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                firstLabel,
+                                key: const Key('health-mini-first-time'),
+                                maxLines: 1,
+                                softWrap: false,
+                                style: const TextStyle(
+                                  color: SaydianColors.muted,
+                                  fontSize: 13,
+                                  height: 1.5,
+                                ),
                               ),
                             ),
                           ),
                           Expanded(
-                            child: Text(
-                              lastLabel,
-                              key: const Key('health-mini-last-time'),
-                              textAlign: TextAlign.end,
-                              style: const TextStyle(
-                                color: SaydianColors.muted,
-                                fontSize: 13,
-                                height: 1.5,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                lastLabel,
+                                key: const Key('health-mini-last-time'),
+                                textAlign: TextAlign.end,
+                                maxLines: 1,
+                                softWrap: false,
+                                style: const TextStyle(
+                                  color: SaydianColors.muted,
+                                  fontSize: 13,
+                                  height: 1.5,
+                                ),
                               ),
                             ),
                           ),
