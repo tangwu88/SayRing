@@ -37,8 +37,28 @@
 - iOS 命令采用 `flutter build ios --no-pub --debug/--profile --config-only --target=lib/main.dart --build-name=1.0.14 --build-number=1300` 和原生产参数；随后 `xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Debug/Profile -sdk iphoneos -destination generic/platform=iOS -jobs 4 build`。本机 SDK 27.2 使用显式部署目标 15.0，没有改仓库默认最低版本；不宣称默认旧系统目标已验收。配置阶段仅停止超时的本进程可选属性清理子进程，不能宣称全部属性未改。
 - 共享代码 Android Debug/Release 构建均通过：`flutter build apk --debug/--release --no-pub --target=lib/main.dart --build-name=1.0.14 --build-number=1300 --target-platform=android-arm,android-arm64`，沿用原生产参数。`./gradlew --offline :app:testDebugUnitTest --no-daemon --max-workers=2`：134项，0失败/错误/跳过。
 - Android Release 原发行签名、包名/版本、双ARM、清单与ZIP 16KB对齐检查通过，SHA-256 `dd7a1906a71983f08a9d79b37156378b7eb0db86a845c68c29e0eadabc3b722e`。既有供应商32位ELF对齐限制没有变化，ZIP门禁不代表市场验收。临时签名配置已移除，未安装或发布安卓包。
-- 两端构建期间运行源码内容均保持一致。Release 归档、实际上传和内部组结果将在完成后追加；未完成不得按计划记为通过。
+- 两端构建期间运行源码内容均保持一致。Release 归档、实际上传和内部组结果见下方独立记录；真机新测量与无线稳定性仍列为待验收。
 - 忽略目录 `build/ios-audit-1300-20261111/` 保存日志、构建和私有辅助脚本；公开 Git 不包含签名私钥、密码、设备地址、会员信息或真实健康值。
+
+## 归档与上传
+
+- 修复源码提交 `d34913ee2f63e903cfb320eea883791c615c2edb` 已推送并 fetch 核对；本节之后仅追加交付记录，不修改运行代码。
+- 正常 Release 的 1.0.14（1300）归档成功；包名 `cn.saydian.ring`、团队 `W7SXQ4A226`、arm64、AOT 和深度签名均已核对。Xcode Organizer 明确选中今天 14:45 的正确归档，经原团队账号完成发行签名和上传。
+- Xcode 返回 `Uploaded to Apple`。15 个既有供应商框架缺少 dSYM 的警告未阻止上传，对应框架的崩溃符号化受限；没有凭此宣称供应商 SDK 已无缺陷。
+- 实际上传 IPA 为 39,420,418 字节，SHA-256 `6f7a789547ecbcf383932f5ed8a21d75943a79b383fe86b76de3eb1a9f262b8b`。原 Apple Distribution 签名、商店描述文件、生产推送、禁止调试、无 Debug 内核核验通过；Runner 与 App.framework 的 UUID 分别与归档一致。
+- Apple 上传列表在北京时间 14:51 显示 1.0.14（1300）正在处理，之后完成处理；最终内部组结果见下节。上传成功、内部可测试和实际手机更新分别记录。
+- 上传后只读核对：正式分发仍是 1.0.13（1296）「可分发」，手动发布选项仍选中；174 个地区可供应，法国未供应。没有修改正式版本、地区或发布方式。
+- 归档、实际 IPA、验证 JSON 和截图只保存在忽略的本机目录。浏览器两次控件等待早于页面加载/名称匹配而超时，随后读取实际页面继续；没有因此重复上传或改动其他应用。
+
+## 内部测试交付
+
+- 2026-11-11 北京时间 15:03，App Store Connect 的既有「Say Ring 真机验证」内部组明确显示 1.0.14（1300）「正在测试」，90 天后过期；组内仍为原有 4 名测试员，构建数由 20 增至 21，没有增加成员或分配到外部组。
+- 本构建 ID：`96d5ee48-9a89-42d3-867a-c2b67b13089c`；[内部组构建列表](https://appstoreconnect.apple.com/teams/69a6de89-863e-47e3-e053-5b8c7c11a4d1/apps/6816549943/testflight/groups/d46bbf49-2fc9-44f6-a313-b018f88b37dc/builds)。已有权限且已接受邀请的成员可在 TestFlight 更新，本轮未代为安装到成员手机。
+- 根据当前依赖和已核对地区，完成本构建出口合规：与操作系统加密同时使用的标准算法，法国不分发。没有修改现有销售地区或将 SQLCipher 误填为仅操作系统加密；也没有接受新法律协议。
+- 简体中文和美国英文测试说明均已保存并在刷新后读回：说明三项修复、继承的血压历史补读，以及新结果/云端读回/持续连接的实物待验边界。Apple 去掉文末换行，正文一致。没有改动全局审核账号或资料。
+- 合规选择后页面重新生成控件，旧保存索引出现一次 detached 错误；已重新读取实际表单后保存，没有重复操作其他版本。
+- 截图保存在 `build/ios-audit-1300-20261111/testflight-internal-1300.png`；正式分发仍保留前述 1.0.13（1296）及手动发布状态，本轮未提交正式审核或改动商店版本。
+- 源码提交仍为 `d34913ee2f63e903cfb320eea883791c615c2edb`；此次交付补录只改文档，没有重新编译或变更已上传二进制。
 
 ## 仍需真机验收
 
