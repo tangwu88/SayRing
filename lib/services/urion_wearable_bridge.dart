@@ -79,6 +79,7 @@ class UrionWearableBridge
   DateTime? _bloodPressureVerifiedSince;
   final Map<String, HealthRecord> _confirmedBloodPressureRecords = {};
   final Set<String> _knownBloodPressureFingerprints = {};
+  final Map<String, DateTime> _bloodPressureFirstSeenAt = {};
   DateTime? _bloodPressureHistoryCheckedAt;
   DateTime? _watchBloodPressureNoticeAt;
   bool _findSupported = true;
@@ -279,6 +280,7 @@ class UrionWearableBridge
     _bloodPressureVerifiedSince = null;
     _confirmedBloodPressureRecords.clear();
     _knownBloodPressureFingerprints.clear();
+    _bloodPressureFirstSeenAt.clear();
     _bloodPressureHistoryCheckedAt = null;
     _watchBloodPressureNoticeAt = null;
     _findSupported = true;
@@ -378,6 +380,13 @@ class UrionWearableBridge
   }
 
   Future<void> _sendWatchTime(String language) async {
+    // 明确校时后旧时间依据不再适用。已保存记录和已见指纹保留，
+    // 后续同步重新建立观察窗口，不能把旧记录的时间改成今天。
+    _bloodPressureTimeEncoding = null;
+    _bloodPressureVerifiedSince = null;
+    _bloodPressureHistoryCheckedAt = null;
+    _watchBloodPressureNoticeAt = null;
+    _bloodPressureFirstSeenAt.clear();
     final now = _now();
     final response = (await _exchange(0x01, [
       eb1EncodeBcd(now.year % 100),
@@ -813,6 +822,38 @@ class UrionWearableBridge
             watchNoticeCandidates[sample.fingerprint] = (sample, proof);
           }
         }
+        // 通知可能排在一次历史回包之后。只补核对上一轮刚出现、尚未
+        // 导入的记录；重复通知不能重新解释更早的基线或已确认结果。
+        final noticeAlreadyMatched = samples.any(
+          (sample) =>
+              _confirmedBloodPressureRecords.containsKey(sample.fingerprint) &&
+              eb1MatchMeasurementTimestamp(
+                    sample.rawTimestamp,
+                    startedAt: noticeAt.subtract(const Duration(minutes: 5)),
+                    endedAt: noticeAt,
+                  ) !=
+                  null,
+        );
+        if (watchNoticeCandidates.isEmpty && !noticeAlreadyMatched) {
+          for (final sample in samples) {
+            final firstSeen = _bloodPressureFirstSeenAt[sample.fingerprint];
+            if (firstSeen == null ||
+                firstSeen != previousCheck ||
+                _confirmedBloodPressureRecords.containsKey(
+                  sample.fingerprint,
+                )) {
+              continue;
+            }
+            final proof = eb1MatchMeasurementTimestamp(
+              sample.rawTimestamp,
+              startedAt: noticeAt.subtract(const Duration(minutes: 5)),
+              endedAt: firstSeen.isBefore(noticeAt) ? firstSeen : noticeAt,
+            );
+            if (proof != null) {
+              watchNoticeCandidates[sample.fingerprint] = (sample, proof);
+            }
+          }
+        }
       }
       if (watchNoticeCandidates.length == 1) {
         final (sample, proof) = watchNoticeCandidates.values.single;
@@ -830,21 +871,47 @@ class UrionWearableBridge
             sample.fingerprint == watchNoticeCandidates.keys.single) {
           continue;
         }
-        final encoding = _bloodPressureTimeEncoding;
-        if (encoding == null || previousCheck == null) continue;
-        final measuredAt = eb1DecodeTimestamp(sample.rawTimestamp, encoding);
-        final lowerBound = previousCheck.subtract(const Duration(minutes: 2));
-        if (measuredAt.isBefore(lowerBound) || measuredAt.isAfter(now)) {
+        if (previousCheck == null) continue;
+        // 历史同步不要求收到实时测完通知。上一轮快照之后新增的样本，
+        // 若设备时间只有一种解释落在两次读取之间，就已有独立的时间依据。
+        // 这是 watchHistory，不发送手动测量完成事件，也不触发新读数提醒。
+        final incrementalProof = eb1MatchMeasurementTimestamp(
+          sample.rawTimestamp,
+          startedAt: previousCheck,
+          endedAt: now,
+        );
+        if (incrementalProof != null) {
+          _bloodPressureTimeEncoding ??= incrementalProof.encoding;
+          _bloodPressureVerifiedSince ??= previousCheck;
+          final record = _bloodPressureRecord(
+            sample,
+            incrementalProof.measuredAt,
+          );
+          result.add(record);
+          _confirmedBloodPressureRecords[sample.fingerprint] = record;
           continue;
         }
-        result.add(
-          _confirmedBloodPressureRecords[sample.fingerprint] ??
-              _bloodPressureRecord(sample, measuredAt),
-        );
+        final encoding = _bloodPressureTimeEncoding;
+        final verifiedSince = _bloodPressureVerifiedSince;
+        if (encoding == null || verifiedSince == null) continue;
+        final measuredAt = eb1DecodeTimestamp(sample.rawTimestamp, encoding);
+        final lowerBound = previousCheck.subtract(const Duration(minutes: 2));
+        if (measuredAt.isBefore(lowerBound) ||
+            measuredAt.isBefore(verifiedSince) ||
+            measuredAt.isAfter(now)) {
+          continue;
+        }
+        final record = _bloodPressureRecord(sample, measuredAt);
+        result.add(record);
+        _confirmedBloodPressureRecords[sample.fingerprint] = record;
       }
-      // A history snapshot is authoritative for stable sample IDs. Cache every
-      // visible fingerprint, including ambiguous/old samples, so later polls
-      // cannot reinterpret them as new measurements.
+      // “已看到”与“已导入”分开：保留基线防止旧值变成本次新测量，
+      // 同时保留最近一次出现时间，允许迟到通知补证，不永久丢掉刚读到的样本。
+      final visible = samples.map((sample) => sample.fingerprint).toSet();
+      _bloodPressureFirstSeenAt.removeWhere((key, _) => !visible.contains(key));
+      for (final fingerprint in visible) {
+        _bloodPressureFirstSeenAt.putIfAbsent(fingerprint, () => now);
+      }
       _knownBloodPressureFingerprints.addAll(
         samples.map((sample) => sample.fingerprint),
       );

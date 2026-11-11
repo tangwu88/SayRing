@@ -271,6 +271,167 @@ void main() {
     },
   );
 
+  for (final localClock in [false, true]) {
+    test(
+      'watch BP after a sync imports without a notice (local=$localClock)',
+      () async {
+        await watch.connectAndReadCapabilities();
+        await watch.bridge.writeDeviceFeature(DeviceFeature.basicSettings, {
+          'syncTime': 'zh',
+        });
+        final old = _bp(watch.now.subtract(const Duration(days: 3)));
+        watch.history = [old];
+        await watch.bridge.syncHealthData();
+        watch.writes.clear();
+        watch.now = watch.now.add(const Duration(minutes: 3));
+        final measuredAt = watch.now.subtract(const Duration(seconds: 30));
+        final local = measuredAt.toLocal();
+        final encoded = localClock
+            ? DateTime.utc(
+                local.year,
+                local.month,
+                local.day,
+                local.hour,
+                local.minute,
+                local.second,
+              )
+            : measuredAt;
+        watch.history = [_bp(encoded, systolic: 127), old];
+        final records = await watch.bridge.syncHealthData();
+        final bp = records.singleWhere(
+          (r) => r.metric == HealthMetric.bloodPressure,
+        );
+        expect(bp.values, {'systolic': 127, 'diastolic': 80, 'pulse': 65});
+        expect(bp.measuredAt, measuredAt);
+        expect(bp.origin, MeasurementOrigin.watchHistory);
+        expect(
+          watch.records,
+          isEmpty,
+          reason: 'History is not a new measurement event',
+        );
+        expect(watch.writes.map((w) => w.$2.command).toSet(), {
+          0x07,
+          0x14,
+          0x15,
+          0x2d,
+        });
+        expect(watch.autoMonitorState, 2);
+        expect(watch.schedule, [0, 8, 60, 60]);
+        expect(
+          (await watch.bridge.syncHealthData()).where(
+            (r) => r.metric == HealthMetric.bloodPressure,
+          ),
+          isEmpty,
+        );
+      },
+    );
+  }
+
+  test(
+    'a delayed watch notice can recover the most recently observed BP',
+    () async {
+      await watch.connectAndReadCapabilities();
+      final measuredAt = watch.now.subtract(const Duration(seconds: 20));
+      watch.history = [_bp(measuredAt, systolic: 129)];
+      expect(
+        (await watch.bridge.syncHealthData()).where(
+          (r) => r.metric == HealthMetric.bloodPressure,
+        ),
+        isEmpty,
+      );
+      watch.now = watch.now.add(const Duration(seconds: 2));
+      await watch.emit(Eb1Frame.request(0x73, [2]));
+      final records = await watch.bridge.syncHealthData();
+      final bp = records.singleWhere(
+        (r) => r.metric == HealthMetric.bloodPressure,
+      );
+      expect(bp.measuredAt, measuredAt);
+      expect(bp.values['systolic'], 129);
+      expect(bp.origin, MeasurementOrigin.watchHistory);
+    },
+  );
+
+  test(
+    'missed notices do not discard multiple uniquely timed new history samples',
+    () async {
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.syncHealthData();
+      final first = watch.now.add(const Duration(seconds: 40));
+      final second = watch.now.add(const Duration(seconds: 100));
+      watch.now = watch.now.add(const Duration(minutes: 2));
+      watch.history = [_bp(second, systolic: 126), _bp(first, systolic: 124)];
+      final bp = (await watch.bridge.syncHealthData())
+          .where((r) => r.metric == HealthMetric.bloodPressure)
+          .toList();
+      expect(bp.map((r) => r.measuredAt), [second, first]);
+      expect(
+        bp.every((r) => r.origin == MeasurementOrigin.watchHistory),
+        isTrue,
+      );
+      expect(watch.records, isEmpty);
+    },
+  );
+
+  test(
+    'unproven, old and future BP timestamps remain out of history imports',
+    () async {
+      await watch.connectAndReadCapabilities();
+      watch.history = [_bp(watch.now.subtract(const Duration(days: 3)))];
+      await watch.bridge.syncHealthData();
+      watch.now = watch.now.add(const Duration(minutes: 2));
+      watch.history = [
+        _bp(watch.now.add(const Duration(days: 2))),
+        _bp(watch.now.subtract(const Duration(days: 2))),
+        ...watch.history,
+      ];
+      expect(
+        (await watch.bridge.syncHealthData()).where(
+          (r) => r.metric == HealthMetric.bloodPressure,
+        ),
+        isEmpty,
+      );
+      await watch.bridge.disconnect();
+      await watch.connectAndReadCapabilities();
+      watch.history = [_bp(watch.now.subtract(const Duration(seconds: 20)))];
+      expect(
+        (await watch.bridge.syncHealthData()).where(
+          (r) => r.metric == HealthMetric.bloodPressure,
+        ),
+        isEmpty,
+        reason: 'An earlier connection must not supply a new clock proof',
+      );
+    },
+  );
+
+  test(
+    'explicit clock changes retire the previous BP observation window',
+    () async {
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.syncHealthData();
+      watch.now = watch.now.add(const Duration(minutes: 1));
+      final beforeClockChange = _bp(watch.now, systolic: 126);
+      await watch.bridge.writeDeviceFeature(DeviceFeature.basicSettings, {
+        'syncTime': 'zh',
+      });
+      watch.history = [beforeClockChange];
+      expect(
+        (await watch.bridge.syncHealthData()).where(
+          (record) => record.metric == HealthMetric.bloodPressure,
+        ),
+        isEmpty,
+        reason: 'A clock change must not reinterpret existing samples',
+      );
+      watch.now = watch.now.add(const Duration(minutes: 1));
+      watch.history = [_bp(watch.now, systolic: 128), beforeClockChange];
+      final bp = (await watch.bridge.syncHealthData()).singleWhere(
+        (record) => record.metric == HealthMetric.bloodPressure,
+      );
+      expect(bp.values['systolic'], 128);
+      expect(bp.measuredAt, watch.now);
+      expect(bp.origin, MeasurementOrigin.watchHistory);
+    },
+  );
+
   test(
     'BP empty primary history falls back to the documented reverse query',
     () async {
