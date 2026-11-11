@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/wearable_sync_result.dart';
+import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/urion_eb1_protocol.dart';
 import 'package:saydian_app/services/urion_wearable_bridge.dart';
 
@@ -429,6 +431,273 @@ void main() {
       expect(bp.values['systolic'], 128);
       expect(bp.measuredAt, watch.now);
       expect(bp.origin, MeasurementOrigin.watchHistory);
+    },
+  );
+
+  for (final localClock in [false, true]) {
+    test(
+      'completed BP remains recoverable after UI timeout and an empty sync (local=$localClock)',
+      () async {
+        await watch.dispose();
+        watch = _Watch(
+          completedResultTimeout: const Duration(milliseconds: 20),
+        );
+        await watch.connectAndReadCapabilities();
+        await watch.bridge.syncHealthData();
+        watch.now = watch.now.add(const Duration(minutes: 1));
+        await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+        watch.now = watch.now.add(const Duration(seconds: 40));
+        final measuredAt = watch.now;
+        await watch.emit(Eb1Frame.request(0x33));
+        await Future<void>.delayed(const Duration(milliseconds: 35));
+        expect(watch.events.where((e) => e.type == 'error'), hasLength(1));
+        watch.now = watch.now.add(const Duration(minutes: 1));
+        final waiting = await watch.bridge.syncHealthData();
+
+        final local = measuredAt.toLocal();
+        final encoded = localClock
+            ? DateTime.utc(
+                local.year,
+                local.month,
+                local.day,
+                local.hour,
+                local.minute,
+                local.second,
+              )
+            : measuredAt;
+        watch.history = [_bp(encoded, systolic: 128)];
+        watch.now = watch.now.add(const Duration(seconds: 20));
+        final recovered = await watch.bridge.syncHealthData();
+        final bp = recovered.singleWhere(
+          (r) => r.metric == HealthMetric.bloodPressure,
+        );
+        expect(waiting, isA<WearableSyncResult>());
+        expect((waiting as WearableSyncResult).complete, isFalse);
+        expect(
+          waiting.statuses[HealthMetric.bloodPressure.wireName],
+          'partial',
+        );
+        expect(bp.values, {'systolic': 128, 'diastolic': 80, 'pulse': 65});
+        expect(bp.measuredAt, measuredAt);
+        expect(bp.origin, MeasurementOrigin.watchHistory);
+        expect((recovered as WearableSyncResult).complete, isTrue);
+        expect(
+          watch.records,
+          isEmpty,
+          reason: 'An expired manual session must not reopen',
+        );
+        expect(watch.writes.where((w) => w.$2.command == 0x32), hasLength(1));
+        expect(watch.autoMonitorState, 2);
+        expect(watch.schedule, [0, 8, 60, 60]);
+        await watch.bridge.acknowledgeHealthRecords(recovered.receipts);
+        final repeat = await watch.bridge.syncHealthData();
+        expect(
+          repeat.where((r) => r.metric == HealthMetric.bloodPressure),
+          isEmpty,
+        );
+        expect((repeat as WearableSyncResult).complete, isTrue);
+      },
+    );
+  }
+
+  test('unverified BP history is not reported as a complete sync', () async {
+    await watch.connectAndReadCapabilities();
+    watch.history = [_bp(watch.now.subtract(const Duration(days: 3)))];
+    final received = await watch.bridge.syncHealthData();
+    expect(
+      received.where((r) => r.metric == HealthMetric.bloodPressure),
+      isEmpty,
+    );
+    expect(received, isA<WearableSyncResult>());
+    expect(
+      (received as WearableSyncResult).statuses[HealthMetric
+          .bloodPressure
+          .wireName],
+      'partial',
+    );
+    expect(received.complete, isFalse);
+  });
+
+  test(
+    'recovered BP remains retryable until durable storage acknowledges it',
+    () async {
+      await watch.dispose();
+      watch = _Watch(completedResultTimeout: const Duration(milliseconds: 20));
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      watch.now = watch.now.add(const Duration(seconds: 40));
+      final sample = _bp(watch.now);
+      await watch.emit(Eb1Frame.request(0x33));
+      await _until(() => watch.events.any((event) => event.type == 'error'));
+      watch.now = watch.now.add(const Duration(minutes: 1));
+      await watch.bridge.syncHealthData();
+      watch.history = [sample];
+      final first = await watch.bridge.syncHealthData() as WearableSyncResult;
+      final retry = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(retry.map((r) => r.toJson()), first.map((r) => r.toJson()));
+      final WearableHealthReceiptBridge acknowledger = watch.bridge;
+      await acknowledger.acknowledgeHealthRecords({
+        first.single.id: 'wrong-session',
+      });
+      expect(await watch.bridge.syncHealthData(), hasLength(1));
+      await acknowledger.acknowledgeHealthRecords(first.receipts);
+      expect(await watch.bridge.syncHealthData(), isEmpty);
+      expect(watch.records, isEmpty);
+    },
+  );
+
+  test(
+    'watch completion with empty history remains partial until a result arrives',
+    () async {
+      await watch.connectAndReadCapabilities();
+      await watch.emit(Eb1Frame.request(0x33));
+      final missing = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(missing.complete, isFalse);
+      expect(missing.statuses[HealthMetric.bloodPressure.wireName], 'partial');
+      watch.history = [_bp(watch.now)];
+      final found = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(found.complete, isTrue);
+      expect(found.single.origin, MeasurementOrigin.watchHistory);
+      expect(watch.records, isEmpty);
+      expect(watch.writes.where((w) => w.$2.command == 0x32), isEmpty);
+    },
+  );
+
+  for (final change in ['disconnect', 'clock', 'revoked']) {
+    test('completed BP recovery cannot survive $change', () async {
+      await watch.dispose();
+      watch = _Watch(completedResultTimeout: const Duration(milliseconds: 20));
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      watch.now = watch.now.add(const Duration(seconds: 40));
+      final sample = _bp(watch.now);
+      await watch.emit(Eb1Frame.request(0x33));
+      await _until(() => watch.events.any((event) => event.type == 'error'));
+      if (change == 'disconnect') {
+        await watch.bridge.disconnect();
+        await watch.connectAndReadCapabilities();
+      } else if (change == 'clock') {
+        await watch.bridge.writeDeviceFeature(
+          DeviceFeature.basicSettings,
+          const {'syncTime': 'zh'},
+        );
+      } else {
+        await watch.bridge.configureU19HealthMetrics(
+          {},
+          {},
+          validity: Duration.zero,
+        );
+        await watch.bridge.getCapabilities();
+      }
+      watch.now = watch.now.add(const Duration(minutes: 1));
+      final empty = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(
+        empty.complete,
+        isTrue,
+        reason: 'The old connection proof was retired',
+      );
+      watch.history = [sample];
+      final after = await watch.bridge.syncHealthData();
+      expect(
+        after.where((r) => r.metric == HealthMetric.bloodPressure),
+        isEmpty,
+      );
+      expect(watch.records, isEmpty);
+    });
+  }
+
+  for (final scenario in ['baseline', 'old', 'future', 'multiple']) {
+    test('late BP recovery rejects $scenario samples', () async {
+      await watch.dispose();
+      watch = _Watch(completedResultTimeout: const Duration(milliseconds: 20));
+      await watch.connectAndReadCapabilities();
+      final started = watch.now;
+      final baseline = _bp(started.add(const Duration(seconds: 20)));
+      if (scenario == 'baseline') watch.history = [baseline];
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      watch.history = [];
+      watch.now = started.add(const Duration(seconds: 40));
+      final completed = watch.now;
+      await watch.emit(Eb1Frame.request(0x33));
+      await _until(() => watch.events.any((event) => event.type == 'error'));
+      watch.now = completed.add(const Duration(minutes: 2));
+      await watch.bridge.syncHealthData();
+      watch.history = switch (scenario) {
+        'baseline' => [baseline],
+        'old' => [_bp(started.subtract(const Duration(seconds: 1)))],
+        'future' => [_bp(watch.now.add(const Duration(days: 1)))],
+        _ => [_bp(completed), _bp(completed, systolic: 129)],
+      };
+      final result = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(
+        result.where((r) => r.metric == HealthMetric.bloodPressure),
+        isEmpty,
+      );
+      expect(result.complete, isFalse);
+      expect(result.statuses[HealthMetric.bloodPressure.wireName], 'partial');
+      expect(watch.records, isEmpty);
+      expect(watch.writes.where((w) => w.$2.command == 0x32), hasLength(1));
+    });
+  }
+
+  test(
+    'a repeated completion cannot expand an expired BP recovery window',
+    () async {
+      await watch.dispose();
+      watch = _Watch(completedResultTimeout: const Duration(milliseconds: 20));
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      watch.now = watch.now.add(const Duration(seconds: 40));
+      await watch.emit(Eb1Frame.request(0x33));
+      await _until(() => watch.events.any((event) => event.type == 'error'));
+      watch.now = watch.now.add(const Duration(minutes: 1));
+      await watch.bridge.syncHealthData();
+      watch.history = [_bp(watch.now, systolic: 131)];
+      await watch.emit(Eb1Frame.request(0x33));
+      final result = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(
+        result.complete,
+        isFalse,
+        reason:
+            'A different later reading cannot resolve the expired measurement',
+      );
+      expect(watch.events.where((e) => e.type == 'error'), hasLength(1));
+      expect(watch.records, isEmpty);
+      expect(watch.writes.where((w) => w.$2.command == 0x32), hasLength(1));
+    },
+  );
+
+  test(
+    'a later manual BP attempt retains earlier unresolved history',
+    () async {
+      await watch.dispose();
+      watch = _Watch(completedResultTimeout: const Duration(milliseconds: 20));
+      await watch.connectAndReadCapabilities();
+      final samples = <Eb1Frame>[];
+      for (var i = 0; i < 2; i++) {
+        await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+        watch.now = watch.now.add(const Duration(seconds: 40));
+        samples.add(_bp(watch.now, systolic: 125 + i));
+        await watch.emit(Eb1Frame.request(0x33));
+        await _until(
+          () => watch.events.where((e) => e.type == 'error').length == i + 1,
+        );
+        watch.now = watch.now.add(const Duration(minutes: 1));
+        await watch.bridge.syncHealthData();
+      }
+      watch.history = samples;
+      final result = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(
+        result.where((r) => r.metric == HealthMetric.bloodPressure),
+        hasLength(2),
+      );
+      expect(result.complete, isTrue);
+      expect(
+        result.map((r) => r.origin),
+        everyElement(MeasurementOrigin.watchHistory),
+      );
+      expect(watch.records, isEmpty);
+      expect(watch.writes.where((w) => w.$2.command == 0x32), hasLength(2));
     },
   );
 

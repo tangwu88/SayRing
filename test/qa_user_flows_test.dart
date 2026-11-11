@@ -824,6 +824,60 @@ void main() {
     );
   }
 
+  test(
+    'U19 partial history preserves and uploads verified records without claiming complete',
+    () async {
+      const device = DeviceInfo(id: 'urion:synthetic-watch', name: 'U19M');
+      final record = HealthRecord(
+        id: 'verified-bp',
+        metric: HealthMetric.bloodPressure,
+        values: const {'systolic': 128, 'diastolic': 80, 'pulse': 65},
+        unit: 'mmHg',
+        measuredAt: DateTime.now().toUtc(),
+        timezone: '+08:00',
+        deviceId: device.id,
+        firmwareVersion: 'test',
+        quality: 'valid',
+        source: MeasurementSource.wearable,
+        origin: MeasurementOrigin.watchHistory,
+        sourceVendor: 'urion',
+        sourceDeviceCategory: 'watch',
+        rawVersion: 1,
+      );
+      final api = _QaApi();
+      final store = MemoryHealthStore();
+      final wearable = _QaWearable(
+        scannedDevice: device,
+        syncRecords: WearableSyncResult(
+          [record],
+          const {'blood_pressure': 'partial'},
+        ),
+      );
+      final controller = _controller(
+        api: api,
+        wearable: wearable,
+        store: store,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      controller
+        ..session = _session
+        ..connectedDevice = device;
+      final result = await controller.syncDeviceData();
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(result, isFalse);
+      expect(controller.isDeviceHistorySyncing, isFalse);
+      expect(controller.errorMessage, contains('可稍后再次同步'));
+      expect((await store.recent()).single.values, record.values);
+      expect(api.uploaded.map((r) => r.id), contains(record.id));
+      expect(api.uploaded.single.measuredAt, record.measuredAt);
+      expect(api.uploaded.single.values, record.values);
+      expect(controller.measurementResult, isNull);
+    },
+  );
+
   for (final failure in [false, true]) {
     test(
       'native receipt waits for durable history write (failure=$failure)',
@@ -2266,6 +2320,7 @@ class _QaApi extends Fake
   _QaApi({this.uploadError});
 
   final ApiException? uploadError;
+  final List<HealthRecord> uploaded = [];
   (String, String)? lastLogin;
   (String, String)? lastRegistration;
   String? lastAiMessage;
@@ -2502,6 +2557,7 @@ class _QaApi extends Fake
   @override
   Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) async {
     if (uploadError case final error?) throw error;
+    uploaded.addAll(batch.records);
     return BatchUploadResult(
       acceptedIds: batch.records.map((record) => record.id).toSet(),
       rejected: const {},

@@ -4096,6 +4096,15 @@ class AppController extends ChangeNotifier {
           return false;
         }
       }
+      // U19 的某项结果仍待补读，不妨碍其余已核验记录按原规则上报。
+      // 只在本账号、本设备的记录持久化完成后排队；云端回执与设备
+      // “是否全部读完”保持独立，不能借上传成功覆盖本次部分同步状态。
+      if (connectedDevice?.sdkSource == WearableSdkSource.urion &&
+          receivedRecords is WearableSyncResult &&
+          !receivedRecords.complete &&
+          records.isNotEmpty) {
+        unawaited(synchronizeCloud());
+      }
       // History imports never create current physiological notifications.
       if (_sleepReadFailedDuringSync) {
         syncStatus = '已保留读到的记录，部分睡眠数据读取失败';
