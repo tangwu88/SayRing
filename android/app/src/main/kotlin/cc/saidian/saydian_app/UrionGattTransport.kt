@@ -362,11 +362,12 @@ internal class UrionGattTransport(private val context: Context) {
         ) = onInfoRead(connection, characteristic.uuid, value, status)
 
         private fun onInfoRead(connection: BluetoothGatt, uuid: UUID, bytes: ByteArray, status: Int) {
+            val snapshot = bytes.copyOf()
             handler.post {
                 if (connection !== gatt) return@post
                 Log.d("U19GATT", "device-info status=$status")
                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    val text = bytes.toString(Charsets.UTF_8).trim('\u0000', ' ')
+                    val text = snapshot.toString(Charsets.UTF_8).trim('\u0000', ' ')
                     if (uuid == firmwareId) softwareVersion = text.take(64)
                     if (uuid == hardwareId) hardwareVersion = text.take(64)
                 }
@@ -385,10 +386,13 @@ internal class UrionGattTransport(private val context: Context) {
         }
 
         private fun deliver(connection: BluetoothGatt, uuid: UUID, bytes: ByteArray) {
+            // 通知跨线程排队前固定原始字节，避免连续血压包共用可变缓冲区。
+            // 仍在投递时核对 GATT 实例，旧连接的迟到结果不能进入新设备。
+            val snapshot = bytes.copyOf()
             handler.post {
                 if (connection !== gatt || uuid != notifyId) return@post
                 eventListener?.invoke(mapOf(
-                    "type" to "bytes", "bytes" to bytes,
+                    "type" to "bytes", "bytes" to snapshot,
                     "deviceId" to (nativeId ?: ""), "generation" to generation,
                 ))
             }

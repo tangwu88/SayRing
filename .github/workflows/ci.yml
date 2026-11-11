@@ -74,6 +74,8 @@ jobs:
         env:
           SAIDIAN_ALLOW_QA_RELEASE: "true"
       - run: cd android && ./gradlew :app:testDebugUnitTest
+      - name: Check U19 queued notifications and stale connections
+        run: python3 tool/test_urion_android_notifications.py
       - name: Check ring disconnect events, recovery, camera sessions and history sync
         run: |
           node --test tool/qring_android_disconnect.test.mjs tool/qring_android_radio_lifecycle.test.mjs \

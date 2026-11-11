@@ -83,6 +83,30 @@ void main() {
     expect(Eb1BloodPressureSample.parse(sample)?.diastolic, 97);
   });
 
+  test(
+    'BP collector distinguishes a read ACK from missing and invalid data',
+    () {
+      final ack = Eb1Frame.request(0x14);
+      final sentinel = Eb1Frame.request(0x14, [255, 255, 255, 255]);
+      final collector = Eb1ResponseCollector(0x14, count: 2);
+      expect(collector.add(ack), isNull);
+      expect(collector.add(ack), isNull);
+      expect(collector.add(sentinel), isEmpty);
+      expect(() => Eb1BloodPressureSample.parse(ack), throwsFormatException);
+      // 带任何非零字段的坏记录不属于 ACK，不能通过这条兼容分支。
+      expect(
+        () => Eb1ResponseCollector(0x14).add(Eb1Frame.request(0x14, [1])),
+        throwsFormatException,
+      );
+      final started = Eb1ResponseCollector(0x14, count: 2);
+      expect(
+        started.add(Eb1Frame.request(0x14, [1, 2, 3, 4, 75, 120, 65])),
+        isNull,
+      );
+      expect(() => started.add(ack), throwsFormatException);
+    },
+  );
+
   test('pulse history validates scores, sentinel, and packet count', () {
     final sample = Eb1Frame.request(0x34, [1, 2, 3, 4, 3, 6, 2]);
     expect(Eb1PulseSample.parse(sample)?.bloodStasis, 3);

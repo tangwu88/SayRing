@@ -295,6 +295,67 @@ void main() {
   );
 
   test(
+    'BP does not poll history during inflation before a result notice',
+    () async {
+      await watch.dispose();
+      watch = _Watch(resultPollInterval: const Duration(milliseconds: 10));
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      final before = watch.bpReads;
+      // 模拟测量期间不回答历史请求的固件；不能提前耗尽并隔离结果通道。
+      watch.dropBloodPressureReplies = true;
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(watch.bpReads, before);
+      watch.dropBloodPressureReplies = false;
+      watch.now = watch.now.add(const Duration(seconds: 40));
+      watch.history = [_bp(watch.now, systolic: 125)];
+      await watch.emit(Eb1Frame.request(0x33));
+      await _until(() => watch.records.isNotEmpty);
+      expect(watch.records, hasLength(1));
+      expect(watch.writes.where((e) => e.$2.command == 0x32), hasLength(1));
+    },
+  );
+
+  test('BP read ACK is not a sample or an empty history terminator', () async {
+    await watch.connectAndReadCapabilities();
+    await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+    watch.now = watch.now.add(const Duration(seconds: 40));
+    watch.history = [_bp(watch.now, systolic: 126)];
+    watch.bloodPressureReadAck = true;
+    await watch.emit(Eb1Frame.request(0x33));
+    await _flush();
+    expect(watch.records, hasLength(1));
+    expect(
+      HealthRecord.fromJson(watch.records.single.payload).values,
+      containsPair('systolic', 126),
+    );
+    expect(watch.events.where((e) => e.type == 'error'), isEmpty);
+  });
+
+  test(
+    'BP ACK alone cannot become a result or leave a blocked read waiting',
+    () async {
+      await watch.dispose();
+      watch = _Watch(requestTimeout: const Duration(milliseconds: 30));
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      watch.bloodPressureAckOnly = true;
+      await watch.emit(Eb1Frame.request(0x33));
+      await Future<void>.delayed(const Duration(milliseconds: 65));
+      expect(watch.records, isEmpty);
+      final errors = watch.events.where((e) => e.type == 'error');
+      expect(errors, hasLength(1));
+      expect(errors.single.payload['code'], 'BLOOD_PRESSURE_RESULT_MISSING');
+      expect(watch.writes.where((e) => e.$2.command == 0x32), hasLength(1));
+      final reads = watch.bpReads;
+      await watch.emit(Eb1Frame.request(0x33));
+      await _flush();
+      expect(watch.bpReads, reads);
+      expect(watch.events.where((e) => e.type == 'error'), hasLength(1));
+    },
+  );
+
+  test(
     'BP completion without a returned result ends with one bounded failure',
     () async {
       await watch.dispose();
@@ -325,6 +386,67 @@ void main() {
       await _flush();
       expect(watch.events.where((e) => e.type == 'error'), hasLength(1));
       expect(watch.writes.where((e) => e.$2.command == 0x32), hasLength(2));
+    },
+  );
+
+  test(
+    'Android joined and split notices keep the exact watch and new BP result',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      try {
+        await watch.connectAndReadCapabilities();
+        await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+        watch.now = watch.now.add(const Duration(seconds: 40));
+        watch.history = [_bp(watch.now, systolic: 128)];
+        final bytes = [
+          ...Eb1Frame.request(0x73, [2]).bytes,
+          ...Eb1Frame.request(0x33).bytes,
+        ];
+        final before = watch.bpReads;
+        await watch.emitAndroidBytes(bytes, device: 'other-watch');
+        await watch.emitAndroidBytes(bytes, session: watch.generation - 1);
+        await _flush();
+        expect(watch.bpReads, before);
+        await watch.emitAndroidBytes(bytes.sublist(0, 11));
+        await watch.emitAndroidBytes(bytes.sublist(11));
+        await _until(() => watch.records.isNotEmpty);
+        expect(watch.records, hasLength(1));
+        expect(
+          HealthRecord.fromJson(
+            watch.records.single.payload,
+          ).values['systolic'],
+          128,
+        );
+        expect(watch.writes.where((e) => e.$2.command == 0x32), hasLength(1));
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  test(
+    'BP read failure before completion cannot authorize reinflation',
+    () async {
+      await watch.dispose();
+      watch = _Watch(requestTimeout: const Duration(milliseconds: 30));
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      watch.dropBloodPressureReplies = true;
+      await watch.emit(Eb1Frame.request(0x73, [2]));
+      await Future<void>.delayed(const Duration(milliseconds: 65));
+      expect(watch.records, isEmpty);
+      expect(watch.events.where((e) => e.type == 'error'), hasLength(1));
+      await expectLater(
+        watch.bridge.startMeasurement(HealthMetric.bloodPressure),
+        throwsA(
+          isA<PlatformException>().having(
+            (e) => e.code,
+            'code',
+            'MEASUREMENT_IN_PROGRESS',
+          ),
+        ),
+      );
+      expect(watch.writes.where((e) => e.$2.command == 0x32), hasLength(1));
     },
   );
 
@@ -796,6 +918,7 @@ Eb1Frame _bp(DateTime instant, {int systolic = 120}) {
 
 class _Watch {
   _Watch({
+    Duration requestTimeout = const Duration(seconds: 1),
     Duration resultPollInterval = const Duration(seconds: 6),
     Duration completedResultTimeout = const Duration(seconds: 24),
   }) {
@@ -819,7 +942,7 @@ class _Watch {
     bridge = UrionWearableBridge(
       methods: methods,
       eventChannel: eventChannel,
-      requestTimeout: const Duration(seconds: 1),
+      requestTimeout: requestTimeout,
       resultPollInterval: resultPollInterval,
       completedResultTimeout: completedResultTimeout,
       now: () => now,
@@ -837,6 +960,9 @@ class _Watch {
   String id = 'watch-a';
   int generation = 0;
   int bpReads = 0;
+  bool dropBloodPressureReplies = false;
+  bool bloodPressureReadAck = false;
+  bool bloodPressureAckOnly = false;
   List<Eb1Frame> history = [];
   List<Eb1Frame>? reverseHistory;
   List<Eb1Frame> pulseHistory = [];
@@ -899,6 +1025,11 @@ class _Watch {
         replies.add(Eb1Frame.request(0x03, [80]));
       case 0x14:
         bpReads++;
+        if (dropBloodPressureReplies) break;
+        if (bloodPressureReadAck || bloodPressureAckOnly) {
+          replies.add(Eb1Frame.request(0x14));
+        }
+        if (bloodPressureAckOnly) break;
         if (historyGate case final gate?) {
           historyGate = null;
           historyGateTaken = true;
@@ -1004,6 +1135,23 @@ class _Watch {
           'generation': session ?? generation,
           'bytes': frame.bytes,
         },
+      }),
+      (_) {},
+    );
+  }
+
+  Future<void> emitAndroidBytes(
+    List<int> bytes, {
+    String? device,
+    int? session,
+  }) async {
+    await messenger.handlePlatformMessage(
+      eventChannel.name,
+      const StandardMethodCodec().encodeSuccessEnvelope({
+        'type': 'bytes',
+        'deviceId': device ?? id,
+        'generation': session ?? generation,
+        'bytes': Uint8List.fromList(bytes),
       }),
       (_) {},
     );

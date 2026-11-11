@@ -214,7 +214,10 @@ class UrionWearableBridge
           if (_measurement == null) {
             _watchBloodPressureNoticeAt = _now().toUtc();
           } else {
-            _scheduleMeasurementRead(completed: frame.command == 0x33);
+            _scheduleMeasurementRead(
+              completed: frame.command == 0x33,
+              dataChanged: true,
+            );
           }
         }
         if (frame.command == 0x73 && (frame[1] == 1 || frame[1] == 3)) {
@@ -1073,8 +1076,10 @@ class UrionWearableBridge
         if (pressure != null) _finishBloodPressureWait(pressure);
         return;
       }
-      // 固件可能漏发完成通知。补读仍必须通过新指纹与实际测量时窗验证，不能用 ACK 或旧历史结束等待。
-      if (_measurement != null) _scheduleMeasurementRead();
+      // EB1 要在 0x73(2) 数据变更或 0x33 测完后读取结果。
+      // 充气期间抢读可能超时并隔离 0x14，导致随后真实结果也无法读取。
+      // 通知后才有界补读；缺少通知仍由总时限结束，绝不重新发起充气。
+      if (_measurement?.resultReadReady == true) _scheduleMeasurementRead();
       final spot = _spotMeasurement;
       if (spot != null) {
         _scheduleSpotRead(spot.metric == HealthMetric.heartRate ? 1 : 3);
@@ -1281,7 +1286,10 @@ class UrionWearableBridge
     );
   }
 
-  void _scheduleMeasurementRead({bool completed = false}) {
+  void _scheduleMeasurementRead({
+    bool completed = false,
+    bool dataChanged = false,
+  }) {
     final measurement = _measurement;
     if (measurement == null ||
         measurement.session != _session ||
@@ -1296,6 +1304,8 @@ class UrionWearableBridge
       }
       return;
     }
+    if (completed || dataChanged) measurement.resultReadReady = true;
+    if (!measurement.resultReadReady) return;
     if (completed && !measurement.completed) {
       measurement.completed = true;
       _events.add(
@@ -1388,11 +1398,17 @@ class UrionWearableBridge
             measurement.notices != notice) {
           _scheduleMeasurementRead();
         }
-      }).catchError((Object _) {
+      }).catchError((Object error) {
         measurement.readQueued = false;
         if (kDebugMode) {
-          debugPrint('[U19Measurement] result read not completed');
+          final reason = error is PlatformException
+              ? error.code
+              : error.runtimeType;
+          debugPrint('[U19Measurement] result read failed: $reason');
         }
+        // 超时/畸形回包已隔离本次连接的命令，继续转圈不会恢复通道。
+        // 立即结束页面等待；未确认物理测完时仍保留防重复充气屏障。
+        _finishBloodPressureWait(measurement);
       }),
     );
   }
@@ -1921,6 +1937,7 @@ class _Eb1Measurement {
   final Set<String> previous;
   bool acknowledged = false;
   bool completed = false;
+  bool resultReadReady = false;
   bool waitExpired = false;
   bool readQueued = false;
   int notices = 0;

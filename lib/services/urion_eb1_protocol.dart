@@ -345,6 +345,14 @@ class Eb1ResponseCollector {
       throw const FormatException('Wrong EB1 response');
     }
     if (command == 0x14 || command == 0x34) {
+      // EB1 通用应答允许命令 + 全零载荷表示接收成功；它不是血压，
+      // 也不同于 FFFFFFFF 空历史结束包。只在血压数据开始前忽略 ACK，
+      // 继续等待真实记录/结束包，ACK 本身不能授予能力或算作测量成功。
+      if (command == 0x14 &&
+          _frames.isEmpty &&
+          frame.bytes.sublist(1, 15).every((value) => value == 0)) {
+        return null;
+      }
       final sample = command == 0x14
           ? Eb1BloodPressureSample.parse(frame)
           : Eb1PulseSample.parse(frame);
