@@ -288,7 +288,10 @@ class SettingsPage extends StatelessWidget {
                 _MyQuickEntry(
                   key: const Key('my-add-device'),
                   title: context.l10n.addDevice,
-                  subtitle: context.l10n.searchNearbyWatch,
+                  subtitle: devicePromptLabel(
+                    context,
+                    context.l10n.searchNearbyWatch,
+                  ),
                   icon: Icons.watch_outlined,
                   color: SaydianColors.techBlue,
                   onTap: () => _openPage(

@@ -96,7 +96,7 @@ class ReleaseGateTest(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertIn("integrated device SDK", info[key])
                 self.assertIn(f"This version does not {action} Apple Health data", info[key])
-                self.assertIn("you may decline access without affecting ring features", info[key])
+                self.assertIn("you may decline access without affecting device features", info[key])
                 self.assertNotIn("$(", info[key])
 
         for filename in ("Runner.entitlements", "RunnerDebug.entitlements"):

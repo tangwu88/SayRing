@@ -166,8 +166,10 @@ class DevicePage extends StatelessWidget {
                                       ? context.l10n.syncComplete
                                       : userFacingMessage(
                                           controller.errorMessage,
-                                          fallback:
-                                              context.l10n.syncFailedTryAgain,
+                                          fallback: devicePromptLabel(
+                                            context,
+                                            context.l10n.syncFailedTryAgain,
+                                          ),
                                         );
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text(feedback)),
@@ -352,7 +354,7 @@ class DevicePage extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    context.l10n.watchNearbyHint,
+                    genericDevicePrompt(context.l10n.watchNearbyHint),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: SaydianColors.muted,
@@ -389,8 +391,12 @@ class DevicePage extends StatelessWidget {
                 dimension: 22,
                 child: CircularProgressIndicator(strokeWidth: 2.2),
               ),
-              title: Text(context.l10n.readingCapabilities),
-              subtitle: Text(context.l10n.capabilitiesHint),
+              title: Text(
+                devicePromptLabel(context, context.l10n.readingCapabilities),
+              ),
+              subtitle: Text(
+                devicePromptLabel(context, context.l10n.capabilitiesHint),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -402,8 +408,12 @@ class DevicePage extends StatelessWidget {
             key: const Key('device-capabilities-unavailable'),
             child: ListTile(
               leading: const Icon(Icons.refresh_rounded),
-              title: Text(context.l10n.capabilitiesFailed),
-              subtitle: Text(context.l10n.keepWatchNear),
+              title: Text(
+                devicePromptLabel(context, context.l10n.capabilitiesFailed),
+              ),
+              subtitle: Text(
+                devicePromptLabel(context, context.l10n.keepWatchNear),
+              ),
               trailing: TextButton(
                 key: const Key('device-capabilities-retry'),
                 onPressed: controller.refreshDeviceCapabilities,
@@ -477,7 +487,7 @@ class DevicePage extends StatelessWidget {
           if (watchFaceFeatures.isEmpty && primaryFeatures.isEmpty) ...[
             InlineNotice(
               key: const Key('device-no-integrated-features'),
-              message: context.l10n.useWatch,
+              message: devicePromptLabel(context, context.l10n.useWatch),
               icon: Icons.circle_outlined,
               color: SaydianColors.blue,
               compact: true,
@@ -510,8 +520,8 @@ class DevicePage extends StatelessWidget {
                     builder: (context) => _InfoPage(
                       title: context.l10n.connectionHelp,
                       message:
-                          '${context.l10n.connectionInstructions}\n\n'
-                          '${defaultTargetPlatform == TargetPlatform.iOS ? context.l10n.deviceSearchHelpRebindIos : context.l10n.deviceSearchHelpRebindAndroid}',
+                          '${devicePromptLabel(context, context.l10n.connectionInstructions)}\n\n'
+                          '${defaultTargetPlatform == TargetPlatform.iOS ? devicePromptLabel(context, context.l10n.deviceSearchHelpRebindIos) : devicePromptLabel(context, context.l10n.deviceSearchHelpRebindAndroid)}',
                     ),
                   ),
                 ),
@@ -524,7 +534,7 @@ class DevicePage extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         InlineNotice(
-          message: context.l10n.syncNearbyHint,
+          message: devicePromptLabel(context, context.l10n.syncNearbyHint),
           icon: Icons.info_outline_rounded,
           color: SaydianColors.blue,
           compact: true,
@@ -1211,7 +1221,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         device.rssi == null &&
         widget.controller.deviceState == DeviceConnectionState.error) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(uiCopy(context, "缓存连接未成功，正在重新搜索戒指"))),
+        SnackBar(content: Text(uiCopy(context, "缓存连接未成功，正在重新搜索设备"))),
       );
       await _startScan();
     }
@@ -1251,62 +1261,79 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   Future<void> _showSearchHelp() => showDialog<void>(
     context: context,
-    builder: (context) => AlertDialog(
-      key: const Key('device-search-help-dialog'),
-      scrollable: true,
-      title: Text(context.l10n.deviceSearchHelpTitle),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final (icon, text) in [
-            (
-              Icons.battery_charging_full_rounded,
-              context.l10n.deviceSearchHelpPower,
-            ),
-            (Icons.bluetooth_rounded, context.l10n.deviceSearchHelpAccess),
-            (
-              Icons.phonelink_erase_rounded,
-              context.l10n.deviceSearchHelpOtherPhone,
-            ),
-            (
-              Icons.link_rounded,
-              defaultTargetPlatform == TargetPlatform.iOS
-                  ? context.l10n.deviceSearchHelpRebindIos
-                  : context.l10n.deviceSearchHelpRebindAndroid,
-            ),
-          ])
-            Padding(
-              padding: const EdgeInsets.only(bottom: 18),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ExcludeSemantics(
-                    child: Icon(icon, color: SaydianColors.blue, size: 25),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      text,
-                      style: const TextStyle(fontSize: 15, height: 1.5),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-      actions: [
-        FilledButton(
-          key: const Key('device-search-help-close'),
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(context.l10n.confirm),
-        ),
-      ],
+    builder: (_) => DevicePromptScope(
+      generic: true,
+      child: Builder(builder: _searchHelpDialog),
     ),
   );
 
+  Widget _searchHelpDialog(BuildContext context) => AlertDialog(
+    key: const Key('device-search-help-dialog'),
+    scrollable: true,
+    title: Text(devicePromptLabel(context, context.l10n.deviceSearchHelpTitle)),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (icon, text) in [
+          (
+            Icons.battery_charging_full_rounded,
+            devicePromptLabel(context, context.l10n.deviceSearchHelpPower),
+          ),
+          (
+            Icons.bluetooth_rounded,
+            devicePromptLabel(context, context.l10n.deviceSearchHelpAccess),
+          ),
+          (
+            Icons.phonelink_erase_rounded,
+            devicePromptLabel(context, context.l10n.deviceSearchHelpOtherPhone),
+          ),
+          (
+            Icons.link_rounded,
+            defaultTargetPlatform == TargetPlatform.iOS
+                ? devicePromptLabel(
+                    context,
+                    context.l10n.deviceSearchHelpRebindIos,
+                  )
+                : devicePromptLabel(
+                    context,
+                    context.l10n.deviceSearchHelpRebindAndroid,
+                  ),
+          ),
+        ])
+          Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ExcludeSemantics(
+                  child: Icon(icon, color: SaydianColors.blue, size: 25),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: const TextStyle(fontSize: 15, height: 1.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    ),
+    actions: [
+      FilledButton(
+        key: const Key('device-search-help-close'),
+        onPressed: () => Navigator.of(context).pop(),
+        child: Text(context.l10n.confirm),
+      ),
+    ],
+  );
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      DevicePromptScope(generic: true, child: Builder(builder: _searchBody));
+
+  Widget _searchBody(BuildContext context) {
     return ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
@@ -1360,7 +1387,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         Text(
                           scanning
                               ? context.l10n.searchingHint
-                              : context.l10n.selectWatch,
+                              : devicePromptLabel(
+                                  context,
+                                  context.l10n.selectWatch,
+                                ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: SaydianColors.muted,
@@ -1517,7 +1547,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                     ),
                                   )
                                 : const Icon(Icons.bluetooth_searching_rounded),
-                            label: Text(context.l10n.findSystemPairedRings),
+                            label: Text(
+                              devicePromptLabel(
+                                context,
+                                context.l10n.findSystemPairedRings,
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Text(
@@ -1526,7 +1561,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                     context,
                                     "可查找本账号记住或 iPhone 当前已连接的戒指；选择后仍需验证数据连接。",
                                   )
-                                : context.l10n.findSystemPairedRingsHint,
+                                : devicePromptLabel(
+                                    context,
+                                    context.l10n.findSystemPairedRingsHint,
+                                  ),
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               color: SaydianColors.muted,
@@ -1570,7 +1608,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                       onPressed: busy ? null : _showSearchHelp,
                       icon: const Icon(Icons.help_outline_rounded),
                       label: Text(
-                        context.l10n.deviceSearchHelpTitle,
+                        devicePromptLabel(
+                          context,
+                          context.l10n.deviceSearchHelpTitle,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -1661,7 +1702,7 @@ class _DeviceSearchEmpty extends StatelessWidget {
         const SizedBox(height: 28),
         Text(
           scanning
-              ? context.l10n.searchingNearby
+              ? devicePromptLabel(context, context.l10n.searchingNearby)
               : switch (issue) {
                   DeviceScanIssue.locationServiceDisabled =>
                     context.l10n.scanLocationTitle,
@@ -1675,12 +1716,12 @@ class _DeviceSearchEmpty extends StatelessWidget {
         const SizedBox(height: 10),
         Text(
           scanning
-              ? context.l10n.activateWatch
+              ? devicePromptLabel(context, context.l10n.activateWatch)
               : issue != null
               ? _scanIssueHint(context, issue!)
               : (errorMessage?.trim().isNotEmpty ?? false)
               ? errorMessage!
-              : context.l10n.checkWatchConnection,
+              : devicePromptLabel(context, context.l10n.checkWatchConnection),
           textAlign: TextAlign.center,
           style: const TextStyle(color: SaydianColors.muted, height: 1.5),
         ),
@@ -1714,13 +1755,15 @@ class _DeviceSearchEmpty extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.bluetooth_searching_rounded),
-              label: Text(context.l10n.findSystemPairedRings),
+              label: Text(
+                devicePromptLabel(context, context.l10n.findSystemPairedRings),
+              ),
             ),
           ],
           if (issue == null) ...[
             const SizedBox(height: 20),
             InlineNotice(
-              message: context.l10n.searchRecovery,
+              message: devicePromptLabel(context, context.l10n.searchRecovery),
               icon: Icons.info_outline_rounded,
               color: SaydianColors.blue,
             ),
@@ -1733,8 +1776,14 @@ class _DeviceSearchEmpty extends StatelessWidget {
 
 String _scanIssueHint(BuildContext context, DeviceScanIssue issue) =>
     switch (issue) {
-      DeviceScanIssue.locationServiceDisabled => context.l10n.scanLocationHint,
-      DeviceScanIssue.permissionsRequired => context.l10n.scanPermissionHint,
+      DeviceScanIssue.locationServiceDisabled => devicePromptLabel(
+        context,
+        context.l10n.scanLocationHint,
+      ),
+      DeviceScanIssue.permissionsRequired => devicePromptLabel(
+        context,
+        context.l10n.scanPermissionHint,
+      ),
     };
 
 class DeviceInfoPage extends StatefulWidget {

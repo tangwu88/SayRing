@@ -1,5 +1,21 @@
 // 仅限应用自有界面文案；不得用于用户记录、文章、历史报告或协议字段。
 const legacyUiEnglish = <String, String>{
+  "缓存连接未成功，正在重新搜索设备": "Could not reconnect. Searching for devices again.",
+
+  "手表已测完，正在获取结果": "Reading finished. Retrieving the result.",
+  "手表已测完，暂未取回结果，请同步数据重试":
+      "Reading finished, but the result could not be retrieved. Try syncing data.",
+  "未收到新的血压结果，请先确认手表已结束测量":
+      "No new blood pressure result received. Check that your watch has finished.",
+  "未收到新的测量结果，请先确认手表已结束测量":
+      "No new result received. Check that your watch has finished.",
+  "健康数据配置已更新，请刷新": "Health settings changed. Refresh to continue.",
+  "本机数据已上传，云端记录暂时无法读取":
+      "Your data was uploaded. Cloud history is temporarily unavailable.",
+  "云端记录暂时无法读取": "Cloud history is temporarily unavailable.",
+  "数据上传失败，请稍后重试": "Could not upload data. Please try again.",
+  "已上传 {p0} 条，读取 {p1} 条云端记录":
+      "Uploaded {p0} records and loaded {p1} cloud records.",
   "解绑后将停止自动连接此设备。本机健康记录会保留。":
       "Automatic connection will stop. Your saved health records will remain.",
   "设备电量暂未读取": "Device battery not read yet",

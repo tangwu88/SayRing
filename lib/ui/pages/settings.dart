@@ -1382,8 +1382,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       const SizedBox(height: 8),
       if (controller.connectedDevice == null)
         FeatureStateCard(
-          message: context.l10n.connectWatchToUse,
-          detail: context.l10n.monitoringHint,
+          message: devicePromptLabel(context, context.l10n.connectWatchToUse),
+          detail: devicePromptLabel(context, context.l10n.monitoringHint),
           icon: Icons.watch_outlined,
         )
       else if (tiles.isEmpty && controller.isDeviceSettingsLoading)
@@ -1447,7 +1447,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       color: SaydianColors.orange,
     ),
     title: Text(context.l10n.watchHighHeartRate),
-    subtitle: Text(context.l10n.watchThresholdHint),
+    subtitle: Text(devicePromptLabel(context, context.l10n.watchThresholdHint)),
     trailing: DropdownButton<int>(
       value: widget.controller.heartRateWarning,
       items: [

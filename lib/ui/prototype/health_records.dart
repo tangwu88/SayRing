@@ -109,7 +109,12 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(context.l10n.enableCalibration),
-                      subtitle: Text(context.l10n.calibrationDisabledHint),
+                      subtitle: Text(
+                        devicePromptLabel(
+                          context,
+                          context.l10n.calibrationDisabledHint,
+                        ),
+                      ),
                       value: _enabled,
                       onChanged: _saving
                           ? null
@@ -722,7 +727,7 @@ class _EcgRiskSection extends StatelessWidget {
         values.any((item) => (record.values[item.$1] ?? 0) > 0);
     if (!hasAnalysis) {
       return FeatureStateCard(
-        message: context.l10n.riskIndicatorsMissing,
+        message: devicePromptLabel(context, context.l10n.riskIndicatorsMissing),
         icon: Icons.health_and_safety_outlined,
       );
     }
@@ -749,7 +754,7 @@ class _EcgRiskSection extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              context.l10n.watchAlgorithmReference,
+              devicePromptLabel(context, context.l10n.watchAlgorithmReference),
               style: TextStyle(color: SaydianColors.muted, height: 1.45),
             ),
             const SizedBox(height: 12),

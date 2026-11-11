@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
@@ -12,11 +14,182 @@ import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
+import 'package:saydian_app/services/urion_eb1_protocol.dart';
+
+final _wireEvidence = _U19WireEvidence();
+
+/// 第一方接口按账号摘要化设备标识，并以毫秒保存时间；不要求云端暴露蓝牙地址。
+/// 数值、单位、记录ID和来源仍逐项相等，不能用容差掩盖读数或账号不一致。
+Map<String, bool> u19CloudReadbackChecks({
+  required HealthRecord local,
+  required HealthRecord? remote,
+  required String userId,
+}) => {
+  'recordPresent': remote != null,
+  'recordId': remote?.id == local.id,
+  'metric': remote?.metric == local.metric,
+  'deviceIdentity':
+      remote?.deviceId ==
+      'server:${sha256.convert(utf8.encode('$userId:${local.deviceId}'))}',
+  'unit': remote?.unit == local.unit,
+  'values':
+      remote != null &&
+      remote.values.length == local.values.length &&
+      local.values.entries.every(
+        (entry) => remote.values[entry.key] == entry.value,
+      ),
+  'timeAtApiPrecision':
+      remote?.measuredAt.millisecondsSinceEpoch ==
+      local.measuredAt.millisecondsSinceEpoch,
+  'vendor': remote?.sourceVendor == local.sourceVendor,
+  'deviceCategory': remote?.sourceDeviceCategory == local.sourceDeviceCategory,
+  'model': remote?.sourceModel == local.sourceModel,
+  'firmware': remote?.firmwareVersion == local.firmwareVersion,
+  'origin': remote?.origin == local.origin,
+  'measurementSource': remote?.source == local.source,
+  'sourceApp': remote?.sourceApp == local.sourceApp,
+  'rawVersion': remote?.rawVersion == local.rawVersion,
+};
+
+/// 只旁观测试宿主已有的消息处理器，不另建 EventChannel 订阅抢占原生回调。
+/// 原消息原样转发；不写手表，也不把健康原值、账号或设备标识写入证据。
+class _U19EvidenceBinding extends IntegrationTestWidgetsFlutterBinding {
+  @override
+  TestDefaultBinaryMessenger createBinaryMessenger() =>
+      U19EvidenceMessenger(super.createBinaryMessenger());
+}
+
+class U19EvidenceMessenger extends TestDefaultBinaryMessenger {
+  U19EvidenceMessenger(super.delegate);
+
+  Map<String, Object?> get diagnostics => _wireEvidence.snapshot();
+
+  @override
+  Future<ByteData?>? send(String channel, ByteData? message) {
+    if (channel == 'cc.saidian/urion_methods' && message != null) {
+      try {
+        _wireEvidence.sent(
+          const StandardMethodCodec().decodeMethodCall(message),
+        );
+      } catch (_) {
+        _wireEvidence.observerErrors++;
+      }
+    }
+    return super.send(channel, message);
+  }
+
+  @override
+  void setMessageHandler(String channel, MessageHandler? handler) {
+    if (channel != 'cc.saidian/urion_events' || handler == null) {
+      super.setMessageHandler(channel, handler);
+      return;
+    }
+    super.setMessageHandler(channel, (message) {
+      if (message != null) {
+        try {
+          _wireEvidence.received(
+            const StandardMethodCodec().decodeEnvelope(message),
+          );
+        } catch (_) {
+          _wireEvidence.observerErrors++;
+        }
+      }
+      return handler(message);
+    });
+  }
+}
+
+class _U19WireEvidence {
+  final _buffer = Eb1FrameBuffer();
+  final _hmac = Hmac(
+    sha256,
+    List.generate(32, (_) => Random.secure().nextInt(256)),
+  );
+  final _sent = <String, int>{};
+  final _received = <String, int>{};
+  final _notices = <String, int>{};
+  final _phases = <String, int>{};
+  final _bloodPressureReads = <Map<String, Object?>>[];
+  Map<String, Object?>? _activeRead;
+  Object? _generation;
+  int observerErrors = 0;
+
+  void _count(Map<String, int> counts, String key) =>
+      counts.update(key, (value) => value + 1, ifAbsent: () => 1);
+
+  void sent(MethodCall call) {
+    if (call.method != 'writeFrame' || call.arguments is! Map) return;
+    final raw = (call.arguments as Map)['bytes'];
+    if (raw is! List<int>) return;
+    final frame = Eb1Frame.parse(raw);
+    if (frame == null) return;
+    _count(_sent, frame.command.toRadixString(16));
+    if (frame.command == 0x14) {
+      _activeRead = {
+        'requestedCount': frame[6],
+        'samples': <String>[],
+        'recentTimestampCandidates': 0,
+        'sentinel': false,
+      };
+      _bloodPressureReads.add(_activeRead!);
+    }
+  }
+
+  void received(Object? raw) {
+    if (raw is! Map) return;
+    final payload = raw['payload'] is Map ? raw['payload'] as Map : raw;
+    if (raw['type'] == 'connectionPhase') {
+      _count(_phases, '${payload['phase']}');
+      return;
+    }
+    if (raw['type'] != 'bytes') return;
+    final bytes = payload['bytes'];
+    if (bytes is! List<int>) return;
+    if (payload['generation'] != _generation) {
+      _generation = payload['generation'];
+      _buffer.reset();
+    }
+    for (final frame in _buffer.add(bytes)) {
+      _count(_received, frame.command.toRadixString(16));
+      if (frame.command == 0x33) _count(_notices, 'bloodPressureCompleted');
+      if (frame.command == 0x73) _count(_notices, frame[1].toRadixString(16));
+      if (frame.command != 0x14 || _activeRead == null) continue;
+      final sample = Eb1BloodPressureSample.parse(frame);
+      if (sample == null) {
+        _activeRead!['sentinel'] = true;
+        continue;
+      }
+      // 每次验收临时生成 HMAC 密钥，只比较本轮指纹是否变化，不能还原原值。
+      (_activeRead!['samples'] as List<String>).add(
+        _hmac.convert(utf8.encode(sample.fingerprint)).toString(),
+      );
+      final now = DateTime.now().toUtc();
+      if (Eb1TimestampEncoding.values.any((encoding) {
+        final time = eb1DecodeTimestamp(sample.rawTimestamp, encoding);
+        return !time.isAfter(now) &&
+            now.difference(time) <= const Duration(hours: 2);
+      })) {
+        _activeRead!['recentTimestampCandidates'] =
+            (_activeRead!['recentTimestampCandidates'] as int) + 1;
+      }
+    }
+  }
+
+  Map<String, Object?> snapshot() => {
+    'sentCommands': _sent,
+    'receivedCommands': _received,
+    'completionNotices': _notices,
+    'connectionPhases': _phases,
+    'bloodPressureReads': _bloodPressureReads,
+    'rejectedFrames': _buffer.rejectedFrames,
+    'observerErrors': observerErrors,
+  };
+}
 
 /// 实物验收：默认只读。校时/新测量必须由本轮机主明确授权后单独编译开启。
 /// 不允许重置或修改监测开关；校时以账号+目标回执阻止歧义重放。
 void main() {
-  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = _U19EvidenceBinding();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
   testWidgets(
     'U19 exact connection, explicitly authorized actions and history preserve the existing owner',
@@ -32,6 +205,7 @@ void main() {
       };
       final settingsFailures = <String>[];
       Future<void> save() async {
+        proof['transportEvidence'] = _wireEvidence.snapshot();
         final root = await getApplicationSupportDirectory();
         await File(
           '${root.path}/u19-device-acceptance.json',
@@ -48,6 +222,69 @@ void main() {
         final owner = app.session!.accountKey;
         final savedBinding =
             await const SecureWearableTransportPreferenceStore().readBinding();
+        proof['savedBindingPresent'] = savedBinding != null;
+        proof['savedBindingTransport'] = savedBinding?.transport.name;
+        proof['savedBindingOwnerMatches'] =
+            savedBinding?.ownerKey == app.homeHealthCardOwner;
+        proof['rememberedDevicePresent'] = app.rememberedDevice != null;
+        proof['sameOwnerRecentBindingCount'] =
+            (await const SecureWearableTransportPreferenceStore()
+                    .readRecentBindings(app.homeHealthCardOwner))
+                .length;
+        await save();
+        const cloudOnly = bool.fromEnvironment('U19_ACCEPTANCE_CLOUD_ONLY');
+        if (cloudOnly) {
+          await app.refreshReadOnlyHealthFeatures();
+          const expectedDevice = String.fromEnvironment(
+            'U19_ACCEPTANCE_EXPECTED_DEVICE_ID',
+          );
+          expect(expectedDevice.startsWith('urion:'), true);
+          final records = await app.loadHealthRecords(
+            metric: HealthMetric.heartRate,
+            start: DateTime.now().toUtc().subtract(const Duration(hours: 2)),
+            end: DateTime.now().toUtc().add(const Duration(minutes: 1)),
+          );
+          final local =
+              records
+                  .where(
+                    (record) =>
+                        record.deviceId == expectedDevice &&
+                        record.sourceVendor == 'urion' &&
+                        record.origin == MeasurementOrigin.appMeasurement,
+                  )
+                  .toList()
+                ..sort((a, b) => b.measuredAt.compareTo(a.measuredAt));
+          proof['cloudOnlyLocalCandidates'] = local.length;
+          await save();
+          expect(local, isNotEmpty);
+          await app.synchronizeCloud();
+          final api = GlobalSaydianApiClient(
+            SecureSessionVault.global(),
+            healthReadPolicyOverride: app.healthReleasePolicy,
+          );
+          final remote = (await api.getCloudHealthRecords()).records
+              .where((record) => record.id == local.first.id)
+              .firstOrNull;
+          expect(app.session?.accountKey, owner);
+          final checks = u19CloudReadbackChecks(
+            local: local.first,
+            remote: remote,
+            userId: app.session!.memberId,
+          );
+          proof['cloudReadbackChecks'] = checks;
+          proof['cloudSyncStatus'] = app.cloudSyncStatus;
+          proof['controllerCloudReadCompleted'] = RegExp(
+            r'^(已上传 \d+ 条，读取 \d+ 条云端记录|Uploaded \d+ records and loaded \d+ cloud records\.)$',
+          ).hasMatch(app.cloudSyncStatus);
+          proof['reusedPriorMeasurementWithoutRestart'] = true;
+          await save();
+          expect(checks.values.every((passed) => passed), true);
+          expect(proof['controllerCloudReadCompleted'], true);
+          proof['status'] =
+              'controller sync and prior U19 heart-rate cloud readback passed; no new measurement requested';
+          await save();
+          return;
+        }
         if (savedBinding?.ownerKey == app.homeHealthCardOwner &&
             savedBinding?.transport == WearableTransport.urion) {
           // 禁用后台自动恢复的测试宿主也必须先经生产入口建立账号上下文。
@@ -94,6 +331,8 @@ void main() {
           'U19_ACCEPTANCE_CLOCK_LANGUAGE',
         );
         const measure = bool.fromEnvironment('U19_ACCEPTANCE_MEASUREMENTS');
+        // 单独复测光学指标时不重复发起充气，血压失败仍保留在独立验收记录中。
+        const spotOnly = bool.fromEnvironment('U19_ACCEPTANCE_SPOT_ONLY');
         final authorizedWatches = watches
             .where((candidate) => candidate.name == 'U19S_SD_2765')
             .toList();
@@ -271,11 +510,24 @@ void main() {
           await app.refreshDeviceCapabilities();
           expect(app.healthReleasePolicy.u19Features?.active, true);
           final checks = <String, Object?>{};
-          for (final metric in [
-            HealthMetric.bloodPressure,
+          final measurementMetrics = [
+            if (!spotOnly) HealthMetric.bloodPressure,
             HealthMetric.heartRate,
             HealthMetric.bloodOxygen,
-          ]) {
+          ];
+          const selectedMetric = String.fromEnvironment(
+            'U19_ACCEPTANCE_SINGLE_METRIC',
+          );
+          if (selectedMetric.isNotEmpty) {
+            measurementMetrics.removeWhere(
+              (metric) => metric.wireName != selectedMetric,
+            );
+            expect(measurementMetrics, hasLength(1));
+          }
+          proof['measurementScope'] = measurementMetrics
+              .map((metric) => metric.wireName)
+              .toList();
+          for (final metric in measurementMetrics) {
             expect(
               app.capabilities?.supportsManualMeasurement(metric),
               true,
@@ -302,6 +554,9 @@ void main() {
             checks[metric.wireName] = {
               'freshResult': valid,
               'seconds': wait.elapsed.inSeconds,
+              'connectedTargetRetained': app.connectedDevice?.id == watch.id,
+              'measurementError': app.measurementErrorMessage,
+              'sdkStatus': app.sdkStatus,
             };
             proof['measurements'] = checks;
             await save();
@@ -332,22 +587,18 @@ void main() {
                 await Future<void>.delayed(const Duration(seconds: 2));
               }
             }
-            final cloudMatches =
-                remote != null &&
-                remote.metric == result!.metric &&
-                remote.deviceId == result.deviceId &&
-                remote.unit == result.unit &&
-                remote.values.length == result.values.length &&
-                result.values.entries.every(
-                  (entry) => remote!.values[entry.key] == entry.value,
-                ) &&
-                remote.measuredAt == result.measuredAt &&
-                remote.sourceVendor == 'urion' &&
-                remote.sourceDeviceCategory == 'watch';
+            expect(app.session?.accountKey, owner);
+            final cloudChecks = u19CloudReadbackChecks(
+              local: result!,
+              remote: remote,
+              userId: app.session!.memberId,
+            );
+            final cloudMatches = cloudChecks.values.every((passed) => passed);
             checks[metric.wireName] = {
               'freshResult': true,
               'localSaved': true,
               'cloudReadbackMatches': cloudMatches,
+              'cloudReadbackChecks': cloudChecks,
               'seconds': wait.elapsed.inSeconds,
             };
             await save();
@@ -361,7 +612,9 @@ void main() {
           reason: 'Settings preservation requires complete readback.',
         );
         proof['status'] = measure
-            ? 'connection, settings, history and fresh measurement cloud readback passed'
+            ? spotOnly
+                  ? 'connection, settings and optical measurement cloud readback passed; blood pressure pending'
+                  : 'connection, settings, history and fresh measurement cloud readback passed'
             : 'connection, settings and history passed; new measurements pending';
         await save();
       } catch (error) {

@@ -1327,7 +1327,7 @@ class AppController extends ChangeNotifier {
   Completer<void>? _measurementStartCancellation;
   Future<void>? _measurementStopInFlight;
   HealthMetric? _activeMeasurementMetric;
-  bool _syncing = false;
+  bool measurementAwaitingResult = false;
   bool _accountTransitioning = false;
   Future<void>? _logoutPending;
   Future<void>? _activeCloudSync;
@@ -1392,6 +1392,14 @@ class AppController extends ChangeNotifier {
   bool _wearableNeedsDisconnect = false;
   bool _wearableRecoverySuspended = false;
   DeviceInfo? rememberedDevice;
+  // 提示语跟随当前连接；断开时继续使用已保存目标。它不参与识别、绑定或数据路由。
+  bool get usesDevicePrompts =>
+      (connectedDevice ?? rememberedDevice)?.sdkSource ==
+      WearableSdkSource.urion;
+
+  String _deviceStatusCopy(String value) =>
+      appStatusCopy(value, genericDevice: usesDevicePrompts);
+
   bool _rememberedDeviceAllowsAutomaticRecovery = true;
   bool get _canRecoverRememberedDevice =>
       rememberedDevice != null && _rememberedDeviceAllowsAutomaticRecovery;
@@ -1405,7 +1413,7 @@ class AppController extends ChangeNotifier {
   String? _wearableRecoveryMessage;
   String? get wearableRecoveryMessage => _wearableRecoveryMessage == null
       ? null
-      : appStatusCopy(_wearableRecoveryMessage!);
+      : _deviceStatusCopy(_wearableRecoveryMessage!);
   set wearableRecoveryMessage(String? value) =>
       _wearableRecoveryMessage = value;
   String _activeHealthOwner = 'anonymous';
@@ -1455,13 +1463,27 @@ class AppController extends ChangeNotifier {
   Session? session;
   int selectedTab = 0;
   String? _errorMessage;
-  String? get errorMessage =>
-      _errorMessage == null ? null : appStatusCopy(_errorMessage!);
-  set errorMessage(String? value) => _errorMessage = value;
+  bool? _errorUsesDeviceTerms;
+  String? get errorMessage => _errorMessage == null
+      ? null
+      : appStatusCopy(
+          _errorMessage!,
+          genericDevice: _errorUsesDeviceTerms ?? usesDevicePrompts,
+        );
+  set errorMessage(String? value) {
+    _errorUsesDeviceTerms = null;
+    _errorMessage = value;
+  }
+
+  void _setDiscoveryError(String message) {
+    errorMessage = message;
+    _errorUsesDeviceTerms = true;
+  }
+
   String? _measurementErrorMessage;
   String? get measurementErrorMessage => _measurementErrorMessage == null
       ? null
-      : appStatusCopy(_measurementErrorMessage!);
+      : _deviceStatusCopy(_measurementErrorMessage!);
   set measurementErrorMessage(String? value) =>
       _measurementErrorMessage = value;
   HealthRecord? _measurementResult;
@@ -1479,10 +1501,10 @@ class AppController extends ChangeNotifier {
   String get storageStatus => appStatusCopy(_storageStatus);
   set storageStatus(String value) => _storageStatus = value;
   String _sdkStatus = '等待连接';
-  String get sdkStatus => appStatusCopy(_sdkStatus);
+  String get sdkStatus => _deviceStatusCopy(_sdkStatus);
   set sdkStatus(String value) => _sdkStatus = value;
   String _syncStatus = '尚未同步';
-  String get syncStatus => appStatusCopy(_syncStatus);
+  String get syncStatus => _deviceStatusCopy(_syncStatus);
   set syncStatus(String value) => _syncStatus = value;
   int deviceSyncReceivedRecords = 0;
   String _cloudSyncStatus = '尚未上传';
@@ -1608,7 +1630,7 @@ class AppController extends ChangeNotifier {
   int heartRateWarning = 120;
   bool heartRateWarningSupported = false;
   String _deviceSettingsStatus = '连接戒指后可读取';
-  String get deviceSettingsStatus => appStatusCopy(_deviceSettingsStatus);
+  String get deviceSettingsStatus => _deviceStatusCopy(_deviceSettingsStatus);
   set deviceSettingsStatus(String value) => _deviceSettingsStatus = value;
   HealthWarningSettings healthWarningSettings = const HealthWarningSettings();
   List<HealthWarningAlert> healthWarningAlerts = const [];
@@ -2895,7 +2917,7 @@ class AppController extends ChangeNotifier {
       if (!current()) return;
       if (!granted) {
         deviceScanIssue = DeviceScanIssue.permissionsRequired;
-        errorMessage = '允许相关权限后使用';
+        _setDiscoveryError('允许相关权限后使用');
         notifyListeners();
         return;
       }
@@ -2918,7 +2940,7 @@ class AppController extends ChangeNotifier {
     } on WearableSdkNotConfigured catch (_) {
       if (!current()) return;
       sdkStatus = '设备连接服务暂时不可用';
-      errorMessage = '此功能暂时无法使用，请稍后再试';
+      _setDiscoveryError('此功能暂时无法使用，请稍后再试');
       deviceMachine.transition(DeviceConnectionState.error);
     } on PlatformException catch (error) {
       if (!current()) return;
@@ -2929,11 +2951,11 @@ class AppController extends ChangeNotifier {
         'BLUETOOTH_PERMISSION_REQUIRED' => DeviceScanIssue.permissionsRequired,
         _ => null,
       };
-      errorMessage = _wearableErrorMessage(error, fallback: '暂时无法查找戒指');
+      _setDiscoveryError(_wearableErrorMessage(error, fallback: '暂时无法查找戒指'));
       deviceMachine.transition(DeviceConnectionState.error);
     } catch (_) {
       if (!current()) return;
-      errorMessage = '暂时无法查找戒指，请稍后重试';
+      _setDiscoveryError('暂时无法查找戒指，请稍后重试');
       deviceMachine.transition(DeviceConnectionState.error);
     }
     notifyListeners();
@@ -2955,7 +2977,7 @@ class AppController extends ChangeNotifier {
       if (!current()) return 0;
       if (!granted) {
         deviceScanIssue = DeviceScanIssue.permissionsRequired;
-        errorMessage = '允许相关权限后使用';
+        _setDiscoveryError('允许相关权限后使用');
         notifyListeners();
         return 0;
       }
@@ -2971,14 +2993,14 @@ class AppController extends ChangeNotifier {
       }
       sdkStatus = '设备连接服务可用';
       if (bonded.isEmpty && scannedDevices.isEmpty) {
-        errorMessage = '没有找到可恢复的戒指';
+        _setDiscoveryError('没有找到可恢复的戒指');
       }
       notifyListeners();
       return bonded.length;
     } on WearableSdkNotConfigured catch (_) {
       if (!current()) return 0;
       sdkStatus = '设备连接服务暂时不可用';
-      errorMessage = '此手机暂不支持读取可恢复的戒指';
+      _setDiscoveryError('此手机暂不支持读取可恢复的戒指');
     } on PlatformException catch (error) {
       if (!current()) return 0;
       deviceScanIssue = switch (error.code) {
@@ -2987,10 +3009,12 @@ class AppController extends ChangeNotifier {
         'BLUETOOTH_PERMISSION_REQUIRED' => DeviceScanIssue.permissionsRequired,
         _ => null,
       };
-      errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取可恢复的戒指');
+      _setDiscoveryError(
+        _wearableErrorMessage(error, fallback: '暂时无法读取可恢复的戒指'),
+      );
     } catch (_) {
       if (!current()) return 0;
-      errorMessage = '暂时无法读取可恢复的戒指，请稍后重试';
+      _setDiscoveryError('暂时无法读取可恢复的戒指，请稍后重试');
     }
     notifyListeners();
     return 0;
@@ -3053,6 +3077,7 @@ class AppController extends ChangeNotifier {
         workout.$1 == _sessionGeneration &&
         workout.$2 != device.id.toLowerCase()) {
       errorMessage = '请先结束当前运动，再连接其他戒指';
+      _errorUsesDeviceTerms = device.sdkSource == WearableSdkSource.urion;
       notifyListeners();
       return;
     }
@@ -3226,6 +3251,9 @@ class AppController extends ChangeNotifier {
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = '连接失败，请将戒指靠近手机后重试';
       deviceMachine.transition(DeviceConnectionState.error);
+    }
+    if (_errorMessage != null) {
+      _errorUsesDeviceTerms = device.sdkSource == WearableSdkSource.urion;
     }
     notifyListeners();
   }
@@ -4657,7 +4685,7 @@ class AppController extends ChangeNotifier {
     if (current == null) return false;
     if (bridge is! WearableDeviceDetailsBridge) return true;
     if (_deviceDetailsRefreshing) return true;
-    if (_syncing ||
+    if (_activeCloudSync != null ||
         _firstRingBindingPending ||
         isDeviceHistorySyncing ||
         _activeMeasurementMetric != null ||
@@ -4725,6 +4753,7 @@ class AppController extends ChangeNotifier {
   }
 
   void _cancelMeasurementWait() {
+    measurementAwaitingResult = false;
     _measurementTimeout?.cancel();
     _measurementTimeout = null;
     final cancellation = _measurementStartCancellation;
@@ -5134,12 +5163,19 @@ class AppController extends ChangeNotifier {
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
     _measurementTimeout = null;
-    measurementErrorMessage = '长时间未检测到有效结果，请确认戒指已贴合手指后重新测量';
+    measurementErrorMessage =
+        connectedDevice?.sdkSource == WearableSdkSource.urion
+        ? '未收到新的测量结果，请先确认手表已结束测量'
+        : '长时间未检测到有效结果，请确认戒指已贴合手指后重新测量';
     errorMessage = measurementErrorMessage;
     if (deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
     }
-    final stopping = _stopNativeMeasurement(metric);
+    final stopping =
+        connectedDevice?.sdkSource == WearableSdkSource.urion &&
+            capabilities?.supportsStopMeasurement(metric) == false
+        ? null
+        : _stopNativeMeasurement(metric);
     notifyListeners();
     try {
       await stopping;
@@ -6378,7 +6414,14 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> synchronizeCloud() async {
-    if (_syncing || _disposed || _accountTransitioning) return;
+    if (_disposed || _accountTransitioning) return;
+    // 自动补传与测量完成可能同时请求同步；后来的调用必须等待同一轮
+    // 真正结束，不能提前返回成功，也不能再启动一份上传任务。
+    final active = _activeCloudSync;
+    if (active != null) {
+      await active;
+      return;
+    }
     if (session == null) {
       cloudSyncStatus = '未登录，数据仅保存在本机';
       if (!_disposed) notifyListeners();
@@ -6388,19 +6431,38 @@ class AppController extends ChangeNotifier {
     final completion = Completer<void>();
     final activeFuture = completion.future;
     _activeCloudSync = activeFuture;
-    _syncing = true;
     try {
       final result = await _syncService.synchronizeNow(
         isCurrent: () =>
             !_accountTransitioning && _isCurrentSessionGeneration(generation),
       );
-      if (!_isCurrentSessionGeneration(generation)) return;
+      if (_accountTransitioning || !_isCurrentSessionGeneration(generation)) {
+        return;
+      }
       var downloaded = 0;
       final api = _api;
       if (api is CloudHealthRecordReader) {
         final reader = api as CloudHealthRecordReader;
         try {
-          downloaded = await _pullCloudHealthRecords(reader, generation);
+          try {
+            downloaded = await _pullCloudHealthRecords(reader, generation);
+          } on ApiException catch (error) {
+            // 启动时配置刷新可能撤销正在读取的旧许可。只按当前许可重新
+            // 读一次，不重传、不放宽授权；换号、退出或普通接口错误不重试。
+            if (error.code != 'HEALTH_POLICY_CHANGED' ||
+                _accountTransitioning ||
+                !_isCurrentSessionGeneration(generation)) {
+              rethrow;
+            }
+            // 戒指与U19许可依次加载。先等待整轮刷新及原生确认完成，
+            // 避免第二次读取又撞上后半轮配置变化；这不会写手表设置。
+            await refreshReadOnlyHealthFeatures();
+            if (_accountTransitioning ||
+                !_isCurrentSessionGeneration(generation)) {
+              return;
+            }
+            downloaded = await _pullCloudHealthRecords(reader, generation);
+          }
         } on ApiException catch (error) {
           if (!_isCurrentSessionGeneration(generation)) return;
           cloudSyncStatus = result.uploaded > 0
@@ -6415,7 +6477,6 @@ class AppController extends ChangeNotifier {
       if (!_isCurrentSessionGeneration(generation)) return;
       cloudSyncStatus = _apiErrorMessage(error, fallback: '数据上传失败，请稍后重试');
     } finally {
-      _syncing = false;
       if (!completion.isCompleted) completion.complete();
       if (identical(_activeCloudSync, activeFuture)) {
         _activeCloudSync = null;
@@ -6432,9 +6493,13 @@ class AppController extends ChangeNotifier {
     final cursors = <String>{};
     var received = 0;
     for (var pageNumber = 0; pageNumber < 100; pageNumber++) {
-      if (!_isCurrentSessionGeneration(generation)) return received;
+      if (_accountTransitioning || !_isCurrentSessionGeneration(generation)) {
+        return received;
+      }
       final page = await reader.getCloudHealthRecords(before: before);
-      if (!_isCurrentSessionGeneration(generation)) return received;
+      if (_accountTransitioning || !_isCurrentSessionGeneration(generation)) {
+        return received;
+      }
       final records = _releaseRecords(page.records).toList();
       await _healthStore.upsertSynced(records);
       if (!_isCurrentSessionGeneration(generation)) return received;
@@ -8753,6 +8818,7 @@ class AppController extends ChangeNotifier {
       'BLOOD_PRESSURE_WEAR_CHECK_FAILED',
       'BLOOD_PRESSURE_LOW_BATTERY',
       'BLOOD_PRESSURE_DEVICE_BUSY',
+      'BLOOD_PRESSURE_RESULT_MISSING',
       'OXYGEN_UNSUPPORTED',
       'OXYGEN_NOT_WORN',
       'OXYGEN_DEVICE_BUSY',
@@ -8824,6 +8890,18 @@ class AppController extends ChangeNotifier {
       }
     }
     final eventDeviceId = payload['deviceId']?.toString();
+    // 同一手表的旧完成/失败回调也不能结束新一轮等待。
+    if (connectedDevice?.sdkSource == WearableSdkSource.urion &&
+        payload.containsKey('measurementStartedAt')) {
+      final started = DateTime.tryParse('${payload['measurementStartedAt']}');
+      final active = _measurementStartedAt;
+      if (started == null ||
+          active == null ||
+          started.isBefore(active.subtract(const Duration(seconds: 2))) ||
+          started.isAfter(DateTime.now().add(const Duration(seconds: 2)))) {
+        return false;
+      }
+    }
     String nativeId(String value) => value
         .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear|qring):'), '')
         .toLowerCase();
@@ -8851,6 +8929,7 @@ class AppController extends ChangeNotifier {
       'DEVICE_SETTINGS_NOT_CONFIGURED' ||
       'SPORT_NOT_CONFIGURED' => '当前戒指暂不支持由 App 发起此操作',
       'SDK_NOT_CONFIGURED' => '此功能暂时无法使用，请稍后再试',
+      'BLOOD_PRESSURE_RESULT_MISSING' => '手表已测完，暂未取回结果，请同步数据重试',
       'CONNECT_FAILED' || 'CONNECTION_DROPPED' => '连接失败，请确认戒指未连接其他手机后重试',
       'YUCHENG_SYNC_TIMEOUT' => '数据同步超时，可稍后重试',
       'NETWORK_ERROR' || 'NETWORK_UNAVAILABLE' => '网络不可用，请检查后重试',
@@ -9103,6 +9182,10 @@ class AppController extends ChangeNotifier {
         return;
       }
       if (_activeMeasurementMetric == metric) {
+        if (connectedDevice?.sdkSource == WearableSdkSource.urion &&
+            event.payload['deviceState'] == 'READING_RESULT') {
+          measurementAwaitingResult = true;
+        }
         measurementProgress =
             (event.payload['progress'] as num?)
                 ?.toInt()

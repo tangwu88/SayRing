@@ -272,6 +272,102 @@ void main() {
   );
 
   test(
+    'BP empty primary history falls back to the documented reverse query',
+    () async {
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      watch.now = watch.now.add(const Duration(seconds: 40));
+      watch.reverseHistory = [_bp(watch.now, systolic: 126)];
+      final first = watch.writes.length;
+      await watch.emit(Eb1Frame.request(0x33));
+      await _flush();
+      expect(watch.records, hasLength(1));
+      expect(
+        HealthRecord.fromJson(watch.records.single.payload).values['systolic'],
+        126,
+      );
+      expect(
+        watch.writes.skip(first).map((e) => e.$2.command),
+        everyElement(0x14),
+      );
+      expect(watch.writes.skip(first).map((e) => e.$2[5]), [0, 1]);
+    },
+  );
+
+  test(
+    'BP completion without a returned result ends with one bounded failure',
+    () async {
+      await watch.dispose();
+      watch = _Watch(completedResultTimeout: const Duration(milliseconds: 45));
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      watch.now = watch.now.add(const Duration(seconds: 40));
+      await watch.emit(Eb1Frame.request(0x33));
+      await _flush();
+      expect(
+        watch.events.where(
+          (e) =>
+              e.type == 'measurementProgress' &&
+              e.payload['deviceState'] == 'READING_RESULT',
+        ),
+        hasLength(1),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+      await watch.emit(Eb1Frame.request(0x33));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      final errors = watch.events.where((e) => e.type == 'error');
+      expect(errors, hasLength(1));
+      expect(errors.single.payload['code'], 'BLOOD_PRESSURE_RESULT_MISSING');
+      expect(errors.single.payload['deviceId'], 'urion:watch-a');
+      expect(watch.records, isEmpty);
+      // 完成通知已证明物理测量结束。失败终态不应让下一轮永久被旧标记挡住。
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      await _flush();
+      expect(watch.events.where((e) => e.type == 'error'), hasLength(1));
+      expect(watch.writes.where((e) => e.$2.command == 0x32), hasLength(2));
+    },
+  );
+
+  test(
+    'BP wait timeout is reported but does not silently permit reinflation',
+    () async {
+      await watch.dispose();
+      watch = _Watch(resultPollInterval: const Duration(milliseconds: 10));
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      watch.now = watch.now.add(const Duration(seconds: 151));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(
+        watch.events.where(
+          (e) =>
+              e.type == 'error' && e.payload['code'] == 'MEASUREMENT_TIMEOUT',
+        ),
+        hasLength(1),
+      );
+      expect(watch.records, isEmpty);
+      await expectLater(
+        watch.bridge.startMeasurement(HealthMetric.bloodPressure),
+        throwsA(
+          isA<PlatformException>().having(
+            (e) => e.code,
+            'code',
+            'MEASUREMENT_IN_PROGRESS',
+          ),
+        ),
+      );
+      final reads = watch.bpReads;
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+      expect(watch.bpReads, reads);
+      // 迟到的完成通知只释放旧物理测量屏障，不能冒充新的手动结果。
+      await watch.emit(Eb1Frame.request(0x33));
+      await _flush();
+      expect(watch.records, isEmpty);
+      await watch.bridge.startMeasurement(HealthMetric.bloodPressure);
+      expect(watch.writes.where((e) => e.$2.command == 0x32), hasLength(2));
+    },
+  );
+
+  test(
     'clock-mismatched and multiple new BP records cannot become a measurement',
     () async {
       await watch.connectAndReadCapabilities();
@@ -699,7 +795,10 @@ Eb1Frame _bp(DateTime instant, {int systolic = 120}) {
 }
 
 class _Watch {
-  _Watch() {
+  _Watch({
+    Duration resultPollInterval = const Duration(seconds: 6),
+    Duration completedResultTimeout = const Duration(seconds: 24),
+  }) {
     messenger.setMockMethodCallHandler(methods, _method);
     messenger.setMockMethodCallHandler(
       const MethodChannel('test/u19-session-events'),
@@ -721,6 +820,8 @@ class _Watch {
       methods: methods,
       eventChannel: eventChannel,
       requestTimeout: const Duration(seconds: 1),
+      resultPollInterval: resultPollInterval,
+      completedResultTimeout: completedResultTimeout,
       now: () => now,
     );
     subscription = bridge.events.listen(events.add);
@@ -737,6 +838,7 @@ class _Watch {
   int generation = 0;
   int bpReads = 0;
   List<Eb1Frame> history = [];
+  List<Eb1Frame>? reverseHistory;
   List<Eb1Frame> pulseHistory = [];
   List<int>? heartValues;
   List<int>? oxygenValues;
@@ -802,8 +904,9 @@ class _Watch {
           historyGateTaken = true;
           await gate.future;
         }
-        replies.addAll(history.take(request[6]));
-        if (history.length < request[6]) {
+        final selected = request[5] == 1 ? reverseHistory ?? history : history;
+        replies.addAll(selected.take(request[6]));
+        if (selected.length < request[6]) {
           replies.add(Eb1Frame.request(0x14, [255, 255, 255, 255]));
         }
       case 0x34:

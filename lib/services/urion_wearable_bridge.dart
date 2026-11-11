@@ -30,6 +30,8 @@ class UrionWearableBridge
     EventChannel? eventChannel,
     this.requestTimeout = const Duration(seconds: 8),
     this.connectTimeout = const Duration(seconds: 30),
+    this.resultPollInterval = const Duration(seconds: 6),
+    this.completedResultTimeout = const Duration(seconds: 24),
     DateTime Function()? now,
   }) : _methods = methods ?? const MethodChannel('cc.saidian/urion_methods'),
        _now = now ?? DateTime.now,
@@ -47,10 +49,13 @@ class UrionWearableBridge
       healthPolicy?.forDevice("urion:${_deviceId ?? ''}");
   final Set<int> _quarantinedCommands = {};
   Timer? _resultPoll;
+  Timer? _bloodPressureResultLimit;
   Set<HealthMetric> _nativeReads = const {};
   Set<HealthMetric> _nativeManual = const {};
   final Duration requestTimeout;
   final Duration connectTimeout;
+  final Duration resultPollInterval;
+  final Duration completedResultTimeout;
   final DateTime Function() _now;
   final SerialOperationQueue _queue = SerialOperationQueue();
   final FlutterSecureStorage _languageStorage = safeSecureStorage;
@@ -127,6 +132,7 @@ class UrionWearableBridge
 
   Future<void> dispose() async {
     _resultPoll?.cancel();
+    _bloodPressureResultLimit?.cancel();
     await _subscription.cancel();
     await _events.close();
   }
@@ -208,7 +214,7 @@ class UrionWearableBridge
           if (_measurement == null) {
             _watchBloodPressureNoticeAt = _now().toUtc();
           } else {
-            _scheduleMeasurementRead();
+            _scheduleMeasurementRead(completed: frame.command == 0x33);
           }
         }
         if (frame.command == 0x73 && (frame[1] == 1 || frame[1] == 3)) {
@@ -251,6 +257,8 @@ class UrionWearableBridge
   void _retireSession() {
     _resultPoll?.cancel();
     _resultPoll = null;
+    _bloodPressureResultLimit?.cancel();
+    _bloodPressureResultLimit = null;
     _session++;
     _pending?.fail(
       PlatformException(code: 'DEVICE_DISCONNECTED', message: '手表已断开连接'),
@@ -919,11 +927,24 @@ class UrionWearableBridge
   Future<List<Eb1BloodPressureSample>> _readBloodPressure({
     int count = 50,
   }) async {
-    final frames = await _exchange(0x14, [0, 0, 0, 0, 0, count], count);
-    return frames
-        .map(Eb1BloodPressureSample.parse)
-        .whereType<Eb1BloodPressureSample>()
-        .toList(growable: false);
+    // 原厂协议：时间戳为零时，两个回溯方向都表示取最新记录。
+    // 仅在主请求明确返回空历史时补读一次；超时/拒绝不得绕过会话隔离重发。
+    for (final direction in [0, 1]) {
+      final frames = await _exchange(0x14, [
+        0,
+        0,
+        0,
+        0,
+        direction,
+        count,
+      ], count);
+      final samples = frames
+          .map(Eb1BloodPressureSample.parse)
+          .whereType<Eb1BloodPressureSample>()
+          .toList(growable: false);
+      if (samples.isNotEmpty) return samples;
+    }
+    return const [];
   }
 
   Future<List<Eb1PulseSample>> _readPulse({int count = 50}) async {
@@ -1037,14 +1058,19 @@ class UrionWearableBridge
     _resultPoll?.cancel();
     final session = _session;
     final started = _now();
-    _resultPoll = Timer.periodic(const Duration(seconds: 6), (timer) {
+    _resultPoll = Timer.periodic(resultPollInterval, (timer) {
       if (session != _session ||
           _deviceId == null ||
-          _now().difference(started) >= const Duration(seconds: 150) ||
           (_measurement == null &&
               _spotMeasurement == null &&
               _pulseMeasurement == null)) {
         timer.cancel();
+        return;
+      }
+      if (_now().difference(started) >= const Duration(seconds: 150)) {
+        timer.cancel();
+        final pressure = _measurement;
+        if (pressure != null) _finishBloodPressureWait(pressure);
         return;
       }
       // 固件可能漏发完成通知。补读仍必须通过新指纹与实际测量时窗验证，不能用 ACK 或旧历史结束等待。
@@ -1222,12 +1248,71 @@ class UrionWearableBridge
             .toIso8601String(),
   };
 
-  void _scheduleMeasurementRead() {
+  void _finishBloodPressureWait(_Eb1Measurement measurement) {
+    if (!identical(_measurement, measurement) ||
+        measurement.session != _session ||
+        measurement.deviceId != _deviceId ||
+        measurement.waitExpired) {
+      return;
+    }
+    measurement.waitExpired = true;
+    _bloodPressureResultLimit?.cancel();
+    _bloodPressureResultLimit = null;
+    _resultPoll?.cancel();
+    _resultPoll = null;
+    // 0x33证明测量已经结束；它不含读数，不能当作血压结果。
+    // 未收到完成通知时保留物理测量屏障，须本人确认空闲后才可再次充气。
+    if (measurement.completed) _measurement = null;
+    _events.add(
+      WearableEvent(
+        type: 'error',
+        payload: {
+          'code': measurement.completed
+              ? 'BLOOD_PRESSURE_RESULT_MISSING'
+              : 'MEASUREMENT_TIMEOUT',
+          'metric': HealthMetric.bloodPressure.wireName,
+          'deviceId': 'urion:${measurement.deviceId}',
+          'measurementStartedAt': measurement.startedAt.toIso8601String(),
+          'message': measurement.completed
+              ? '手表已测完，暂未取回结果，请同步数据重试'
+              : '未收到新的血压结果，请先确认手表已结束测量',
+        },
+      ),
+    );
+  }
+
+  void _scheduleMeasurementRead({bool completed = false}) {
     final measurement = _measurement;
     if (measurement == null ||
         measurement.session != _session ||
         measurement.deviceId != _deviceId) {
       return;
+    }
+    if (measurement.waitExpired) {
+      // 迟到完成只释放旧屏障；后续历史同步不能恢复已结束的手测窗口。
+      if (completed) {
+        _measurement = null;
+        _watchBloodPressureNoticeAt = _now().toUtc();
+      }
+      return;
+    }
+    if (completed && !measurement.completed) {
+      measurement.completed = true;
+      _events.add(
+        WearableEvent(
+          type: 'measurementProgress',
+          payload: {
+            'metric': HealthMetric.bloodPressure.wireName,
+            'deviceId': 'urion:${measurement.deviceId}',
+            'measurementStartedAt': measurement.startedAt.toIso8601String(),
+            'deviceState': 'READING_RESULT',
+          },
+        ),
+      );
+      // 给固件落盘和补读留出有界窗口；重复通知不得延长等待或重新充气。
+      _bloodPressureResultLimit = Timer(completedResultTimeout, () {
+        _finishBloodPressureWait(measurement);
+      });
     }
     measurement.notices++;
     if (measurement.readQueued) return;
@@ -1235,12 +1320,14 @@ class UrionWearableBridge
     unawaited(
       _runConnected(() async {
         if (!identical(_measurement, measurement) ||
+            measurement.waitExpired ||
             !measurement.acknowledged) {
           return;
         }
         final notice = measurement.notices;
         final samples = await _readBloodPressure();
         if (!identical(_measurement, measurement) ||
+            measurement.waitExpired ||
             measurement.session != _session) {
           return;
         }
@@ -1280,6 +1367,10 @@ class UrionWearableBridge
             );
           }
           _measurement = null;
+          _bloodPressureResultLimit?.cancel();
+          _bloodPressureResultLimit = null;
+          _resultPoll?.cancel();
+          _resultPoll = null;
           _events.add(
             WearableEvent(
               type: 'healthRecord',
@@ -1547,6 +1638,8 @@ class UrionWearableBridge
         values['operation'] == 'confirmMeasurementIdle') {
       await _runConnected(() async {
         _measurement = null;
+        _bloodPressureResultLimit?.cancel();
+        _bloodPressureResultLimit = null;
         _spotMeasurement = null;
         _resultPoll?.cancel();
       });
@@ -1827,6 +1920,8 @@ class _Eb1Measurement {
   final DateTime startedAt;
   final Set<String> previous;
   bool acknowledged = false;
+  bool completed = false;
+  bool waitExpired = false;
   bool readQueued = false;
   int notices = 0;
 }

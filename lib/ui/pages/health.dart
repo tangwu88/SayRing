@@ -114,7 +114,12 @@ class HealthPage extends StatelessWidget {
                           ],
                         ),
                       ),
-                      subtitle: Text(context.l10n.calibrateOnWatchHint),
+                      subtitle: Text(
+                        devicePromptLabel(
+                          context,
+                          context.l10n.calibrateOnWatchHint,
+                        ),
+                      ),
                       trailing: const Icon(Icons.chevron_right_rounded),
                     ),
                   ],
@@ -375,7 +380,12 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
               widget.controller.connectedDevice?.sdkSource ==
               WearableSdkSource.urion;
           final waitingMessage = isU19
-              ? uiCopy(context, '请戴好手表，保持手臂静止，等待测量完成')
+              ? uiCopy(
+                  context,
+                  widget.controller.measurementAwaitingResult
+                      ? '手表已测完，正在获取结果'
+                      : '请戴好手表，保持手臂静止，等待测量完成',
+                )
               : !widget.controller.measurementWearConfirmed
               ? switch (widget.metric) {
                   HealthMetric.ecg => uiCopy(
@@ -441,7 +451,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                     isNew
                         ? '${_healthDisplayValue(record, widget.controller)} ${_healthDisplayUnit(widget.metric, record, widget.controller)}'
                         : failed
-                        ? failure
+                        ? (isU19 ? uiCopy(context, failure) : failure)
                         : waitingMessage,
                     textAlign: TextAlign.center,
                     style: TextStyle(
