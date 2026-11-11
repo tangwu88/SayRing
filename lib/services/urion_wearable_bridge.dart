@@ -939,7 +939,13 @@ class UrionWearableBridge
     }
     if (metric == HealthMetric.heartRate ||
         metric == HealthMetric.bloodOxygen) {
-      final before = await _readIndexed(metric);
+      final baselineAt = _now().toLocal();
+      final baselineDay = DateTime(
+        baselineAt.year,
+        baselineAt.month,
+        baselineAt.day,
+      );
+      final before = await _readIndexed(metric, localDay: baselineDay);
       final previous = before.hasNoData
           ? const <int>[]
           : before.decodeHourlyOrFiveMinuteValues(
@@ -949,6 +955,7 @@ class UrionWearableBridge
         session: _session,
         deviceId: _deviceId!,
         metric: metric,
+        baselineDay: baselineDay,
         startedAt: _now().toUtc(),
         previous: previous,
       );
@@ -1174,7 +1181,18 @@ class UrionWearableBridge
               !measurement.acknowledged) {
             return;
           }
-          final history = await _readIndexed(measurement.metric);
+          // 日索引属于请求的本地日期。跨午夜后不能拿昨天同一索引的
+          // 数值作为去重基线，也不能把当天任意旧时段的变化算作本次测量。
+          final requestedAt = _now().toLocal();
+          final requestedDay = DateTime(
+            requestedAt.year,
+            requestedAt.month,
+            requestedAt.day,
+          );
+          final history = await _readIndexed(
+            measurement.metric,
+            localDay: requestedDay,
+          );
           if (!identical(_spotMeasurement, measurement) ||
               measurement.session != _session ||
               history.hasNoData) {
@@ -1185,10 +1203,41 @@ class UrionWearableBridge
                 ? 5
                 : 60,
           );
+          final interval = measurement.metric == HealthMetric.heartRate
+              ? 5
+              : 60;
+          final startedLocal = measurement.baselineDay;
+          final sameBaselineDay =
+              requestedDay.year == startedLocal.year &&
+              requestedDay.month == startedLocal.month &&
+              requestedDay.day == startedLocal.day;
+          final endedAt = _now().toUtc();
           final changed = <int>[];
           for (var index = 0; index < values.length; index++) {
+            final slotStart = DateTime(
+              requestedDay.year,
+              requestedDay.month,
+              requestedDay.day,
+              0,
+              index * interval,
+            ).toUtc();
+            final slotEnd = DateTime(
+              requestedDay.year,
+              requestedDay.month,
+              requestedDay.day,
+              0,
+              (index + 1) * interval,
+            ).toUtc();
+            // 只接受与本次操作窗口相交的采样时段；旧历史、未来时段和
+            // 夏令时回拨导致的倒序区间不能冒充刚测出的值。
+            if (slotStart.isAfter(endedAt) ||
+                !slotEnd.isAfter(measurement.startedAt) ||
+                !slotEnd.isAfter(slotStart)) {
+              continue;
+            }
             final value = values[index];
-            if (index < measurement.previous.length &&
+            if (sameBaselineDay &&
+                index < measurement.previous.length &&
                 value == measurement.previous[index]) {
               continue;
             }
@@ -1914,7 +1963,11 @@ class UrionWearableBridge
         throw const FormatException('Invalid pulse action');
       }
       await _runConnected(() async {
-        if (_pulseMeasurement != null) {
+        // 三类测量共用同一个传感器操作槽；脉搏入口也必须遵守同样的
+        // 互斥约束，不能打断正在充气或等待结果的其他测量。
+        if (_pulseMeasurement != null ||
+            _measurement != null ||
+            _spotMeasurement != null) {
           throw PlatformException(
             code: 'MEASUREMENT_IN_PROGRESS',
             message: '请先在手表上结束本次测量',
@@ -2015,6 +2068,7 @@ class _Eb1SpotMeasurement {
     required this.session,
     required this.deviceId,
     required this.metric,
+    required this.baselineDay,
     required this.startedAt,
     required this.previous,
   });
@@ -2022,6 +2076,7 @@ class _Eb1SpotMeasurement {
   final int session;
   final String deviceId;
   final HealthMetric metric;
+  final DateTime baselineDay;
   final DateTime startedAt;
   final List<int> previous;
   bool acknowledged = false;

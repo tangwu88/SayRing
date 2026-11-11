@@ -801,7 +801,10 @@ void main() {
     await watch.bridge.startMeasurement(HealthMetric.heartRate);
     expect(watch.records, isEmpty);
     watch.now = watch.now.add(const Duration(seconds: 25));
-    watch.heartValues![72] = 74;
+    watch.heartValues![(watch.now.toLocal().hour * 60 +
+                watch.now.toLocal().minute) ~/
+            5] =
+        74;
     await watch.emit(Eb1Frame.request(0x73, [1]));
     await _until(() => watch.records.isNotEmpty);
     final record = HealthRecord.fromJson(watch.records.single.payload);
@@ -820,12 +823,102 @@ void main() {
     await watch.bridge.startMeasurement(HealthMetric.bloodOxygen);
     expect(watch.records, isEmpty);
     watch.now = watch.now.add(const Duration(seconds: 20));
-    watch.oxygenValues![8] = 98;
+    watch.oxygenValues![watch.now.toLocal().hour] = 98;
     await watch.emit(Eb1Frame.request(0x73, [3]));
     await _until(() => watch.records.isNotEmpty);
     final record = HealthRecord.fromJson(watch.records.single.payload);
     expect(record.metric, HealthMetric.bloodOxygen);
     expect(record.values['value'], 98);
+  });
+
+  for (final metric in [HealthMetric.heartRate, HealthMetric.bloodOxygen]) {
+    for (final future in [false, true]) {
+      test(
+        '$metric changed historical/future slot is not a fresh result ($future)',
+        () async {
+          watch.now = DateTime(2026, 9, 28, 12, 10).toUtc();
+          watch.heartValues = List.filled(288, 0);
+          watch.oxygenValues = List.filled(24, 0);
+          await watch.connectAndReadCapabilities();
+          await watch.bridge.startMeasurement(metric);
+          watch.now = watch.now.add(const Duration(seconds: 25));
+          final values = metric == HealthMetric.heartRate
+              ? watch.heartValues!
+              : watch.oxygenValues!;
+          values[future ? values.length - 1 : 0] =
+              metric == HealthMetric.heartRate ? 74 : 98;
+          await watch.emit(
+            Eb1Frame.request(0x73, [metric == HealthMetric.heartRate ? 1 : 3]),
+          );
+          await _flush();
+          expect(
+            watch.records,
+            isEmpty,
+            reason: 'A changed day slot must overlap this measurement window',
+          );
+        },
+      );
+    }
+    test('$metric midnight result compares against its own day', () async {
+      watch.now = DateTime(2026, 9, 28, 23, 59, 50).toUtc();
+      watch.heartValues = List.filled(288, 0)..[0] = 74;
+      watch.oxygenValues = List.filled(24, 0)..[0] = 98;
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(metric);
+      watch.now = watch.now.add(const Duration(seconds: 25));
+      await watch.emit(
+        Eb1Frame.request(0x73, [metric == HealthMetric.heartRate ? 1 : 3]),
+      );
+      await _flush();
+      expect(
+        watch.records,
+        hasLength(1),
+        reason:
+            'The same numeric value on a new day is distinct from the previous day',
+      );
+    });
+  }
+
+  for (final metric in [
+    HealthMetric.bloodPressure,
+    HealthMetric.heartRate,
+    HealthMetric.bloodOxygen,
+  ]) {
+    test('pulse start cannot overlap active $metric', () async {
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.startMeasurement(metric);
+      final writes = watch.writes.length;
+      await expectLater(
+        watch.bridge.writeDeviceFeature(DeviceFeature.u19Pulse, {
+          'operation': 'start',
+        }),
+        throwsA(
+          isA<PlatformException>().having(
+            (e) => e.code,
+            'code',
+            'MEASUREMENT_IN_PROGRESS',
+          ),
+        ),
+      );
+      expect(
+        watch.writes.length,
+        writes,
+        reason:
+            'Do not read or start another sensor while a measurement owns it',
+      );
+    });
+  }
+
+  test('baseline read spanning midnight retains its requested date', () async {
+    watch.now = DateTime(2026, 9, 28, 23, 59, 50).toUtc();
+    watch.heartValues = List.filled(288, 0)..[0] = 74;
+    await watch.connectAndReadCapabilities();
+    watch.indexedReadCompletesAt = watch.now.add(const Duration(seconds: 15));
+    await watch.bridge.startMeasurement(HealthMetric.heartRate);
+    watch.now = watch.now.add(const Duration(seconds: 25));
+    await watch.emit(Eb1Frame.request(0x73, [1]));
+    await _flush();
+    expect(watch.records, hasLength(1));
   });
 
   test('unverified five-packet oxygen never exposes a measurement', () async {
@@ -1128,6 +1221,7 @@ class _Watch {
   List<Eb1Frame>? reverseHistory;
   List<Eb1Frame> pulseHistory = [];
   List<int>? heartValues;
+  DateTime? indexedReadCompletesAt;
   List<int>? oxygenValues;
   bool oxygenFivePacket = false;
   List<int> schedule = [0, 8, 60, 60];
@@ -1207,6 +1301,10 @@ class _Watch {
           replies.add(Eb1Frame.request(0x34, [255, 255, 255, 255]));
         }
       case 0x15 || 0x2d:
+        if (indexedReadCompletesAt case final completed?) {
+          now = completed;
+          indexedReadCompletesAt = null;
+        }
         final values = request.command == 0x15 ? heartValues : oxygenValues;
         if (values == null) {
           replies.add(Eb1Frame.request(request.command, [255]));
