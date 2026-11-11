@@ -264,6 +264,9 @@ void main() {
       expect(record.origin, MeasurementOrigin.watchHistory);
       expect(record.id, isNotEmpty);
 
+      await watch.bridge.acknowledgeHealthRecords(
+        (received as WearableSyncResult).receipts,
+      );
       await watch.emit(Eb1Frame.request(0x73, [2]));
       final duplicate = await watch.bridge.syncHealthData();
       expect(
@@ -319,6 +322,9 @@ void main() {
         });
         expect(watch.autoMonitorState, 2);
         expect(watch.schedule, [0, 8, 60, 60]);
+        await watch.bridge.acknowledgeHealthRecords(
+          (records as WearableSyncResult).receipts,
+        );
         expect(
           (await watch.bridge.syncHealthData()).where(
             (r) => r.metric == HealthMetric.bloodPressure,
@@ -513,10 +519,133 @@ void main() {
       (received as WearableSyncResult).statuses[HealthMetric
           .bloodPressure
           .wireName],
-      'partial',
+      'time_unverified',
     );
     expect(received.complete, isFalse);
   });
+
+  test(
+    'empty latest BP reads fall back once to an explicit history bound',
+    () async {
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.syncHealthData();
+      watch.now = watch.now.add(const Duration(minutes: 1));
+      final measuredAt = watch.now;
+      watch.boundedBloodPressureHistory = [_bp(measuredAt, systolic: 128)];
+      watch.writes.clear();
+      final result = await watch.bridge.syncHealthData() as WearableSyncResult;
+      final requests = watch.writes
+          .where((entry) => entry.$2.command == 0x14)
+          .map((entry) => entry.$2)
+          .toList();
+      expect(requests, hasLength(3));
+      expect(requests.take(2).map((r) => eb1UnsignedLittle(r, 1, 4)), [0, 0]);
+      expect(requests.map((r) => r[5]), [0, 1, 1]);
+      expect(eb1UnsignedLittle(requests.last, 1, 4), greaterThan(0));
+      expect(requests.last[6], 50);
+      final bp = result.singleWhere(
+        (r) => r.metric == HealthMetric.bloodPressure,
+      );
+      expect(bp.measuredAt, measuredAt);
+      expect(bp.values, {'systolic': 128, 'diastolic': 80, 'pulse': 65});
+      expect(bp.origin, MeasurementOrigin.watchHistory);
+      expect(result.receipts[bp.id], isNotEmpty);
+      expect(watch.records, isEmpty);
+      expect(watch.writes.map((entry) => entry.$2.command).toSet(), {
+        0x07,
+        0x14,
+        0x15,
+        0x2d,
+      });
+    },
+  );
+
+  test('first sync can import a BP taken after capability probing', () async {
+    final old = _bp(watch.now.subtract(const Duration(days: 1)));
+    watch.history = [old];
+    await watch.connectAndReadCapabilities();
+    watch.now = watch.now.add(const Duration(minutes: 1));
+    watch.history = [_bp(watch.now, systolic: 128), old];
+    final records = await watch.bridge.syncHealthData();
+    final bp = records.singleWhere(
+      (r) => r.metric == HealthMetric.bloodPressure,
+    );
+    expect(bp.measuredAt, watch.now);
+    expect(bp.values['systolic'], 128);
+    expect(bp.origin, MeasurementOrigin.watchHistory);
+    expect(watch.records, isEmpty);
+  });
+
+  test('ordinary BP sync retries the same history until saved', () async {
+    await watch.connectAndReadCapabilities();
+    await watch.bridge.syncHealthData();
+    watch.now = watch.now.add(const Duration(minutes: 1));
+    watch.history = [_bp(watch.now)];
+    final first = await watch.bridge.syncHealthData() as WearableSyncResult;
+    expect(first.single.metric, HealthMetric.bloodPressure);
+    final retry = await watch.bridge.syncHealthData() as WearableSyncResult;
+    expect(retry.single.toJson(), first.single.toJson());
+    expect(retry.receipts, first.receipts);
+    await watch.bridge.acknowledgeHealthRecords(retry.receipts);
+    expect(await watch.bridge.syncHealthData(), isEmpty);
+    expect(watch.records, isEmpty);
+  });
+
+  test('sync distinguishes unprobed BP from an empty BP response', () async {
+    await watch.connect();
+    final skipped = await watch.bridge.syncHealthData() as WearableSyncResult;
+    expect(skipped.statuses['blood_pressure'], 'not_read');
+    expect(skipped.complete, isFalse);
+    expect(watch.bpReads, 0);
+    await watch.bridge.getCapabilities();
+    final empty = await watch.bridge.syncHealthData() as WearableSyncResult;
+    expect(empty.statuses['blood_pressure'], 'no_data');
+    expect(empty, isEmpty);
+  });
+
+  test(
+    'a failed BP history read preserves verified steps without retrying it',
+    () async {
+      await watch.dispose();
+      watch = _Watch(requestTimeout: const Duration(milliseconds: 35));
+      await watch.connectAndReadCapabilities();
+      watch.dailySteps = 42;
+      watch.dropBloodPressureReplies = true;
+      final reads = watch.bpReads;
+      final result = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(result.statuses['blood_pressure'], 'read_failed');
+      expect(result.complete, isFalse);
+      expect(result.single.metric, HealthMetric.steps);
+      expect(result.single.values['value'], 42);
+      expect(watch.bpReads, reads + 1);
+      final retry = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(retry.statuses['blood_pressure'], 'read_failed');
+      expect(
+        watch.bpReads,
+        reads + 1,
+        reason: 'Do not reuse a quarantined command',
+      );
+    },
+  );
+
+  test(
+    'an optional indexed timeout does not prevent BP history import',
+    () async {
+      await watch.dispose();
+      watch = _Watch(requestTimeout: const Duration(milliseconds: 35));
+      await watch.connectAndReadCapabilities();
+      await watch.bridge.syncHealthData();
+      watch.now = watch.now.add(const Duration(minutes: 1));
+      watch.history = [_bp(watch.now)];
+      watch.dropHeartHistoryReplies = true;
+      final result = await watch.bridge.syncHealthData() as WearableSyncResult;
+      expect(result.statuses['heart_rate'], 'partial');
+      expect(result.statuses['blood_pressure'], 'complete');
+      expect(result.single.metric, HealthMetric.bloodPressure);
+      expect(result.single.measuredAt, watch.now);
+      expect(result.receipts[result.single.id], isNotEmpty);
+    },
+  );
 
   test(
     'recovered BP remains retryable until durable storage acknowledges it',
@@ -1486,8 +1615,11 @@ class _Watch {
   bool dropBloodPressureReplies = false;
   bool bloodPressureReadAck = false;
   bool bloodPressureAckOnly = false;
+  bool dropHeartHistoryReplies = false;
+  int dailySteps = 0;
   List<Eb1Frame> history = [];
   List<Eb1Frame>? reverseHistory;
+  List<Eb1Frame>? boundedBloodPressureHistory;
   List<Eb1Frame> pulseHistory = [];
   List<int>? heartValues;
   DateTime? indexedReadCompletesAt;
@@ -1559,7 +1691,12 @@ class _Watch {
           historyGateTaken = true;
           await gate.future;
         }
-        final selected = request[5] == 1 ? reverseHistory ?? history : history;
+        final bound = eb1UnsignedLittle(request, 1, 4);
+        final selected = bound != 0
+            ? boundedBloodPressureHistory ?? const <Eb1Frame>[]
+            : request[5] == 1
+            ? reverseHistory ?? history
+            : history;
         replies.addAll(selected.take(request[6]));
         if (selected.length < request[6]) {
           replies.add(Eb1Frame.request(0x14, [255, 255, 255, 255]));
@@ -1570,6 +1707,7 @@ class _Watch {
           replies.add(Eb1Frame.request(0x34, [255, 255, 255, 255]));
         }
       case 0x15 || 0x2d:
+        if (request.command == 0x15 && dropHeartHistoryReplies) break;
         if (indexedReadCompletesAt case final completed?) {
           now = completed;
           indexedReadCompletesAt = null;
@@ -1609,6 +1747,7 @@ class _Watch {
               eb1EncodeBcd(today.year % 100),
               eb1EncodeBcd(today.month),
               eb1EncodeBcd(today.day),
+              if (index == 0) ...[0, 0, dailySteps],
             ]),
           );
         }

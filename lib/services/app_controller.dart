@@ -4099,10 +4099,20 @@ class AppController extends ChangeNotifier {
       // U19 的某项结果仍待补读，不妨碍其余已核验记录按原规则上报。
       // 只在本账号、本设备的记录持久化完成后排队；云端回执与设备
       // “是否全部读完”保持独立，不能借上传成功覆盖本次部分同步状态。
-      if (connectedDevice?.sdkSource == WearableSdkSource.urion &&
-          receivedRecords is WearableSyncResult &&
-          !receivedRecords.complete &&
-          records.isNotEmpty) {
+      final watchSync =
+          connectedDevice?.sdkSource == WearableSdkSource.urion &&
+              receivedRecords is WearableSyncResult
+          ? receivedRecords
+          : null;
+      final bloodPressureStatus =
+          watchSync?.statuses[HealthMetric.bloodPressure.wireName];
+      final bloodPressureIssue = switch (bloodPressureStatus) {
+        'not_read' || 'read_failed' => '本次未能读取血压，请重新连接手表后再试',
+        'time_unverified' => '血压记录的时间无法确认，请核对手表日期和时间',
+        'partial' => '血压记录尚未读完，可稍后再次同步',
+        _ => null,
+      };
+      if (watchSync?.complete == false && records.isNotEmpty) {
         unawaited(synchronizeCloud());
       }
       // History imports never create current physiological notifications.
@@ -4113,6 +4123,10 @@ class AppController extends ChangeNotifier {
       } else if (rejectedDevice) {
         syncStatus = records.isEmpty ? '未能确认数据来源' : '已更新 ${records.length} 条';
         _deviceSyncErrorMessage = '部分记录与当前戒指不匹配，请重新同步';
+        errorMessage = _deviceSyncErrorMessage;
+      } else if (bloodPressureIssue != null) {
+        syncStatus = bloodPressureIssue;
+        _deviceSyncErrorMessage = bloodPressureIssue;
         errorMessage = _deviceSyncErrorMessage;
       } else if (receivedRecords is WearableSyncResult &&
           receivedRecords.confirmedRanges &&
@@ -4140,7 +4154,9 @@ class AppController extends ChangeNotifier {
         }
         errorMessage = _deviceSyncErrorMessage;
       } else {
-        syncStatus = records.isEmpty
+        syncStatus = !initial && bloodPressureStatus == 'no_data'
+            ? '本次未从手表读到血压记录'
+            : records.isEmpty
             ? ''
             : recentOnly
             ? '近期数据已更新'

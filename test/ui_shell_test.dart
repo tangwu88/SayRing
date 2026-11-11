@@ -10,6 +10,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/read_only_health_features.dart';
+import 'package:saydian_app/domain/wearable_sync_result.dart';
 import 'package:saydian_app/domain/wellness_release_policy.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
@@ -519,6 +520,34 @@ void main() {
     expect(controller.syncStatus, isEmpty);
     expect(controller.errorMessage, isNull);
     expect(find.byType(SnackBar), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('U19 sync saves steps but reports an empty BP history', (
+    tester,
+  ) async {
+    final store = MemoryHealthStore();
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      store,
+      _U19ActivityWithoutPressure(),
+    )..connectedDevice = const DeviceInfo(id: 'urion:synthetic', name: 'U19M');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DevicePage(controller: controller)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('device-sync-data')));
+    await tester.pumpAndSettle();
+
+    expect((await store.recent()).single.values['value'], 42);
+    expect(find.text('本次未从手表读到血压记录'), findsOneWidget);
+    expect(find.text('数据同步完成'), findsNothing);
+    expect(controller.isDeviceHistorySyncing, isFalse);
     expect(tester.takeException(), isNull);
   });
 
@@ -6434,6 +6463,30 @@ class _NoopWearable implements WearableBridge {
 
   @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async => const [];
+}
+
+class _U19ActivityWithoutPressure extends _NoopWearable {
+  @override
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async =>
+      WearableSyncResult(
+        [
+          HealthRecord(
+            id: 'synthetic-watch-steps',
+            metric: HealthMetric.steps,
+            values: const {'value': 42},
+            unit: '步',
+            measuredAt: DateTime.now().toUtc(),
+            timezone: '+08:00',
+            deviceId: 'urion:synthetic',
+            firmwareVersion: '',
+            quality: 'valid',
+            source: MeasurementSource.wearable,
+            origin: MeasurementOrigin.watchHistory,
+            rawVersion: 1,
+          ),
+        ],
+        const {'steps': 'complete', 'blood_pressure': 'no_data'},
+      );
 }
 
 class _FindTrackingWearable extends _NoopWearable {

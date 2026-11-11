@@ -1249,6 +1249,14 @@ const legacyUiEnglish = <String, String>{
       "No payment order is created when data is insufficient. Wear your ring as usual, sync its data, then try again.",
   "数据同步失败，请将戒指靠近手机后重试": "Could not sync. Keep your ring nearby and try again.",
   "数据同步完成": "Data synced",
+  "本次未从手表读到血压记录": "No blood pressure records were received from the watch.",
+  "本次未能读取血压，请重新连接手表后再试":
+      "Could not read blood pressure. Reconnect the watch and try again.",
+  "血压记录的时间无法确认，请核对手表日期和时间":
+      "Could not confirm the reading times. Check the date and time on the watch.",
+  "血压记录尚未读完，可稍后再次同步":
+      "Blood pressure sync is incomplete. Try syncing again shortly.",
+  "已同步 {p0} 条": "Synced {p0} records",
   "数据同步完成后即可设置手势，请保持戒指靠近手机。":
       "Set gestures after data sync finishes. Keep your ring nearby.",
   "数据局限": "Data limitations",
