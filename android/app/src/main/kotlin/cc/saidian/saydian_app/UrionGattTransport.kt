@@ -52,6 +52,9 @@ internal class UrionGattTransport(private val context: Context) {
     private var discoveryRecoveryUsed = false
     private var softwareVersion: String? = null
     private var hardwareVersion: String? = null
+    private var deviceInfoDeadline: Runnable? = null
+    private var pendingDeviceInfo: UUID? = null
+    private var skipDeviceInfoForAttempt = false
     var eventListener: ((Map<String, Any?>) -> Unit)? = null
 
     private val serviceId = UUID.fromString("6e40fff0-b5a3-f393-e0a9-e50e24dcca9e")
@@ -342,12 +345,12 @@ internal class UrionGattTransport(private val context: Context) {
 
         override fun onDescriptorWrite(connection: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             handler.post {
-                if (connection !== gatt || descriptor.uuid != cccdId) return@post
+                if (connection !== gatt || descriptor.uuid != cccdId || pendingConnect == null) return@post
                 Log.d("U19GATT", "notifications status=$status")
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     failConnection(); return@post
                 }
-                readDeviceVersion(connection, firmwareId)
+                beginDeviceInfo(connection)
             }
         }
 
@@ -362,18 +365,7 @@ internal class UrionGattTransport(private val context: Context) {
         ) = onInfoRead(connection, characteristic.uuid, value, status)
 
         private fun onInfoRead(connection: BluetoothGatt, uuid: UUID, bytes: ByteArray, status: Int) {
-            val snapshot = bytes.copyOf()
-            handler.post {
-                if (connection !== gatt) return@post
-                Log.d("U19GATT", "device-info status=$status")
-                if (status == BluetoothGatt.GATT_SUCCESS) {
-                    val text = snapshot.toString(Charsets.UTF_8).trim('\u0000', ' ')
-                    if (uuid == firmwareId) softwareVersion = text.take(64)
-                    if (uuid == hardwareId) hardwareVersion = text.take(64)
-                }
-                if (uuid == firmwareId) readDeviceVersion(connection, hardwareId)
-                else completeConnection()
-            }
+            finishDeviceInfoRead(connection, uuid, bytes, status)
         }
 
         override fun onCharacteristicChanged(connection: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
@@ -409,9 +401,58 @@ internal class UrionGattTransport(private val context: Context) {
         }
     }
 
+    private fun beginDeviceInfo(connection: BluetoothGatt) {
+        if (connection !== gatt || pendingConnect == null || pendingDeviceInfo != null) return
+        if (skipDeviceInfoForAttempt) completeConnection()
+        else readDeviceVersion(connection, firmwareId)
+    }
+
+    private fun cancelDeviceInfoRead() {
+        deviceInfoDeadline?.let(handler::removeCallbacks)
+        deviceInfoDeadline = null
+        pendingDeviceInfo = null
+    }
+
+    private fun finishDeviceInfoRead(connection: BluetoothGatt, uuid: UUID, bytes: ByteArray, status: Int) {
+        val snapshot = bytes.copyOf()
+        handler.post {
+            if (connection !== gatt || pendingConnect == null || pendingDeviceInfo != uuid) return@post
+            cancelDeviceInfoRead()
+            Log.d("U19GATT", "device-info status=$status")
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                val text = snapshot.toString(Charsets.UTF_8).trim('\u0000', ' ')
+                if (uuid == firmwareId) softwareVersion = text.take(64)
+                if (uuid == hardwareId) hardwareVersion = text.take(64)
+            }
+            if (uuid == firmwareId) readDeviceVersion(connection, hardwareId)
+            else completeConnection()
+        }
+    }
+
     private fun readDeviceVersion(connection: BluetoothGatt, uuid: UUID) {
+        if (connection !== gatt || pendingConnect == null) return
+        cancelDeviceInfoRead()
         val characteristic = connection.getService(deviceInfoId)?.getCharacteristic(uuid)
-        if (characteristic == null || !connection.readCharacteristic(characteristic)) {
+        if (characteristic == null || characteristic.properties and BluetoothGattCharacteristic.PROPERTY_READ == 0) {
+            if (uuid == firmwareId) readDeviceVersion(connection, hardwareId)
+            else completeConnection()
+            return
+        }
+        pendingDeviceInfo = uuid
+        val request = pendingConnect
+        val deadline = Runnable {
+            if (connection === gatt && pendingConnect === request && pendingDeviceInfo == uuid) {
+                // The unanswered ATT read may still own Android's GATT queue.
+                // Close this client before retrying once without optional info;
+                // never announce readiness over an occupied queue.
+                cancelDeviceInfoRead()
+                recoverStalledDiscovery(connection)
+            }
+        }
+        deviceInfoDeadline = deadline
+        handler.postDelayed(deadline, 2000)
+        if (!connection.readCharacteristic(characteristic)) {
+            cancelDeviceInfoRead()
             if (uuid == firmwareId) readDeviceVersion(connection, hardwareId)
             else completeConnection()
         }
@@ -419,6 +460,7 @@ internal class UrionGattTransport(private val context: Context) {
 
     private fun completeConnection() {
         val completion = pendingConnect ?: return
+        cancelDeviceInfoRead()
         Log.d("U19GATT", "ready")
         connectDeadline?.let(handler::removeCallbacks)
         connectDeadline = null
@@ -432,7 +474,10 @@ internal class UrionGattTransport(private val context: Context) {
         val request = pendingConnect ?: return
         val requestGeneration = generation
         discoveryRecoveryUsed = true
-        Log.d("U19GATT", "service discovery stalled; replacing GATT client")
+        cancelDeviceInfoRead()
+        skipDeviceInfoForAttempt = true
+        writer = null
+        Log.d("U19GATT", "GATT preparation stalled; replacing client once")
         gatt = null
         connectionDrain.retire(connection)
         connectionDrain.whenDrained { closed ->
@@ -458,6 +503,8 @@ internal class UrionGattTransport(private val context: Context) {
     }
 
     fun closeConnection() {
+        cancelDeviceInfoRead()
+        skipDeviceInfoForAttempt = false
         connectDeadline?.let(handler::removeCallbacks)
         connectDeadline = null
         generation++

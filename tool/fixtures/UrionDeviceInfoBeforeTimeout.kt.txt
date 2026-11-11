@@ -1,0 +1,56 @@
+// Own production snapshot at 19d2655; baseline reproduction only.
+private fun onInfoRead(connection: BluetoothGatt, uuid: UUID, bytes: ByteArray, status: Int) {
+            val snapshot = bytes.copyOf()
+            handler.post {
+                if (connection !== gatt) return@post
+                Log.d("U19GATT", "device-info status=$status")
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    val text = snapshot.toString(Charsets.UTF_8).trim('\u0000', ' ')
+                    if (uuid == firmwareId) softwareVersion = text.take(64)
+                    if (uuid == hardwareId) hardwareVersion = text.take(64)
+                }
+                if (uuid == firmwareId) readDeviceVersion(connection, hardwareId)
+                else completeConnection()
+            }
+        }
+private fun readDeviceVersion(connection: BluetoothGatt, uuid: UUID) {
+        val characteristic = connection.getService(deviceInfoId)?.getCharacteristic(uuid)
+        if (characteristic == null || !connection.readCharacteristic(characteristic)) {
+            if (uuid == firmwareId) readDeviceVersion(connection, hardwareId)
+            else completeConnection()
+        }
+    }
+private fun completeConnection() {
+        val completion = pendingConnect ?: return
+        Log.d("U19GATT", "ready")
+        connectDeadline?.let(handler::removeCallbacks)
+        connectDeadline = null
+        pendingConnect = null
+        completion.success(mapOf("generation" to generation))
+        details()?.let { eventListener?.invoke(mapOf("type" to "deviceDetails", "payload" to (it + ("generation" to generation)))) }
+    }
+private fun recoverStalledDiscovery(connection: BluetoothGatt) {
+        if (discoveryRecoveryUsed) return
+        val request = pendingConnect ?: return
+        val requestGeneration = generation
+        discoveryRecoveryUsed = true
+        Log.d("U19GATT", "service discovery stalled; replacing GATT client")
+        gatt = null
+        connectionDrain.retire(connection)
+        connectionDrain.whenDrained { closed ->
+            if (pendingConnect !== request || generation != requestGeneration) return@whenDrained
+            if (!closed) {
+                failConnection()
+                return@whenDrained
+            }
+            try {
+                gatt = connection.device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+                if (gatt == null) failConnection()
+            } catch (_: Throwable) {
+                failConnection()
+            }
+        }
+    }
+private fun beginDeviceInfo(c: BluetoothGatt) { readDeviceVersion(c, firmwareId) }
+private fun cancelDeviceInfoRead() {}
+private fun finishDeviceInfoRead(c: BluetoothGatt, id: UUID, bytes: ByteArray, s: Int) { onInfoRead(c,id,bytes,s) }
