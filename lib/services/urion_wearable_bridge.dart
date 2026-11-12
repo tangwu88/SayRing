@@ -9,6 +9,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../domain/device_state_machine.dart';
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
+import '../domain/wearable_sync_result.dart';
 import '../domain/wellness_release_policy.dart';
 import '../domain/u19_health_features.dart';
 import 'safe_secure_storage.dart';
@@ -23,6 +24,7 @@ class UrionWearableBridge
         WearableDeviceDetailsBridge,
         WearableOwnedSystemTargetBridge,
         WearableRememberedDeviceSelectionBridge,
+        WearableHealthReceiptBridge,
         WearableU19HealthPolicyBridge {
   UrionWearableBridge({
     MethodChannel? methods,
@@ -81,8 +83,29 @@ class UrionWearableBridge
   final Set<String> _knownBloodPressureFingerprints = {};
   final Map<String, DateTime> _bloodPressureFirstSeenAt = {};
   DateTime? _bloodPressureHistoryCheckedAt;
+  int? _bloodPressureProbeLatestTimestamp;
   DateTime? _watchBloodPressureNoticeAt;
+  // 页面等待结束不等于设备历史已经落盘。只在当前连接中保存已确认
+  // 测完的原始窗口；后续同步补读，不恢复手测弹窗、不再次发起充气。
+  final List<_Eb1Measurement> _pendingBloodPressureResults = [];
+  final Map<String, HealthRecord> _pendingBloodPressureImports = {};
   bool _findSupported = true;
+
+  bool get _canReadBloodPressure =>
+      _policy?.allowsMetric(HealthMetric.bloodPressure) ?? true;
+  int? get _bloodPressurePolicyGeneration =>
+      healthPolicy?.u19Features?.generation;
+
+  // 保持掉线/换设备错误向上传递。只有本项读取失败时才继续其他指标。
+  static const _optionalHistoryErrors = {
+    'UNSUPPORTED_DEVICE',
+    'DEVICE_TIMEOUT',
+    'U19_COMMAND_UNAVAILABLE',
+    'U19_HEALTH_UNAVAILABLE',
+    'IOS_WELLNESS_SCOPE',
+    'DEVICE_REJECTED',
+    'WRITE_FAILED',
+  };
 
   String _languageKey(String id) =>
       'sayring_urion_time_language_${sha256.convert(utf8.encode(id))}';
@@ -108,6 +131,12 @@ class UrionWearableBridge
     }
     _nativeReads = Set.of(read);
     _nativeManual = Set.of(manual);
+    if (!read.contains(HealthMetric.bloodPressure)) {
+      _clearBloodPressureObservation();
+      _confirmedBloodPressureRecords.clear();
+      _pendingBloodPressureResults.clear();
+      _pendingBloodPressureImports.clear();
+    }
   }
 
   @override
@@ -276,16 +305,23 @@ class UrionWearableBridge
     _spotMeasurement = null;
     _pulseMeasurement = null;
     _dynamicPressure = null;
-    _bloodPressureTimeEncoding = null;
-    _bloodPressureVerifiedSince = null;
+    _clearBloodPressureObservation();
     _confirmedBloodPressureRecords.clear();
     _knownBloodPressureFingerprints.clear();
-    _bloodPressureFirstSeenAt.clear();
-    _bloodPressureHistoryCheckedAt = null;
-    _watchBloodPressureNoticeAt = null;
+    _pendingBloodPressureResults.clear();
+    _pendingBloodPressureImports.clear();
     _findSupported = true;
     _buffer.reset();
     _quarantinedCommands.clear();
+  }
+
+  void _clearBloodPressureObservation() {
+    _bloodPressureTimeEncoding = null;
+    _bloodPressureVerifiedSince = null;
+    _bloodPressureFirstSeenAt.clear();
+    _bloodPressureHistoryCheckedAt = null;
+    _bloodPressureProbeLatestTimestamp = null;
+    _watchBloodPressureNoticeAt = null;
   }
 
   Future<T> _runConnected<T>(Future<T> Function() operation) {
@@ -382,11 +418,8 @@ class UrionWearableBridge
   Future<void> _sendWatchTime(String language) async {
     // 明确校时后旧时间依据不再适用。已保存记录和已见指纹保留，
     // 后续同步重新建立观察窗口，不能把旧记录的时间改成今天。
-    _bloodPressureTimeEncoding = null;
-    _bloodPressureVerifiedSince = null;
-    _bloodPressureHistoryCheckedAt = null;
-    _watchBloodPressureNoticeAt = null;
-    _bloodPressureFirstSeenAt.clear();
+    _clearBloodPressureObservation();
+    _pendingBloodPressureResults.clear();
     final now = _now();
     final response = (await _exchange(0x01, [
       eb1EncodeBcd(now.year % 100),
@@ -527,24 +560,38 @@ class UrionWearableBridge
     final metrics = <HealthMetric>{};
     final features = <DeviceFeature>{};
     final manualMetrics = <HealthMetric>{};
+    final canProbePressure = _measurement?.resultReadReady != false;
     if (_findSupported) features.add(DeviceFeature.findWatch);
     try {
-      await _readBloodPressure(count: 1);
-      metrics.add(HealthMetric.bloodPressure);
-      manualMetrics.add(HealthMetric.bloodPressure);
-      if (kDebugMode) {
-        debugPrint('[U19Capability] BP history structure verified');
+      if (_canReadBloodPressure && canProbePressure) {
+        final policyGeneration = _bloodPressurePolicyGeneration;
+        final samples = await _readBloodPressure(count: 1);
+        if (_canReadBloodPressure &&
+            _bloodPressurePolicyGeneration == policyGeneration) {
+          if (_bloodPressureHistoryCheckedAt == null) {
+            // 探测也是真实的只读快照。它只证明之后新增的样本，
+            // 不为已存在的历史猜测时间；有旧值时保留它作为顺序边界。
+            _bloodPressureHistoryCheckedAt = _now().toUtc();
+            _bloodPressureProbeLatestTimestamp =
+                samples.firstOrNull?.rawTimestamp;
+            _knownBloodPressureFingerprints.addAll(
+              samples.map((sample) => sample.fingerprint),
+            );
+          }
+          metrics.add(HealthMetric.bloodPressure);
+          manualMetrics.add(HealthMetric.bloodPressure);
+          if (kDebugMode) {
+            debugPrint('[U19Capability] BP history structure verified');
+          }
+        }
       }
     } on PlatformException catch (error) {
-      if (!{
-        'UNSUPPORTED_DEVICE',
-        'DEVICE_TIMEOUT',
-        'U19_COMMAND_UNAVAILABLE',
-        'U19_HEALTH_UNAVAILABLE',
-      }.contains(error.code)) {
-        rethrow;
+      if (!_optionalHistoryErrors.contains(error.code)) rethrow;
+      if (kDebugMode) debugPrint('[U19Capability] BP history unavailable');
+    } on FormatException {
+      if (kDebugMode) {
+        debugPrint('[U19Capability] BP history layout unverified');
       }
-      if (kDebugMode) debugPrint('[U19Capability] BP history unsupported');
     }
     try {
       final daily = await _exchange(0x07, [0], 2);
@@ -671,7 +718,7 @@ class UrionWearableBridge
     }
     // Measurements require a safe history read. Find uses the confirmed EB1
     // channel's protocol support and is withdrawn on an unsupported response.
-    _capabilities = DeviceCapabilities(
+    final discovered = DeviceCapabilities(
       metrics: metrics,
       manualMetrics: manualMetrics,
       stoppableManualMetrics: const {},
@@ -679,7 +726,9 @@ class UrionWearableBridge
       features: features,
       integratedFeatures: features,
     );
-    return _capabilities!;
+    // 充气期间暂缓的能力探测，不缓存为“不支持”。
+    if (canProbePressure) _capabilities = discovered;
+    return discovered;
   });
 
   @override
@@ -775,6 +824,12 @@ class UrionWearableBridge
     }
 
     final result = <HealthRecord>[];
+    final statuses = <String, String>{
+      HealthMetric.steps.wireName: snapshot.steps > 0 ? 'complete' : 'no_data',
+      HealthMetric.sleep.wireName: snapshot.sleepMinutes > 0
+          ? 'complete'
+          : 'no_data',
+    };
     if (snapshot.steps > 0) {
       result.add(summary(HealthMetric.steps, snapshot.steps, '步'));
     }
@@ -793,38 +848,179 @@ class UrionWearableBridge
       try {
         final record = await _latestIndexedRecord(metric, snapshot.localDate);
         if (record != null) result.add(record);
+        statuses[metric.wireName] = record == null ? 'no_data' : 'complete';
       } on FormatException {
+        statuses[metric.wireName] = 'partial';
         if (kDebugMode) debugPrint('[U19Sync] indexed data quarantined');
+      } on PlatformException catch (error) {
+        if (!_optionalHistoryErrors.contains(error.code)) rethrow;
+        statuses[metric.wireName] = 'partial';
       }
     }
-    if (_capabilities?.metrics.contains(HealthMetric.bloodPressure) == true) {
-      final samples = await _readBloodPressure();
-      final now = _now().toUtc();
-      final previousCheck = _bloodPressureHistoryCheckedAt;
-      final noticeAt = _watchBloodPressureNoticeAt;
-      final unseen = samples
-          .where(
-            (sample) =>
-                !_knownBloodPressureFingerprints.contains(sample.fingerprint),
-          )
-          .toList(growable: false);
-      final watchNoticeCandidates =
-          <String, (Eb1BloodPressureSample, Eb1TimestampMatch)>{};
-      if (noticeAt != null &&
-          now.difference(noticeAt) <= const Duration(minutes: 5)) {
-        for (final sample in unseen) {
+    if (_canReadBloodPressure) {
+      final status = await _syncBloodPressureHistory();
+      // 许可可能在等待回包期间被撤销。此时不能返回暂存的记录。
+      if (_canReadBloodPressure) {
+        statuses[HealthMetric.bloodPressure.wireName] = status;
+        result.addAll(_pendingBloodPressureImports.values);
+        if (kDebugMode) debugPrint('[U19Sync] BP history: $status');
+      }
+    }
+    return WearableSyncResult(
+      result,
+      statuses,
+      receipts: {
+        for (final record in result)
+          if (_pendingBloodPressureImports.containsKey(record.id))
+            record.id: _bloodPressureReceipt(record.id),
+      },
+    );
+  });
+
+  Future<String> _syncBloodPressureHistory() async {
+    if (_capabilities?.supports(HealthMetric.bloodPressure) != true) {
+      return 'not_read';
+    }
+    // 充气时不要抢读历史，避免干扰当前测量并隔离后续的结果读取。
+    if (_measurement?.resultReadReady == false) return 'partial';
+    final policyGeneration = _bloodPressurePolicyGeneration;
+    final List<Eb1BloodPressureSample> samples;
+    try {
+      samples = await _readBloodPressure(boundedHistoryFallback: true);
+    } on PlatformException catch (error) {
+      if (!_optionalHistoryErrors.contains(error.code)) rethrow;
+      return 'read_failed';
+    } on FormatException {
+      return 'read_failed';
+    }
+    if (!_canReadBloodPressure ||
+        _bloodPressurePolicyGeneration != policyGeneration) {
+      return 'not_read';
+    }
+
+    final now = _now().toUtc();
+    final previousCheck = _bloodPressureHistoryCheckedAt;
+    final probeLatest = _bloodPressureProbeLatestTimestamp;
+    final noticeAt = _watchBloodPressureNoticeAt;
+    _recoverCompletedBloodPressure(samples);
+    final unseen = samples
+        .where(
+          (sample) =>
+              !_knownBloodPressureFingerprints.contains(sample.fingerprint) &&
+              !_confirmedBloodPressureRecords.containsKey(sample.fingerprint),
+        )
+        .toList(growable: false);
+    final watchNoticeCandidates =
+        <String, (Eb1BloodPressureSample, Eb1TimestampMatch)>{};
+    if (noticeAt != null &&
+        now.difference(noticeAt) <= const Duration(minutes: 5)) {
+      for (final sample in unseen) {
+        final proof = eb1MatchMeasurementTimestamp(
+          sample.rawTimestamp,
+          startedAt: noticeAt.subtract(const Duration(minutes: 5)),
+          endedAt: noticeAt,
+        );
+        if (proof != null) {
+          watchNoticeCandidates[sample.fingerprint] = (sample, proof);
+        }
+      }
+      // 通知可能排在一次历史回包之后。只补核对上一轮刚出现、尚未
+      // 导入的记录；重复通知不能重新解释更早的基线或已确认结果。
+      final noticeAlreadyMatched = samples.any(
+        (sample) =>
+            _confirmedBloodPressureRecords.containsKey(sample.fingerprint) &&
+            eb1MatchMeasurementTimestamp(
+                  sample.rawTimestamp,
+                  startedAt: noticeAt.subtract(const Duration(minutes: 5)),
+                  endedAt: noticeAt,
+                ) !=
+                null,
+      );
+      if (watchNoticeCandidates.isEmpty && !noticeAlreadyMatched) {
+        for (final sample in samples) {
+          final firstSeen = _bloodPressureFirstSeenAt[sample.fingerprint];
+          if (firstSeen == null ||
+              firstSeen != previousCheck ||
+              _confirmedBloodPressureRecords.containsKey(sample.fingerprint)) {
+            continue;
+          }
           final proof = eb1MatchMeasurementTimestamp(
             sample.rawTimestamp,
             startedAt: noticeAt.subtract(const Duration(minutes: 5)),
-            endedAt: noticeAt,
+            endedAt: firstSeen.isBefore(noticeAt) ? firstSeen : noticeAt,
           );
           if (proof != null) {
             watchNoticeCandidates[sample.fingerprint] = (sample, proof);
           }
         }
-        // 通知可能排在一次历史回包之后。只补核对上一轮刚出现、尚未
-        // 导入的记录；重复通知不能重新解释更早的基线或已确认结果。
-        final noticeAlreadyMatched = samples.any(
+      }
+    }
+    if (watchNoticeCandidates.length == 1) {
+      final (sample, proof) = watchNoticeCandidates.values.single;
+      _bloodPressureTimeEncoding ??= proof.encoding;
+      _bloodPressureVerifiedSince ??= DateTime.fromMillisecondsSinceEpoch(
+        (noticeAt!.millisecondsSinceEpoch ~/ 1000) * 1000,
+        isUtc: true,
+      ).subtract(const Duration(minutes: 5));
+      _queueBloodPressureHistory(sample, proof.measuredAt);
+    }
+    for (final sample in unseen) {
+      if (watchNoticeCandidates.length == 1 &&
+          sample.fingerprint == watchNoticeCandidates.keys.single) {
+        continue;
+      }
+      if (previousCheck == null ||
+          (probeLatest != null && sample.rawTimestamp <= probeLatest)) {
+        continue;
+      }
+      // 历史同步不要求收到实时测完通知。上一轮快照之后新增的样本，
+      // 若设备时间只有一种解释落在两次读取之间，就已有独立的时间依据。
+      // 这是 watchHistory，不发送手动测量完成事件，也不触发新读数提醒。
+      final incrementalProof = eb1MatchMeasurementTimestamp(
+        sample.rawTimestamp,
+        startedAt: previousCheck,
+        endedAt: now,
+      );
+      if (incrementalProof != null) {
+        _bloodPressureTimeEncoding ??= incrementalProof.encoding;
+        _bloodPressureVerifiedSince ??= previousCheck;
+        _queueBloodPressureHistory(sample, incrementalProof.measuredAt);
+        continue;
+      }
+      final encoding = _bloodPressureTimeEncoding;
+      final verifiedSince = _bloodPressureVerifiedSince;
+      if (encoding == null || verifiedSince == null) continue;
+      final measuredAt = eb1DecodeTimestamp(sample.rawTimestamp, encoding);
+      final lowerBound = previousCheck.subtract(const Duration(minutes: 2));
+      if (measuredAt.isBefore(lowerBound) ||
+          measuredAt.isBefore(verifiedSince) ||
+          measuredAt.isAfter(now)) {
+        continue;
+      }
+      _queueBloodPressureHistory(sample, measuredAt);
+    }
+    // “已看到”与“已导入”分开：保留基线防止旧值变成本次新测量，
+    // 同时保留最近一次出现时间，允许迟到通知补证，不永久丢掉刚读到的样本。
+    final visible = samples.map((sample) => sample.fingerprint).toSet();
+    _bloodPressureFirstSeenAt.removeWhere((key, _) => !visible.contains(key));
+    for (final fingerprint in visible) {
+      _bloodPressureFirstSeenAt.putIfAbsent(fingerprint, () => now);
+    }
+    _knownBloodPressureFingerprints.addAll(
+      samples.map((sample) => sample.fingerprint),
+    );
+    _bloodPressureHistoryCheckedAt = now;
+    _bloodPressureProbeLatestTimestamp = null;
+    // 空历史只说明本轮没有样本，不能抹掉已经收到的测完通知。
+    // 同样，收到但无法确认时间的记录不能被“同步完成”掩盖。
+    final unverified = samples.any(
+      (sample) =>
+          !_confirmedBloodPressureRecords.containsKey(sample.fingerprint),
+    );
+    final unresolvedNotice =
+        noticeAt != null &&
+        now.difference(noticeAt) <= const Duration(minutes: 5) &&
+        !samples.any(
           (sample) =>
               _confirmedBloodPressureRecords.containsKey(sample.fingerprint) &&
               eb1MatchMeasurementTimestamp(
@@ -834,95 +1030,77 @@ class UrionWearableBridge
                   ) !=
                   null,
         );
-        if (watchNoticeCandidates.isEmpty && !noticeAlreadyMatched) {
-          for (final sample in samples) {
-            final firstSeen = _bloodPressureFirstSeenAt[sample.fingerprint];
-            if (firstSeen == null ||
-                firstSeen != previousCheck ||
-                _confirmedBloodPressureRecords.containsKey(
-                  sample.fingerprint,
-                )) {
-              continue;
-            }
-            final proof = eb1MatchMeasurementTimestamp(
-              sample.rawTimestamp,
-              startedAt: noticeAt.subtract(const Duration(minutes: 5)),
-              endedAt: firstSeen.isBefore(noticeAt) ? firstSeen : noticeAt,
-            );
-            if (proof != null) {
-              watchNoticeCandidates[sample.fingerprint] = (sample, proof);
-            }
-          }
-        }
-      }
-      if (watchNoticeCandidates.length == 1) {
-        final (sample, proof) = watchNoticeCandidates.values.single;
-        _bloodPressureTimeEncoding ??= proof.encoding;
-        _bloodPressureVerifiedSince ??= DateTime.fromMillisecondsSinceEpoch(
-          (noticeAt!.millisecondsSinceEpoch ~/ 1000) * 1000,
-          isUtc: true,
-        ).subtract(const Duration(minutes: 5));
-        final record = _bloodPressureRecord(sample, proof.measuredAt);
-        result.add(record);
-        _confirmedBloodPressureRecords[sample.fingerprint] = record;
-      }
-      for (final sample in unseen) {
-        if (watchNoticeCandidates.length == 1 &&
-            sample.fingerprint == watchNoticeCandidates.keys.single) {
-          continue;
-        }
-        if (previousCheck == null) continue;
-        // 历史同步不要求收到实时测完通知。上一轮快照之后新增的样本，
-        // 若设备时间只有一种解释落在两次读取之间，就已有独立的时间依据。
-        // 这是 watchHistory，不发送手动测量完成事件，也不触发新读数提醒。
-        final incrementalProof = eb1MatchMeasurementTimestamp(
-          sample.rawTimestamp,
-          startedAt: previousCheck,
-          endedAt: now,
-        );
-        if (incrementalProof != null) {
-          _bloodPressureTimeEncoding ??= incrementalProof.encoding;
-          _bloodPressureVerifiedSince ??= previousCheck;
-          final record = _bloodPressureRecord(
-            sample,
-            incrementalProof.measuredAt,
-          );
-          result.add(record);
-          _confirmedBloodPressureRecords[sample.fingerprint] = record;
-          continue;
-        }
-        final encoding = _bloodPressureTimeEncoding;
-        final verifiedSince = _bloodPressureVerifiedSince;
-        if (encoding == null || verifiedSince == null) continue;
-        final measuredAt = eb1DecodeTimestamp(sample.rawTimestamp, encoding);
-        final lowerBound = previousCheck.subtract(const Duration(minutes: 2));
-        if (measuredAt.isBefore(lowerBound) ||
-            measuredAt.isBefore(verifiedSince) ||
-            measuredAt.isAfter(now)) {
-          continue;
-        }
-        final record = _bloodPressureRecord(sample, measuredAt);
-        result.add(record);
-        _confirmedBloodPressureRecords[sample.fingerprint] = record;
-      }
-      // “已看到”与“已导入”分开：保留基线防止旧值变成本次新测量，
-      // 同时保留最近一次出现时间，允许迟到通知补证，不永久丢掉刚读到的样本。
-      final visible = samples.map((sample) => sample.fingerprint).toSet();
-      _bloodPressureFirstSeenAt.removeWhere((key, _) => !visible.contains(key));
-      for (final fingerprint in visible) {
-        _bloodPressureFirstSeenAt.putIfAbsent(fingerprint, () => now);
-      }
-      _knownBloodPressureFingerprints.addAll(
-        samples.map((sample) => sample.fingerprint),
-      );
-      _bloodPressureHistoryCheckedAt = now;
-      if (noticeAt != null &&
-          now.difference(noticeAt) > const Duration(minutes: 5)) {
-        _watchBloodPressureNoticeAt = null;
+    if (noticeAt != null &&
+        now.difference(noticeAt) > const Duration(minutes: 5)) {
+      _watchBloodPressureNoticeAt = null;
+    }
+    if (_pendingBloodPressureResults.isNotEmpty || unresolvedNotice) {
+      return 'partial';
+    }
+    if (unverified) return 'time_unverified';
+    // 已经核实但未收到保存回执的记录仍会随本轮返回，即使表内回包暂空。
+    return samples.isEmpty && _pendingBloodPressureImports.isEmpty
+        ? 'no_data'
+        : 'complete';
+  }
+
+  void _queueBloodPressureHistory(
+    Eb1BloodPressureSample sample,
+    DateTime measuredAt,
+  ) {
+    final record = _bloodPressureRecord(sample, measuredAt);
+    _confirmedBloodPressureRecords[sample.fingerprint] = record;
+    // 读取成功与持久化分开。下次继续返回同一 ID、时间、数值，直到
+    // 收到当前连接的保存回执；不能因保存失败永久跳过已核实的数据。
+    _pendingBloodPressureImports[record.id] = record;
+  }
+
+  String _bloodPressureReceipt(String id) =>
+      sha256.convert(utf8.encode('$_session|$_deviceId|$id')).toString();
+
+  @override
+  Future<void> acknowledgeHealthRecords(Map<String, String> receipts) async {
+    // 控制器在本机加密存储成功后才回执。错误/迟到回执不能丢弃结果；
+    // 该回执只用于本连接的内存队列，不进入健康数据和服务器载荷。
+    for (final receipt in receipts.entries) {
+      if (receipt.value == _bloodPressureReceipt(receipt.key)) {
+        _pendingBloodPressureImports.remove(receipt.key);
       }
     }
-    return result;
-  });
+  }
+
+  void _recoverCompletedBloodPressure(List<Eb1BloodPressureSample> samples) {
+    _pendingBloodPressureResults.removeWhere((measurement) {
+      final completedAt = measurement.completedAt;
+      if (measurement.session != _session ||
+          measurement.deviceId != _deviceId ||
+          completedAt == null) {
+        return true;
+      }
+      final candidates =
+          <String, (Eb1BloodPressureSample, Eb1TimestampMatch)>{};
+      for (final sample in samples) {
+        if (measurement.previous.contains(sample.fingerprint)) continue;
+        final proof = eb1MatchMeasurementTimestamp(
+          sample.rawTimestamp,
+          startedAt: measurement.startedAt,
+          endedAt: completedAt,
+        );
+        if (proof != null) candidates[sample.fingerprint] = (sample, proof);
+      }
+      // 不用本轮读取时间扩展测量窗口；旧记录、窗口外读数及多个候选
+      // 都不能替代本次结果。空读取也不消耗这份补读依据。
+      if (candidates.length != 1) return false;
+      final (sample, proof) = candidates.values.single;
+      if (!_confirmedBloodPressureRecords.containsKey(sample.fingerprint)) {
+        _queueBloodPressureHistory(sample, proof.measuredAt);
+        _bloodPressureTimeEncoding ??= proof.encoding;
+        _bloodPressureVerifiedSince ??= measurement.startedAt;
+      }
+      // 仅进入普通历史保存/上传流程，绝不重新发出手测完成事件或提醒。
+      return true;
+    });
+  }
 
   @override
   Future<void> startMeasurement(HealthMetric metric) => _runConnected(() async {
@@ -939,7 +1117,13 @@ class UrionWearableBridge
     }
     if (metric == HealthMetric.heartRate ||
         metric == HealthMetric.bloodOxygen) {
-      final before = await _readIndexed(metric);
+      final baselineAt = _now().toLocal();
+      final baselineDay = DateTime(
+        baselineAt.year,
+        baselineAt.month,
+        baselineAt.day,
+      );
+      final before = await _readIndexed(metric, localDay: baselineDay);
       final previous = before.hasNoData
           ? const <int>[]
           : before.decodeHourlyOrFiveMinuteValues(
@@ -949,6 +1133,7 @@ class UrionWearableBridge
         session: _session,
         deviceId: _deviceId!,
         metric: metric,
+        baselineDay: baselineDay,
         startedAt: _now().toUtc(),
         previous: previous,
       );
@@ -996,25 +1181,49 @@ class UrionWearableBridge
 
   Future<List<Eb1BloodPressureSample>> _readBloodPressure({
     int count = 50,
+    bool boundedHistoryFallback = false,
   }) async {
-    // 原厂协议：时间戳为零时，两个回溯方向都表示取最新记录。
-    // 仅在主请求明确返回空历史时补读一次；超时/拒绝不得绕过会话隔离重发。
-    for (final direction in [0, 1]) {
+    Future<List<Eb1BloodPressureSample>> read(int cursor, int direction) async {
       final frames = await _exchange(0x14, [
-        0,
-        0,
-        0,
-        0,
+        cursor & 0xff,
+        (cursor >> 8) & 0xff,
+        (cursor >> 16) & 0xff,
+        (cursor >> 24) & 0xff,
         direction,
         count,
       ], count);
-      final samples = frames
+      return frames
           .map(Eb1BloodPressureSample.parse)
           .whereType<Eb1BloodPressureSample>()
           .toList(growable: false);
+    }
+
+    // 原厂协议：零游标的两个方向都表示取最新。收到明确的空历史
+    // 才能补读；超时、拒绝和畸形回包不能绕过会话隔离重发。
+    for (final direction in [0, 1]) {
+      final samples = await read(0, direction);
       if (samples.isNotEmpty) return samples;
     }
-    return const [];
+    if (!boundedHistoryFallback) return const [];
+
+    // 两次零游标都为空时，用文档支持的有界反向读取补试一次。
+    // 兼容设备用 UTC 或本地墙钟编码。这个上界只用于查询，
+    // 绝不能拿来修改样本时间或证明时间编码。
+    final local = _now().toLocal();
+    final wallClock = DateTime.utc(
+      local.year,
+      local.month,
+      local.day,
+      local.hour,
+      local.minute,
+      local.second,
+    );
+    final utcSeconds = local.millisecondsSinceEpoch ~/ 1000;
+    final wallSeconds = wallClock.millisecondsSinceEpoch ~/ 1000;
+    final upperBound =
+        (utcSeconds > wallSeconds ? utcSeconds : wallSeconds) + 1;
+    if (upperBound <= 0 || upperBound >= 0xffffffff) return const [];
+    return read(upperBound, 1);
   }
 
   Future<List<Eb1PulseSample>> _readPulse({int count = 50}) async {
@@ -1174,7 +1383,18 @@ class UrionWearableBridge
               !measurement.acknowledged) {
             return;
           }
-          final history = await _readIndexed(measurement.metric);
+          // 日索引属于请求的本地日期。跨午夜后不能拿昨天同一索引的
+          // 数值作为去重基线，也不能把当天任意旧时段的变化算作本次测量。
+          final requestedAt = _now().toLocal();
+          final requestedDay = DateTime(
+            requestedAt.year,
+            requestedAt.month,
+            requestedAt.day,
+          );
+          final history = await _readIndexed(
+            measurement.metric,
+            localDay: requestedDay,
+          );
           if (!identical(_spotMeasurement, measurement) ||
               measurement.session != _session ||
               history.hasNoData) {
@@ -1185,10 +1405,41 @@ class UrionWearableBridge
                 ? 5
                 : 60,
           );
+          final interval = measurement.metric == HealthMetric.heartRate
+              ? 5
+              : 60;
+          final startedLocal = measurement.baselineDay;
+          final sameBaselineDay =
+              requestedDay.year == startedLocal.year &&
+              requestedDay.month == startedLocal.month &&
+              requestedDay.day == startedLocal.day;
+          final endedAt = _now().toUtc();
           final changed = <int>[];
           for (var index = 0; index < values.length; index++) {
+            final slotStart = DateTime(
+              requestedDay.year,
+              requestedDay.month,
+              requestedDay.day,
+              0,
+              index * interval,
+            ).toUtc();
+            final slotEnd = DateTime(
+              requestedDay.year,
+              requestedDay.month,
+              requestedDay.day,
+              0,
+              (index + 1) * interval,
+            ).toUtc();
+            // 只接受与本次操作窗口相交的采样时段；旧历史、未来时段和
+            // 夏令时回拨导致的倒序区间不能冒充刚测出的值。
+            if (slotStart.isAfter(endedAt) ||
+                !slotEnd.isAfter(measurement.startedAt) ||
+                !slotEnd.isAfter(slotStart)) {
+              continue;
+            }
             final value = values[index];
-            if (index < measurement.previous.length &&
+            if (sameBaselineDay &&
+                index < measurement.previous.length &&
                 value == measurement.previous[index]) {
               continue;
             }
@@ -1334,7 +1585,12 @@ class UrionWearableBridge
     _resultPoll = null;
     // 0x33证明测量已经结束；它不含读数，不能当作血压结果。
     // 未收到完成通知时保留物理测量屏障，须本人确认空闲后才可再次充气。
-    if (measurement.completed) _measurement = null;
+    if (measurement.completed) {
+      if (measurement.acknowledged && measurement.completedAt != null) {
+        _pendingBloodPressureResults.add(measurement);
+      }
+      _measurement = null;
+    }
     _events.add(
       WearableEvent(
         type: 'error',
@@ -1375,6 +1631,7 @@ class UrionWearableBridge
     if (!measurement.resultReadReady) return;
     if (completed && !measurement.completed) {
       measurement.completed = true;
+      measurement.completedAt = _now().toUtc();
       _events.add(
         WearableEvent(
           type: 'measurementProgress',
@@ -1914,7 +2171,11 @@ class UrionWearableBridge
         throw const FormatException('Invalid pulse action');
       }
       await _runConnected(() async {
-        if (_pulseMeasurement != null) {
+        // 三类测量共用同一个传感器操作槽；脉搏入口也必须遵守同样的
+        // 互斥约束，不能打断正在充气或等待结果的其他测量。
+        if (_pulseMeasurement != null ||
+            _measurement != null ||
+            _spotMeasurement != null) {
           throw PlatformException(
             code: 'MEASUREMENT_IN_PROGRESS',
             message: '请先在手表上结束本次测量',
@@ -2004,6 +2265,7 @@ class _Eb1Measurement {
   final Set<String> previous;
   bool acknowledged = false;
   bool completed = false;
+  DateTime? completedAt;
   bool resultReadReady = false;
   bool waitExpired = false;
   bool readQueued = false;
@@ -2015,6 +2277,7 @@ class _Eb1SpotMeasurement {
     required this.session,
     required this.deviceId,
     required this.metric,
+    required this.baselineDay,
     required this.startedAt,
     required this.previous,
   });
@@ -2022,6 +2285,7 @@ class _Eb1SpotMeasurement {
   final int session;
   final String deviceId;
   final HealthMetric metric;
+  final DateTime baselineDay;
   final DateTime startedAt;
   final List<int> previous;
   bool acknowledged = false;

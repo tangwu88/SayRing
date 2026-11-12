@@ -162,8 +162,13 @@ class DevicePage extends StatelessWidget {
                                       controller.syncStatus.isEmpty) {
                                     return;
                                   }
+                                  final watch =
+                                      connected.sdkSource ==
+                                      WearableSdkSource.urion;
                                   final feedback = succeeded
-                                      ? context.l10n.syncComplete
+                                      ? watch
+                                            ? controller.syncStatus
+                                            : context.l10n.syncComplete
                                       : userFacingMessage(
                                           controller.errorMessage,
                                           fallback: devicePromptLabel(
@@ -172,7 +177,13 @@ class DevicePage extends StatelessWidget {
                                           ),
                                         );
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text(feedback)),
+                                    SnackBar(
+                                      content: Text(
+                                        watch
+                                            ? uiCopy(context, feedback)
+                                            : feedback,
+                                      ),
+                                    ),
                                   );
                                 },
                           style: FilledButton.styleFrom(
