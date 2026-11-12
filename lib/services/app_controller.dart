@@ -138,9 +138,12 @@ class AppController extends ChangeNotifier {
        _syncService = HealthSyncService(
          _healthStore,
          _api,
-         policy: wellnessOnly
-             ? const HealthCloudUploadPolicy()
-             : const WellnessReleasePolicy(),
+         // Cloud eligibility is shared across platforms and independent of
+         // display/manual leases. Filter before taking the first pending page:
+         // unsupported local metrics must not starve later valid readings.
+         policy: HealthCloudUploadPolicy(
+           preserveActivityPayload: !wellnessOnly,
+         ),
        ) {
     _notificationInboxRepository = StoredNotificationInboxRepository(
       _healthStore,
@@ -175,9 +178,9 @@ class AppController extends ChangeNotifier {
         vault,
         locale: () => GlobalLocaleController.instance.locale.toLanguageTag(),
         healthReleasePolicy: WellnessReleasePolicy(enabled: wellnessOnly),
-        healthUploadPolicyOverride: wellnessOnly
-            ? const HealthCloudUploadPolicy()
-            : null,
+        healthUploadPolicyOverride: HealthCloudUploadPolicy(
+          preserveActivityPayload: !wellnessOnly,
+        ),
         healthReadPolicyOverride: readPolicy,
         moduleVisibilityPlatform: modulePlatform,
       ),

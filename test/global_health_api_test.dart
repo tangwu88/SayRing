@@ -176,7 +176,10 @@ void main() {
         cursor: null,
         records: [
           _record('a'),
-          _record('b', metric: HealthMetric.bodyTemperature),
+          _record(
+            'b',
+            metric: HealthMetric.bodyTemperature,
+          ).copyWith(values: const {'value': 33.5}),
         ],
       );
       expect((await api.uploadHealthBatch(batch)).acceptedIds, {'a', 'b'});

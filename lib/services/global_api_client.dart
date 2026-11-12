@@ -308,7 +308,12 @@ class GlobalSaydianApiClient extends SaydianApiClient
   final WellnessReleasePolicy? healthUploadPolicyOverride;
   @override
   WellnessReleasePolicy get healthUploadPolicy =>
-      healthUploadPolicyOverride ?? healthReleasePolicy;
+      healthUploadPolicyOverride ??
+      // Retain an explicitly restricted legacy ceiling. Production supplies
+      // the approved cloud policy separately from display/manual permissions.
+      (healthReleasePolicy.enabled
+          ? healthReleasePolicy
+          : const HealthCloudUploadPolicy(preserveActivityPayload: true));
   final WellnessReleasePolicy? healthReadPolicyOverride;
   @override
   WellnessReleasePolicy get healthReadPolicy =>
