@@ -43,4 +43,5 @@
 - 交付APK仅为 `E:\SayRing-cloud-upload-fix-1303-20261112\final\SayRing-1.0.14-1303-release.apk`，74454129字节，SHA256 `9CF24B37EB62D5537DF10A0C2766036191D88D152F34529A567A135C10D5DD76`。`android/key.properties`已确认不存在，无签名材料/构建产物进入Git。
 - 既有两个32位SDK库仍为4KB ELF加载对齐，不把此修复包宣称为全部应用市场已批准。Windows未执行iOS Debug/Profile，未安装手机或取得客户R7 Pro的实测回执；本轮没有更新生产后台、数据库、下载配置或应用商店。
 - 新客户端会自动处理既有支持记录，未支持指标留在本机且不被假记为已上传。客户仍需升级后实测；未取得戒指数据或未完成初始化的其他情况，不能由本轮队列测试宣布恢复。首绑清空/ACK与账号隔离保护保持原规则。
+- 功能与上述日志提交 `ff25f4d4d4db23b2720b6d41de2ff9da83a4d783` 已成功推送 `origin/codex/u19s-android-connect-20261111`，独立 `git ls-remote` 读回相同SHA，工作树干净；APK来源与最终校验记录保存在 `final/release-metadata.json`。此条仅追加交付证据，不改变已验证源码或正式包。
 - 构建和检查日志在Git外 `E:\SayRing-cloud-upload-fix-1303-20261112`。新包规划1.0.14(1303)，不混用分支内现有两个不同的1302产物。
