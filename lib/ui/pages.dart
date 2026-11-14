@@ -45,6 +45,7 @@ import 'home_health_cards_page.dart';
 import 'prototype_pages.dart';
 import 'shop_pages.dart';
 import 'sleep_detail_widgets.dart';
+import 'sync_diagnostics_page.dart';
 import 'watch_face_market_page.dart';
 
 import 'pages/content.dart';

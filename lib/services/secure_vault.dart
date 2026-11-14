@@ -108,12 +108,18 @@ _decodeRingInitialization(String raw) {
   return (stage: stage, operationId: value['operationId'] as String);
 }
 
+abstract interface class SyncDiagnosticsVault {
+  Future<Map<String, Object?>?> readSyncDiagnostics(String owner);
+  Future<void> writeSyncDiagnostics(String owner, Map<String, Object?> value);
+}
+
 class SecureSessionVault
     implements
         SessionVault,
         SayRingAppDisplayVault,
         HomeHealthCardsVault,
         RingInitializationVault,
+        SyncDiagnosticsVault,
         RingInitializationOperationVault {
   SecureSessionVault([FlutterSecureStorage? storage])
     : storageNamespace = null,
@@ -125,6 +131,19 @@ class SecureSessionVault
        _storage = storage ?? safeSecureStorage;
 
   final String? storageNamespace;
+  String _syncDiagnosticKey(String owner) =>
+      '$_prefix.sync-diagnostics.v1.${sha256.convert(utf8.encode(owner))}';
+  @override
+  Future<Map<String, Object?>?> readSyncDiagnostics(String owner) async {
+    final raw = await _storage.read(key: _syncDiagnosticKey(owner));
+    if (raw == null) return null;
+    final value = jsonDecode(raw);
+    return value is Map ? value.map((k, v) => MapEntry('$k', v)) : null;
+  }
+
+  @override
+  Future<void> writeSyncDiagnostics(String owner, Map<String, Object?> value) =>
+      _storage.write(key: _syncDiagnosticKey(owner), value: jsonEncode(value));
   String get _prefix => storageNamespace == null
       ? 'saydian'
       : 'saydian.global.env.$storageNamespace';
@@ -451,7 +470,20 @@ class MemorySessionVault
         SayRingAppDisplayVault,
         HomeHealthCardsVault,
         RingInitializationVault,
+        SyncDiagnosticsVault,
         RingInitializationOperationVault {
+  final _syncDiagnostics = <String, Map<String, Object?>>{};
+  @override
+  Future<Map<String, Object?>?> readSyncDiagnostics(String owner) async =>
+      _syncDiagnostics[owner] == null ? null : Map.of(_syncDiagnostics[owner]!);
+  @override
+  Future<void> writeSyncDiagnostics(
+    String owner,
+    Map<String, Object?> value,
+  ) async {
+    _syncDiagnostics[owner] = Map.of(value);
+  }
+
   final Map<String, RingInitializationStage> ringInitializationStages = {};
   final Map<String, String> ringInitializationOperationIds = {};
 

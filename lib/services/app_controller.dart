@@ -51,6 +51,8 @@ import 'sleep_health_projection.dart';
 import 'sleep_report_input.dart';
 import 'storekit_purchase_bridge.dart';
 import 'sync_service.dart';
+import 'sync_diagnostics_service.dart';
+import '../domain/sync_diagnostics.dart';
 import 'wearable_bridge.dart';
 import 'wearable_routing.dart';
 import 'wearable_bootstrap.dart';
@@ -152,6 +154,191 @@ class AppController extends ChangeNotifier {
     _notificationInboxService = NotificationInboxService(
       _notificationInboxRepository,
     );
+    syncDiagnostics = SyncDiagnosticsService(
+      vault: _vault,
+      api: _api,
+      session: () => session,
+      allowed: () =>
+          !_disposed &&
+          !_accountTransitioning &&
+          _privacyConsentGranted &&
+          session != null &&
+          !isLocalMode &&
+          !isPreviewMode,
+      snapshot: syncDiagnosticSnapshot,
+      onChanged: () {
+        if (!_disposed) notifyListeners();
+      },
+    );
+  }
+
+  late final SyncDiagnosticsService syncDiagnostics;
+  DeviceInfo? _diagnosticDevice;
+  bool syncDiagnosticRecoveryBusy = false;
+
+  Map<String, Object?> syncDiagnosticSnapshot() {
+    final intended = _diagnosticDevice ?? connectedDevice ?? rememberedDevice;
+    final device = connectedDevice?.id == intended?.id
+        ? connectedDevice ?? intended
+        : intended;
+    final source = device?.sdkSource ?? WearableSdkSource.unknown;
+    final model =
+        device?.model ??
+        (device == null
+            ? null
+            : WearableDeviceClassifier.coolwearModelForName(device.name));
+    final initialization = switch (_ringInitializationStage) {
+      RingInitializationStage.decisionRequired => 'decision_required',
+      RingInitializationStage.decisionUnknown => 'decision_unknown',
+      RingInitializationStage.resetAttempted => 'reset_attempted',
+      RingInitializationStage.historyClearAcknowledged =>
+        'history_clear_acknowledged',
+      null => _firstRingBindingPending ? 'native_pending' : 'ready',
+    };
+    return diagnosticDeviceSnapshot(
+      platform: defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
+      sdk: source.name,
+      model: model,
+      firmware: device?.firmwareVersion,
+      connectionState: deviceState.name,
+      initializationState: initialization,
+      capabilityState: deviceCapabilityState.name,
+      metrics: (capabilities?.metrics ?? {}).map((m) => m.wireName),
+    );
+  }
+
+  void prepareSyncDiagnostics() {
+    final device = connectedDevice ?? rememberedDevice ?? _diagnosticDevice;
+    _diagnosticDevice = device;
+    syncDiagnostics.begin(_healthOwnerFor(session), device?.id);
+  }
+
+  void _diagnose(
+    SyncDiagnosticStage stage,
+    SyncDiagnosticState state, {
+    SyncDiagnosticCode code = SyncDiagnosticCode.none,
+    int? received,
+    int? saved,
+    int? uploaded,
+    int? rejected,
+  }) {
+    if (!syncDiagnostics.hasContext) prepareSyncDiagnostics();
+    syncDiagnostics.record(
+      stage,
+      state,
+      code: code,
+      received: received,
+      saved: saved,
+      uploaded: uploaded,
+      rejected: rejected,
+    );
+  }
+
+  Future<String> recoverSyncFromDiagnostics() async {
+    if (syncDiagnosticRecoveryBusy) return '恢复检查正在进行，请稍候';
+    prepareSyncDiagnostics();
+    if (_wearableConnectInFlight != null ||
+        _wearableReconnectInFlight != null ||
+        _measurementStopInFlight != null ||
+        _deviceDetailsRefreshing ||
+        isDeviceHistorySyncing ||
+        _activeMeasurementMetric != null ||
+        activeSport != null ||
+        _startingSport != null ||
+        isDeviceSyncPreparing ||
+        isDeviceSettingsLoading ||
+        isDeviceSettingsWriting ||
+        deviceFeatureBusy.isNotEmpty) {
+      _diagnose(
+        SyncDiagnosticStage.recover,
+        SyncDiagnosticState.blocked,
+        code: SyncDiagnosticCode.busy,
+      );
+      return '请先等待同步完成，或结束当前测量和运动';
+    }
+    final device = connectedDevice ?? rememberedDevice;
+    if (device == null) return '请先在设备页选择并连接设备';
+    final generation = _sessionGeneration, owner = _healthOwnerFor(session);
+    bool current() =>
+        !_disposed &&
+        !_accountTransitioning &&
+        generation == _sessionGeneration &&
+        owner == _healthOwnerFor(session) &&
+        (connectedDevice ?? rememberedDevice)?.id == device.id;
+    syncDiagnosticRecoveryBusy = true;
+    notifyListeners();
+    _diagnose(SyncDiagnosticStage.recover, SyncDiagnosticState.pending);
+    try {
+      if (connectedDevice == null) {
+        // Read the durable guard before reconnect: a never-dispatched first
+        // decision is not permission for this recovery action to clear history.
+        await _prepareRingInitializationGuard(device, allowNewDecision: false);
+        if (!current()) return '账号或设备已变化，请重新检查';
+        final guardedSdk = const {
+          WearableSdkSource.coolwear,
+          WearableSdkSource.qring,
+        }.contains(device.sdkSource);
+        if (guardedSdk &&
+            ((!_ringInitializationGuardReadable && session != null) ||
+                _ringInitializationStage ==
+                    RingInitializationStage.decisionRequired ||
+                _ringInitializationStage ==
+                    RingInitializationStage.decisionUnknown)) {
+          _diagnose(
+            SyncDiagnosticStage.recover,
+            SyncDiagnosticState.blocked,
+            code: SyncDiagnosticCode.initializationPending,
+          );
+          return '设备准备尚待确认，请上传诊断供客服核查';
+        }
+        await reconnectDevice();
+        if (!current() || connectedDevice == null) {
+          _diagnose(
+            SyncDiagnosticStage.recover,
+            SyncDiagnosticState.failed,
+            code: SyncDiagnosticCode.notConnected,
+          );
+          return '暂未连接，请保持设备靠近后重试';
+        }
+      }
+      if (_firstRingBindingPending) {
+        await _recoverDeviceSyncPreparation(allowDecisionRetry: false);
+      }
+      if (!current()) return '账号或设备已变化，请重新检查';
+      if (_firstRingBindingPending) {
+        _diagnose(
+          SyncDiagnosticStage.recover,
+          SyncDiagnosticState.blocked,
+          code: SyncDiagnosticCode.initializationPending,
+        );
+        return '设备准备尚待确认，请上传诊断供客服核查';
+      }
+      if (isDeviceHistorySyncing) return '已启动同步，请等待完成后查看健康记录';
+      final success = await syncDeviceData();
+      if (!current()) return '账号或设备已变化，请重新检查';
+      await synchronizeCloud();
+      if (!current()) return '账号或设备已变化，请重新检查';
+      _diagnose(
+        SyncDiagnosticStage.recover,
+        success ? SyncDiagnosticState.ok : SyncDiagnosticState.partial,
+        code: success
+            ? SyncDiagnosticCode.none
+            : SyncDiagnosticCode.readPartial,
+      );
+      return success ? '恢复检查已完成，请查看健康记录' : '检查未能全部完成，已有记录保留，可上传诊断';
+    } catch (_) {
+      if (current()) {
+        _diagnose(
+          SyncDiagnosticStage.recover,
+          SyncDiagnosticState.failed,
+          code: SyncDiagnosticCode.unknown,
+        );
+      }
+      return '恢复暂未完成，已有记录保留';
+    } finally {
+      syncDiagnosticRecoveryBusy = false;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   factory AppController.production({
@@ -1914,6 +2101,8 @@ class AppController extends ChangeNotifier {
   }
 
   int _advanceSessionGeneration(Session? value) {
+    syncDiagnostics.clear();
+    _diagnosticDevice = null;
     _sessionGeneration++;
     // 恢复列表可能含上个账号的绑定标识。切换会话就撤下旧列表，迟到的查询也不能再发布。
     scannedDevices = const [];
@@ -2087,6 +2276,7 @@ class AppController extends ChangeNotifier {
       if (results.any((result) => result != ConnectivityResult.none) &&
           session != null) {
         unawaited(synchronizeCloud());
+        syncDiagnostics.flushPending();
       }
     });
     var healthStoreRecoveryPending = false;
@@ -3099,6 +3289,7 @@ class AppController extends ChangeNotifier {
       if (identical(_wearableConnectInFlight, connecting)) {
         _wearableConnectInFlight = null;
         _flushDeviceDetailsRefresh();
+        syncDiagnostics.flushPending();
       }
     }
   }
@@ -3115,6 +3306,9 @@ class AppController extends ChangeNotifier {
         _isCurrentSessionGeneration(sessionGeneration);
     errorMessage = null;
     _invalidateDeviceSync();
+    _diagnosticDevice = device;
+    syncDiagnostics.begin(_healthOwnerFor(session), device.id);
+    _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
     _latestDeviceDetails = null;
     try {
       if (_wearableNeedsDisconnect) await disconnectDevice();
@@ -3169,6 +3363,7 @@ class AppController extends ChangeNotifier {
         ),
       );
       if (!isCurrent()) return;
+      _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
       final eligible = await _readRememberedRecoveryEligibility();
       if (!isCurrent()) return;
       _wearableAccountRecoveryAllowed = true;
@@ -3211,6 +3406,11 @@ class AppController extends ChangeNotifier {
           return;
         }
         if (shouldClear == null) {
+          _diagnose(
+            SyncDiagnosticStage.initialization,
+            SyncDiagnosticState.blocked,
+            code: SyncDiagnosticCode.decisionUnknown,
+          );
           firstRingBindingStatus = '首次绑定记录暂未确认，未清空戒指数据';
           syncStatus = '请重新连接后再同步';
           notifyListeners();
@@ -3231,6 +3431,11 @@ class AppController extends ChangeNotifier {
         unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
       }
       if (_firstRingBindingPending) {
+        _diagnose(
+          SyncDiagnosticStage.initialization,
+          SyncDiagnosticState.blocked,
+          code: SyncDiagnosticCode.initializationPending,
+        );
         syncStatus = '设备已连接';
         notifyListeners();
         unawaited(_recoverExistingMemberBindingDecision());
@@ -3262,6 +3467,11 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.error);
     }
     if (_errorMessage != null) {
+      _diagnose(
+        SyncDiagnosticStage.connect,
+        SyncDiagnosticState.failed,
+        code: SyncDiagnosticCode.connectFailed,
+      );
       _errorUsesDeviceTerms = device.sdkSource == WearableSdkSource.urion;
     }
     notifyListeners();
@@ -3288,12 +3498,18 @@ class AppController extends ChangeNotifier {
       if (!isCurrent()) return false;
       capabilities = _releaseCapabilities(reported);
       deviceCapabilityState = DeviceCapabilityState.ready;
+      _diagnose(SyncDiagnosticStage.capabilities, SyncDiagnosticState.ok);
       notifyListeners();
       return true;
     } on PlatformException catch (error) {
       if (!isCurrent()) return false;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.unavailable;
+      _diagnose(
+        SyncDiagnosticStage.capabilities,
+        SyncDiagnosticState.failed,
+        code: SyncDiagnosticCode.capabilitiesMissing,
+      );
       if (announceFailure) {
         errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取此戒指的功能');
       }
@@ -3452,6 +3668,7 @@ class AppController extends ChangeNotifier {
   Future<void> _recoverExistingMemberBindingDecision({
     bool startInitialSync = true,
     bool reportFailure = false,
+    bool allowDecisionRetry = true,
   }) async {
     final api = _api;
     final ownerSession = session;
@@ -3509,6 +3726,7 @@ class AppController extends ChangeNotifier {
         if (status == RingBindingDecisionStatus.clearIssued) return;
         confirmed = status == RingBindingDecisionStatus.preserve;
         if (status == RingBindingDecisionStatus.notFound) {
+          if (!allowDecisionRetry) return;
           final device = connectedDevice!;
           final shouldClear = await _reportConnectedDevice(
             device,
@@ -3579,6 +3797,11 @@ class AppController extends ChangeNotifier {
     if (!isCurrent() || connectedDevice?.id != device.id) return;
     _firstRingBindingDecisionPending = false;
     _nativeRingInitializationPending = true;
+    _diagnose(
+      SyncDiagnosticStage.initialization,
+      SyncDiagnosticState.pending,
+      code: SyncDiagnosticCode.clearRequested,
+    );
     firstRingBindingStatus = '首次绑定，正在清空戒指历史数据';
     notifyListeners();
     try {
@@ -3598,6 +3821,11 @@ class AppController extends ChangeNotifier {
       if (!isCurrent() || connectedDevice?.id != device.id) return;
       if (cleared == RingDataClearResult.acknowledged &&
           device.sdkSource == WearableSdkSource.coolwear) {
+        _diagnose(
+          SyncDiagnosticStage.initialization,
+          SyncDiagnosticState.ok,
+          code: SyncDiagnosticCode.clearAcknowledged,
+        );
         await _persistRingInitializationStage(
           RingInitializationStage.historyClearAcknowledged,
         );
@@ -3612,8 +3840,20 @@ class AppController extends ChangeNotifier {
           : cleared == RingDataClearResult.factoryResetRequested
           ? '正在准备戒指设置，完成后将自动同步新数据'
           : '清空指令已发送，设备结果待确认；请重新连接后核验';
+      if (cleared == RingDataClearResult.requested) {
+        _diagnose(
+          SyncDiagnosticStage.initialization,
+          SyncDiagnosticState.blocked,
+          code: SyncDiagnosticCode.initializationPending,
+        );
+      }
     } catch (error) {
       if (!isCurrent() || connectedDevice?.id != device.id) return;
+      _diagnose(
+        SyncDiagnosticStage.initialization,
+        SyncDiagnosticState.blocked,
+        code: SyncDiagnosticCode.initializationPending,
+      );
       firstRingBindingStatus = error is PlatformException
           ? _wearableErrorMessage(error, fallback: '首次清空未确认，请勿将旧数据视为本人记录')
           : '首次清空未确认，请勿将旧数据视为本人记录';
@@ -3902,7 +4142,9 @@ class AppController extends ChangeNotifier {
     return succeeded;
   }
 
-  Future<void> _recoverDeviceSyncPreparation() async {
+  Future<void> _recoverDeviceSyncPreparation({
+    bool allowDecisionRetry = true,
+  }) async {
     if (!canRetryDeviceSyncPreparation) return;
     final device = connectedDevice!;
     final owner = _healthOwnerFor(session);
@@ -3957,6 +4199,7 @@ class AppController extends ChangeNotifier {
       await _recoverExistingMemberBindingDecision(
         startInitialSync: false,
         reportFailure: true,
+        allowDecisionRetry: allowDecisionRetry,
       );
       if (!current()) return;
       if (_nativeRingInitializationPending &&
@@ -3991,6 +4234,11 @@ class AppController extends ChangeNotifier {
       return false;
     }
     if (_firstRingBindingPending) {
+      _diagnose(
+        SyncDiagnosticStage.read,
+        SyncDiagnosticState.blocked,
+        code: SyncDiagnosticCode.initializationPending,
+      );
       syncStatus = '设备正在准备，请稍后再试';
       errorMessage = syncStatus;
       notifyListeners();
@@ -4035,6 +4283,8 @@ class AppController extends ChangeNotifier {
     final idle = Completer<void>();
     _deviceSyncIdle = idle;
     isDeviceSyncing = true;
+    prepareSyncDiagnostics();
+    _diagnose(SyncDiagnosticStage.read, SyncDiagnosticState.pending);
     _sleepReadFailedDuringSync = false;
     var succeeded = false;
     deviceSyncProgress = 0;
@@ -4114,6 +4364,24 @@ class AppController extends ChangeNotifier {
         );
       }
       // 同一 SDK 可服务多枚戒指。必须逐条核对目标，再写睡眠明细和会员记录；
+      _diagnose(
+        SyncDiagnosticStage.read,
+        receivedRecords is WearableSyncResult && !receivedRecords.complete
+            ? SyncDiagnosticState.partial
+            : receivedRecords.isEmpty
+            ? SyncDiagnosticState.empty
+            : SyncDiagnosticState.ok,
+        code:
+            receivedRecords is WearableSyncResult &&
+                receivedRecords.statuses['_capabilities'] == 'not_received'
+            ? SyncDiagnosticCode.capabilitiesMissing
+            : receivedRecords is WearableSyncResult && !receivedRecords.complete
+            ? SyncDiagnosticCode.readPartial
+            : receivedRecords.isEmpty
+            ? SyncDiagnosticCode.noData
+            : SyncDiagnosticCode.none,
+        received: receivedRecords.length,
+      );
       // 混入其他目标时保留已核实的数据，但本次不能推进历史同步检查点。
       final matchingRecords = <HealthRecord>[];
       final futureHistory = <HealthRecord>[];
@@ -4146,6 +4414,11 @@ class AppController extends ChangeNotifier {
             .map(sanitizeWearableTransportRecord)
             .where(hasSaneWearableTransportValues),
       );
+      _diagnose(
+        SyncDiagnosticStage.persist,
+        SyncDiagnosticState.pending,
+        received: records.length,
+      );
       await _healthStore.upsert([...futureHistory, ...records]);
       await Future.wait(List<Future<void>>.of(_pendingSleepWrites));
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
@@ -4155,6 +4428,11 @@ class AppController extends ChangeNotifier {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
+      _diagnose(
+        SyncDiagnosticStage.persist,
+        SyncDiagnosticState.ok,
+        saved: records.length,
+      );
       if (receivedRecords is WearableSyncResult) {
         await _ackStoredWearableRecords(
           [...futureHistory, ...records],
@@ -4256,6 +4534,13 @@ class AppController extends ChangeNotifier {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
+      _diagnose(
+        SyncDiagnosticStage.read,
+        SyncDiagnosticState.failed,
+        code: error.code.contains('TIMEOUT')
+            ? SyncDiagnosticCode.readTimeout
+            : SyncDiagnosticCode.unknown,
+      );
       if (error.code == 'COOLWEAR_SYNC_TIMEOUT' && error.details is List) {
         final partial = <HealthRecord>[];
         final futureHistory = <HealthRecord>[];
@@ -4342,6 +4627,17 @@ class AppController extends ChangeNotifier {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
+      _diagnose(
+        syncDiagnostics.events.lastOrNull?.stage == SyncDiagnosticStage.persist
+            ? SyncDiagnosticStage.persist
+            : SyncDiagnosticStage.read,
+        SyncDiagnosticState.failed,
+        code:
+            syncDiagnostics.events.lastOrNull?.stage ==
+                SyncDiagnosticStage.persist
+            ? SyncDiagnosticCode.saveFailed
+            : SyncDiagnosticCode.unknown,
+      );
       // Profile 真机仅记录失败类别与代码位置，不输出账号、读数或原始包。
       if (!kReleaseMode) {
         debugPrint(
@@ -6538,6 +6834,17 @@ class AppController extends ChangeNotifier {
       final result = await _syncService.synchronizeNow(
         isCurrent: () =>
             !_accountTransitioning && _isCurrentSessionGeneration(generation),
+        onDiagnostic: (state, code, uploaded, rejected) {
+          if (_isCurrentSessionGeneration(generation)) {
+            _diagnose(
+              SyncDiagnosticStage.upload,
+              state,
+              code: code,
+              uploaded: uploaded,
+              rejected: rejected,
+            );
+          }
+        },
       );
       if (_accountTransitioning || !_isCurrentSessionGeneration(generation)) {
         return;
@@ -6578,6 +6885,13 @@ class AppController extends ChangeNotifier {
           result.message ?? '已上传 ${result.uploaded} 条，读取 $downloaded 条云端记录';
     } on ApiException catch (error) {
       if (!_isCurrentSessionGeneration(generation)) return;
+      _diagnose(
+        SyncDiagnosticStage.upload,
+        SyncDiagnosticState.failed,
+        code: error.statusCode == 401
+            ? SyncDiagnosticCode.authExpired
+            : SyncDiagnosticCode.networkError,
+      );
       cloudSyncStatus = _apiErrorMessage(error, fallback: '数据上传失败，请稍后重试');
     } finally {
       if (!completion.isCompleted) completion.complete();
@@ -7156,6 +7470,7 @@ class AppController extends ChangeNotifier {
     }
     _scheduleCareInvitationPoll(const Duration(seconds: 30));
     _flushDeviceDetailsRefresh();
+    syncDiagnostics.flushPending();
   }
 
   Future<void> handleAppResumed() async {
@@ -9173,6 +9488,7 @@ class AppController extends ChangeNotifier {
           DeviceCapabilities.fromMap(event.payload),
         );
         deviceCapabilityState = DeviceCapabilityState.ready;
+        _diagnose(SyncDiagnosticStage.capabilities, SyncDiagnosticState.ok);
         _flushDeviceDetailsRefresh();
       }
     } else if (event.type == 'syncRecords') {
@@ -9373,6 +9689,13 @@ class AppController extends ChangeNotifier {
         return;
       }
       final previousDevice = connectedDevice ?? rememberedDevice;
+      if (!_wearableRecoverySuspended && !_firstRingBindingPending) {
+        _diagnose(
+          SyncDiagnosticStage.connect,
+          SyncDiagnosticState.failed,
+          code: SyncDiagnosticCode.connectionLost,
+        );
+      }
       final preserveWorkout =
           activeSport != null &&
           !kIsWeb &&
@@ -9832,8 +10155,10 @@ class AppController extends ChangeNotifier {
 
     try {
       if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+      _diagnose(SyncDiagnosticStage.persist, SyncDiagnosticState.pending);
       await _healthStore.upsertImmediate(record);
       if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+      _diagnose(SyncDiagnosticStage.persist, SyncDiagnosticState.ok, saved: 1);
       if (receiptTarget != null && nativeReceipt != null) {
         await _ackStoredWearableRecords(
           [record],
@@ -9848,6 +10173,13 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       unawaited(synchronizeCloud());
     } catch (error) {
+      if (_isCurrentSessionGeneration(expectedGeneration)) {
+        _diagnose(
+          SyncDiagnosticStage.persist,
+          SyncDiagnosticState.failed,
+          code: SyncDiagnosticCode.saveFailed,
+        );
+      }
       debugPrint('Health record persistence failed: ${error.runtimeType}');
       errorMessage = '测量结果已显示，但暂时无法保存到本机';
       if (_isCurrentSessionGeneration(expectedGeneration)) notifyListeners();
@@ -9922,6 +10254,7 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    syncDiagnostics.dispose();
     ++_wechatLoginGeneration;
     if (isWechatLoginInProgress) unawaited(_wechatAuthBridge.cancel());
     _disposed = true;

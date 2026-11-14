@@ -392,6 +392,20 @@ class DevicePage extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 14),
+        Card(
+          child: ListTile(
+            key: const Key('device-sync-diagnostics'),
+            leading: const Icon(Icons.troubleshoot_rounded),
+            title: const Text('同步诊断与恢复'),
+            subtitle: const Text('数据未更新时，检查状态或提交诊断'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => SyncDiagnosticsPage(controller: controller),
+              ),
+            ),
+          ),
+        ),
         if (connected != null &&
             controller.deviceCapabilityState ==
                 DeviceCapabilityState.loading) ...[

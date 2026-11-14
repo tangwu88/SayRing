@@ -3,6 +3,7 @@ import '../domain/health_record_validation.dart';
 import '../domain/wellness_release_policy.dart';
 import 'api_client.dart';
 import 'local_health_store.dart';
+import '../domain/sync_diagnostics.dart';
 
 class SyncOutcome {
   const SyncOutcome({
@@ -27,7 +28,11 @@ class HealthSyncService {
   final SaydianApi _api;
   final WellnessReleasePolicy policy;
 
-  Future<SyncOutcome> synchronizeNow({bool Function()? isCurrent}) async {
+  Future<SyncOutcome> synchronizeNow({
+    bool Function()? isCurrent,
+    void Function(SyncDiagnosticState, SyncDiagnosticCode, int, int)?
+    onDiagnostic,
+  }) async {
     bool canContinue() => isCurrent?.call() ?? true;
     var uploaded = 0;
     var rejected = 0;
@@ -98,6 +103,14 @@ class HealthSyncService {
         return SyncOutcome(uploaded: uploaded, rejected: rejected);
       }
       try {
+        try {
+          onDiagnostic?.call(
+            SyncDiagnosticState.pending,
+            SyncDiagnosticCode.none,
+            uploaded,
+            rejected,
+          );
+        } catch (_) {}
         final result = await _api.uploadHealthBatch(
           SyncBatch(cursor: cursor, records: records),
         );
@@ -116,6 +129,23 @@ class HealthSyncService {
         }
         uploaded += result.acceptedIds.length;
         rejected += result.rejected.length;
+        final code = result.rejected.values.contains('unsupported_metric')
+            ? SyncDiagnosticCode.unsupportedMetric
+            : result.rejected.values.contains('record_conflict')
+            ? SyncDiagnosticCode.recordConflict
+            : result.rejected.isNotEmpty
+            ? SyncDiagnosticCode.uploadRejected
+            : SyncDiagnosticCode.none;
+        try {
+          onDiagnostic?.call(
+            result.rejected.isEmpty
+                ? SyncDiagnosticState.ok
+                : SyncDiagnosticState.partial,
+            code,
+            uploaded,
+            rejected,
+          );
+        } catch (_) {}
         if (result.acceptedIds.isEmpty) {
           return SyncOutcome(
             uploaded: uploaded,

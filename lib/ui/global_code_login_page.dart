@@ -14,6 +14,7 @@ import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'brand_assets.dart';
 import 'widgets/adaptive_action_pair.dart';
+import 'widgets/auth_consent_feedback.dart';
 import 'global_legal_page.dart';
 import 'global_auth_page.dart';
 
@@ -44,6 +45,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   bool _loading = false;
   bool _busy = false;
   bool _signedIn = false;
+  final _consentAnchor = GlobalKey();
   bool _accepted = false;
   bool _ageConfirmed = false;
   int _generation = 0;
@@ -157,10 +159,12 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     final consentVersion = _capabilities?.consentVersion?.trim() ?? '';
     if (!_accepted) {
       setState(() => _error = 'consent');
+      showAuthConsentFeedback(context, _consentAnchor, _errorText());
       return;
     }
     if (!_ageConfirmed) {
       setState(() => _error = 'age');
+      showAuthConsentFeedback(context, _consentAnchor, _errorText());
       return;
     }
     if (capability?.enabled != true ||
@@ -212,6 +216,12 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     if (_busy || _remaining > 0) return;
     if (!_ageConfirmed) {
       setState(() => _error = 'age');
+      showAuthConsentFeedback(context, _consentAnchor, _errorText());
+      return;
+    }
+    if (!_accepted) {
+      setState(() => _error = 'consent');
+      showAuthConsentFeedback(context, _consentAnchor, _errorText());
       return;
     }
     GlobalAccountIdentity identity;
@@ -297,10 +307,12 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     }
     if (!_accepted) {
       setState(() => _error = 'consent');
+      showAuthConsentFeedback(context, _consentAnchor, _errorText());
       return;
     }
     if (!_ageConfirmed) {
       setState(() => _error = 'age');
+      showAuthConsentFeedback(context, _consentAnchor, _errorText());
       return;
     }
     final consentVersion = _capabilities?.consentVersion?.trim();
@@ -384,10 +396,12 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     if (_busy) return;
     if (!_ageConfirmed) {
       setState(() => _error = 'age');
+      showAuthConsentFeedback(context, _consentAnchor, _errorText());
       return;
     }
     if (!_accepted) {
       setState(() => _error = 'consent');
+      showAuthConsentFeedback(context, _consentAnchor, _errorText());
       return;
     }
     setState(() {
@@ -624,48 +638,63 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
-                AdaptiveChoiceRow(
-                  key: const Key('code-login-consents-row'),
-                  children: [
-                    CheckboxListTile(
-                      key: const Key('code-login-minimum-age'),
-                      contentPadding: EdgeInsets.zero,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      visualDensity: VisualDensity.compact,
-                      value: _ageConfirmed,
-                      onChanged: _busy
-                          ? null
-                          : (value) =>
-                                setState(() => _ageConfirmed = value == true),
-                      title: Text(
-                        Localizations.localeOf(context).languageCode == 'zh'
-                            ? '我确认已满14周岁'
-                            : 'I confirm that I am at least 14 years old.',
-                        style: const TextStyle(fontSize: 12, height: 1.4),
+                AuthConsentFeedback(
+                  key: _consentAnchor,
+                  messageKey: const Key('code-login-error'),
+                  message: _error == 'consent' || _error == 'age'
+                      ? _errorText()
+                      : null,
+                  child: AdaptiveChoiceRow(
+                    key: const Key('code-login-consents-row'),
+                    children: [
+                      CheckboxListTile(
+                        key: const Key('code-login-minimum-age'),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        visualDensity: VisualDensity.compact,
+                        value: _ageConfirmed,
+                        onChanged: _busy
+                            ? null
+                            : (value) => setState(() {
+                                _ageConfirmed = value == true;
+                                if (_ageConfirmed && _error == 'age') {
+                                  _error = null;
+                                }
+                              }),
+                        title: Text(
+                          Localizations.localeOf(context).languageCode == 'zh'
+                              ? '我确认已满14周岁'
+                              : 'I confirm that I am at least 14 years old.',
+                          style: const TextStyle(fontSize: 12, height: 1.4),
+                        ),
                       ),
-                    ),
-                    CheckboxListTile(
-                      key: const Key('code-login-consent'),
-                      contentPadding: EdgeInsets.zero,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      visualDensity: VisualDensity.compact,
-                      value: _accepted,
-                      onChanged:
-                          _busy ||
-                              (!widget.controller.supportsLocalOnlyUse &&
-                                  !(_capabilities?.consentVersion
-                                          ?.trim()
-                                          .isNotEmpty ??
-                                      false))
-                          ? null
-                          : (value) =>
-                                setState(() => _accepted = value == true),
-                      title: Text(
-                        l.agreeToTerms,
-                        style: const TextStyle(fontSize: 12, height: 1.4),
+                      CheckboxListTile(
+                        key: const Key('code-login-consent'),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        visualDensity: VisualDensity.compact,
+                        value: _accepted,
+                        onChanged:
+                            _busy ||
+                                (!widget.controller.supportsLocalOnlyUse &&
+                                    !(_capabilities?.consentVersion
+                                            ?.trim()
+                                            .isNotEmpty ??
+                                        false))
+                            ? null
+                            : (value) => setState(() {
+                                _accepted = value == true;
+                                if (_accepted && _error == 'consent') {
+                                  _error = null;
+                                }
+                              }),
+                        title: Text(
+                          l.agreeToTerms,
+                          style: const TextStyle(fontSize: 12, height: 1.4),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 Wrap(
                   children: [
@@ -681,7 +710,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     ),
                   ],
                 ),
-                if (_error != null)
+                if (_error != null && _error != 'consent' && _error != 'age')
                   Text(
                     _errorText(),
                     key: const Key('code-login-error'),
@@ -961,7 +990,7 @@ class _GlobalWechatPhoneBindingPageState
               ),
               if (_challenge != null)
                 Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
-              if (_error != null)
+              if (_error != null && _error != 'consent' && _error != 'age')
                 Text(
                   _error!,
                   key: const Key('wechat-bind-error'),
@@ -975,7 +1004,10 @@ class _GlobalWechatPhoneBindingPageState
                 value: _ageConfirmed,
                 onChanged: _busy
                     ? null
-                    : (value) => setState(() => _ageConfirmed = value == true),
+                    : (value) => setState(() {
+                        _ageConfirmed = value == true;
+                        if (_ageConfirmed && _error == 'age') _error = null;
+                      }),
                 title: Text(
                   uiCopy(context, "我确认已满14周岁"),
                   style: TextStyle(fontSize: 12),

@@ -244,6 +244,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     with GlobalHealthApi
     implements
         CycleRemote,
+        SyncDiagnosticsApi,
         GlobalAccountApi,
         GlobalCodeAuthApi,
         GlobalWechatAuthApi,
@@ -264,6 +265,74 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCommerceApi,
         GlobalShopPaymentApi,
         CloudHealthRecordReader {
+  Future<http.Response> _syncDiagnosticRequest(
+    Session expected, {
+    Map<String, Object?>? report,
+  }) async {
+    // Diagnostics must never rotate credentials or sign the user out while a
+    // foreground measurement/upload is using the normal authorization flow.
+    final requestSession = await _vault.readSession();
+    if (requestSession == null ||
+        _stableSessionAccountKey(requestSession) !=
+            _stableSessionAccountKey(expected)) {
+      throw const ApiException(
+        'Account changed.',
+        code: 'STALE_DEVICE_SESSION',
+      );
+    }
+    return _performRequest(
+      () => report == null
+          ? _client
+                .get(
+                  _uri('/api/saydian-app/v2/support/sync-diagnostics/config', {
+                    'product': 'say-ring',
+                  }),
+                  headers: _authorizationHeaders(requestSession),
+                )
+                .timeout(const Duration(seconds: 5))
+          : _client
+                .post(
+                  _uri('/api/saydian-app/v2/support/sync-diagnostics'),
+                  headers: {
+                    ..._authorizationHeaders(requestSession),
+                    'Content-Type': 'application/json',
+                  },
+                  body: jsonEncode(report),
+                )
+                .timeout(const Duration(seconds: 8)),
+    );
+  }
+
+  @override
+  Future<bool> supportsSyncDiagnostics(Session expectedSession) async {
+    try {
+      final data = _data(
+        _decode(await _syncDiagnosticRequest(expectedSession)),
+      );
+      return data['schemaVersion'] == 1 &&
+          data['product'] == 'say-ring' &&
+          data['supported'] == true;
+    } on ApiException catch (error) {
+      if (error.statusCode == 404 || error.statusCode == 405) return false;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Map<String, Object?>> submitSyncDiagnostics(
+    Session expectedSession,
+    Map<String, Object?> report,
+  ) async {
+    if (!isBoundedDiagnosticReport(report)) throw const ApiException('诊断摘要无效');
+    final data = _data(
+      _decode(await _syncDiagnosticRequest(expectedSession, report: report)),
+    );
+    if (data['reportId'] != report['reportId'] || data['accepted'] is! bool) {
+      throw const ApiException('诊断提交结果暂未确认');
+    }
+    return data;
+  }
+
   @override
   Future<Map<String, Object?>> cycleRequest(
     String owner,

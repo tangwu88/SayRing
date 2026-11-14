@@ -541,6 +541,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     final wechat = find.byKey(const Key('global-wechat-login'));
+    await tester.scrollUntilVisible(
+      wechat,
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     expect(tester.widget(wechat), isA<OutlinedButton>());
     final children =
         (tester.widget<ListView>(find.byType(ListView).first).childrenDelegate
@@ -686,7 +692,7 @@ void main() {
     await tester.tap(find.byKey(const Key('local-ring-use-entry')));
     await tester.pump();
     expect(controller.enteredLocalMode, isFalse);
-    expect(find.text('请确认已满14周岁后继续'), findsOneWidget);
+    expect(find.text('请确认已满14周岁后继续'), findsWidgets);
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('code-login-minimum-age')),
@@ -852,12 +858,14 @@ void main() {
       find.byKey(const Key('code-login-contact')),
       '13800138000',
     );
+    await tester.ensureVisible(find.byKey(const Key('code-login-send')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('code-login-send')));
     await tester.pump();
     expect(controller.requested, isNull);
     expect(
       find.text('Confirm that you are at least 14 years old to continue.'),
-      findsOneWidget,
+      findsWidgets,
     );
     await tester.ensureVisible(find.byKey(const Key('code-login-minimum-age')));
     await tester.tap(
@@ -866,11 +874,6 @@ void main() {
         matching: find.byType(Checkbox),
       ),
     );
-    await tester.ensureVisible(find.byKey(const Key('code-login-send')));
-    await tester.tap(find.byKey(const Key('code-login-send')));
-    await tester.pumpAndSettle();
-    expect(controller.requested?.identifier, '+8613800138000');
-    await tester.enterText(find.byKey(const Key('code-login-code')), '123456');
     await tester.ensureVisible(find.byKey(const Key('code-login-consent')));
     await tester.tap(
       find.descendant(
@@ -879,6 +882,12 @@ void main() {
       ),
     );
     await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('code-login-send')));
+    await tester.tap(find.byKey(const Key('code-login-send')));
+    await tester.pumpAndSettle();
+    expect(controller.requested?.identifier, '+8613800138000');
+    await tester.enterText(find.byKey(const Key('code-login-code')), '123456');
+
     await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
     await tester.tap(find.byKey(const Key('code-login-submit')));
     await tester.pumpAndSettle();

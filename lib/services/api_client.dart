@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' as http_parser;
 
 import '../domain/models.dart';
+import '../domain/sync_diagnostics.dart';
 import '../domain/wellness_release_policy.dart';
 import '../domain/health_cloud_upload_policy.dart';
 import '../domain/health_record_validation.dart';
@@ -35,6 +36,14 @@ class ApiException implements Exception {
 
   @override
   String toString() => message;
+}
+
+abstract interface class SyncDiagnosticsApi {
+  Future<bool> supportsSyncDiagnostics(Session expectedSession);
+  Future<Map<String, Object?>> submitSyncDiagnostics(
+    Session expectedSession,
+    Map<String, Object?> report,
+  );
 }
 
 class FeatureNotConfiguredException extends ApiException {
