@@ -41,3 +41,10 @@
 - 包名`cn.saydian.ring`、版本`1.0.14 (1307)`、non-debuggable、原正式证书SHA256 `81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de`；apksigner v2/ZIP16KiB对齐/生产manifest/双ARM门禁通过，临时key.properties已清除。继承的两个32位厂商ELF仍为4KiB LOAD，不能将本轮打包等同所有应用市场验收。
 - 后台源代码`c7bd29f675c0ed98b83fa6bb2edd8413632e32c8`已推送main及独立分支。CI为`https://github.com/tangwu88/saydianserver/actions/runs/43578887669`；本记录编写时生产仍为旧revision f3e06df，部署完成需另查，不冒称上线。
 - 只读核对当前连接华为仍装1306，本轮未覆盖安装、退出账号或触发真实OTP。客户需要安装1307或后续支持版本，后台才能收到摘要；保留既有账号/绑定/数据，不承诺未知故障自动修复。
+
+## 提交后追加验证
+
+- 本机额外执行`node --test tool/client_package_contract.test.mjs tool/test_native_log_privacy.mjs tool/global_auth_smoke.test.mjs tool/global_auth_account_qa.test.mjs`，90项全部通过。
+- 运行时代码提交`6a2570e97b9d8787c8f371750d22bd183bebb6bf`已推送现有SayRing分支，云端[mobile-ci 43579686960](https://github.com/tangwu88/SayRing/actions/runs/43579686960)全部成功：两个时区鸿蒙主机契约、quality、Android、iOS。
+- 云端macOS成功完成iOS Debug/Profile/Release无签名编译、原生策略检查及RunnerTests构建；这是编译/主机验证，不是iPhone安装、签名或上架验收。Windows本轮未构建iOS的记录仍成立。
+- 本次追加只修改文档，1307的运行时代码/二进制及签名保持不变。后台部署遇到跨境镜像下载/传输缓慢，按用户授权使用同一验收镜像进行恢复；全过程和最终线上版本以服务端实施记录为准。
