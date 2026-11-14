@@ -8,6 +8,8 @@ import 'package:saydian_app/ui/brand_assets.dart';
 import 'package:saydian_app/ui/global_code_login_page.dart';
 
 class CodeLoginController extends Fake implements AppController {
+  @override
+  OnlineSupportApi? get onlineSupportApi => null;
   GlobalAccountIdentity? requested;
   GlobalAccountIdentity? signedIn;
   bool enteredDemo = false;

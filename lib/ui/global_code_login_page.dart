@@ -1,5 +1,7 @@
 import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
+import 'online_support_page.dart' show supportCopy;
+import 'prototype_pages.dart' show CustomerServicePage;
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -764,6 +766,24 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     ),
                   ),
                 ],
+                if (widget.controller.onlineSupportApi != null)
+                  TextButton.icon(
+                    key: const Key('guest-support-entry'),
+                    onPressed: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => CustomerServicePage(
+                                isGlobalEdition: true,
+                                controller: widget.controller,
+                              ),
+                            ),
+                          ),
+                    icon: const Icon(Icons.support_agent_outlined),
+                    label: Text(
+                      supportCopy(context, '联系客服', 'Contact support'),
+                    ),
+                  ),
                 if (_capabilities?.wechatApp.enabled == true &&
                     (kIsWeb ||
                         defaultTargetPlatform != TargetPlatform.iOS)) ...[

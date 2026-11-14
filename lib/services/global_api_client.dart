@@ -241,10 +241,11 @@ abstract interface class GlobalCommerceApi {
 /// International transport. Only the deployed App V2 route family is accepted;
 /// no legacy endpoint or credential fallback exists.
 class GlobalSaydianApiClient extends SaydianApiClient
-    with GlobalHealthApi
+    with GlobalHealthApi, OnlineSupportTransport
     implements
         CycleRemote,
         SyncDiagnosticsApi,
+        SyncDiagnosticsVersionsApi,
         GlobalAccountApi,
         GlobalCodeAuthApi,
         GlobalWechatAuthApi,
@@ -304,16 +305,24 @@ class GlobalSaydianApiClient extends SaydianApiClient
   }
 
   @override
-  Future<bool> supportsSyncDiagnostics(Session expectedSession) async {
+  Future<bool> supportsSyncDiagnostics(Session expectedSession) async =>
+      await syncDiagnosticSchema(expectedSession) >= 1;
+
+  @override
+  Future<int> syncDiagnosticSchema(Session expectedSession) async {
     try {
       final data = _data(
         _decode(await _syncDiagnosticRequest(expectedSession)),
       );
-      return data['schemaVersion'] == 1 &&
-          data['product'] == 'say-ring' &&
-          data['supported'] == true;
+      if (data['schemaVersion'] != 1 ||
+          data['product'] != 'say-ring' ||
+          data['supported'] != true) {
+        return 0;
+      }
+      final versions = data['acceptedSchemaVersions'];
+      return versions is List && versions.contains(2) ? 2 : 1;
     } on ApiException catch (error) {
-      if (error.statusCode == 404 || error.statusCode == 405) return false;
+      if (error.statusCode == 404 || error.statusCode == 405) return 0;
       rethrow;
     }
   }
@@ -367,6 +376,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
          ),
        );
 
+  @override
   final String Function() _locale;
   final bool moduleVisibilityScopeIos;
   final String? moduleVisibilityPlatform;
@@ -1380,7 +1390,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
       },
       'event_id': eventId,
       'remote_event_id': eventId,
-      'entity_id': ?route?.group(1),
+      'entity_id':
+          ?(route?.group(1) ??
+          (type == 'system' && eventId.startsWith('support-reply:')
+              ? supportConversationFromLink(deepLink)
+              : null)),
       'content': row['body'],
       'created_at': createdAt,
       'is_read': row['readAt'] != null,

@@ -9,6 +9,7 @@ import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/sleep_timeline.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/app_controller.dart';
+import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/say_ring_support.dart';
 import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/health_trend_page.dart';
@@ -55,12 +56,16 @@ HealthRecord _record({
   SleepTimeline? timeline,
   DateTime? at,
   double hours = 7.5,
+  bool includeStages = true,
 }) => HealthRecord(
   id: 'sleep-ui-${at?.toIso8601String() ?? 'latest'}',
   metric: HealthMetric.sleep,
   values:
       timeline?.summaryValues ??
-      {'value': hours, 'deepHours': 2, 'remHours': 1},
+      {
+        'value': hours,
+        if (includeStages) ...{'deepHours': 2, 'remHours': 1},
+      },
   unit: 'h',
   measuredAt: at ?? DateTime.utc(2026, 10, 1),
   timezone: '+08:00',
@@ -82,6 +87,12 @@ Session _session(String account, {String? memberId}) => Session(
 );
 
 class _UiController extends Fake implements AppController {
+  @override
+  OnlineSupportApi? get onlineSupportApi => null;
+  @override
+  Future<List<HealthRecord>> loadSleepReportReadings(
+    List<HealthRecord> sleep,
+  ) async => const [];
   @override
   bool get canSearchForDevice => activeRing == null && !isDeviceReconnecting;
   @override
@@ -582,7 +593,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('这一天暂无睡眠记录，你可以选择其他日期查看'), findsOneWidget);
       expect(find.textContaining('睡眠后请同步'), findsNothing);
-      controller.stored = [_record()];
+      controller.stored = [_record(includeStages: false)];
       controller.changed();
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
@@ -670,9 +681,7 @@ void main() {
       await tester.scrollUntilVisible(find.text('小睡 1'), 250);
       await tester.pumpAndSettle();
       expect(find.text('小睡 1'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('暂未记录').last, 250);
-      await tester.pumpAndSettle();
-      expect(find.text('暂未记录'), findsOneWidget);
+      expect(find.text('暂未记录'), findsNothing);
       await tester.scrollUntilVisible(
         find.byKey(const Key('sleep-reference-details')),
         250,
@@ -745,9 +754,14 @@ void main() {
           Offset(rect.left + rect.width * 5 / 480, rect.top + 10),
         );
         await tester.pumpAndSettle();
-        expect(find.text('开始：9月30日 23:00'), findsOneWidget);
-        expect(find.text('结束：9月30日 23:10'), findsOneWidget);
-        expect(find.text('持续：10分钟'), findsOneWidget);
+        final readout = find.descendant(
+          of: find.byKey(const Key('sleep-stage-readout')).first,
+          matching: find.byType(Text),
+        );
+        final label = tester.widget<Text>(readout).data!;
+        expect(label, contains('9月30日 23:00'));
+        expect(label, contains('9月30日 23:10'));
+        expect(label, contains('10分钟'));
         expect(tester.takeException(), isNull);
       },
     );
@@ -757,7 +771,7 @@ void main() {
     'old summary cannot invent a timeline, date changes show genuine no-data',
     (tester) async {
       final controller = _UiController()
-        ..stored = [_record()]
+        ..stored = [_record(includeStages: false)]
         ..sleepReadStatuses = {'2026-09-30': 'noData'};
       await _pump(
         tester,
@@ -877,7 +891,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       expect(find.text('2026年9月15日'), findsOneWidget);
-      expect(find.text('3小时0分'), findsNWidgets(2));
+      expect(find.text('3小时0分'), findsOneWidget);
       pending.complete([_record(timeline: _timeline())]);
       await tester.pumpAndSettle();
       expect(find.text('2026年9月15日'), findsOneWidget);
@@ -949,6 +963,41 @@ void main() {
     },
   );
 
+  testWidgets(
+    'new sleep report drills from an active chart date into day view at 2x',
+    (tester) async {
+      final controller = _UiController()
+        ..stored = [
+          _record(timeline: _timeline()),
+          _record(at: DateTime.utc(2026, 9, 29), hours: 3),
+        ];
+      await _pump(
+        tester,
+        SleepOverviewPage(controller: controller),
+        scale: 2,
+        width: 320,
+      );
+      await tester.pumpAndSettle();
+      for (final period in ['week', 'month']) {
+        await tester.tap(find.byKey(ValueKey('sleep-period-$period')));
+        await tester.pumpAndSettle();
+        expect(find.text('平均睡眠时长'), findsOneWidget);
+        final day = find.text('查看当天').first;
+        await tester.scrollUntilVisible(day, 180);
+        await Scrollable.ensureVisible(tester.element(day), alignment: 0.45);
+        await tester.pumpAndSettle();
+        expect(day.hitTestable(), findsOneWidget);
+        await tester.tap(day);
+        await tester.pumpAndSettle();
+        expect(find.text('睡眠总时长'), findsWidgets);
+        expect(find.text('2026年10月1日'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.drag(find.byType(ListView).first, const Offset(0, 900));
+        await tester.pumpAndSettle();
+      }
+    },
+  );
+
   for (final trend in [false, true]) {
     testWidgets(
       '${trend ? 'sleep trend' : 'sleep detail'} ring switch immediately clears cache and discards old exact-target query',
@@ -968,7 +1017,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         const oldValue = '7小时30分';
-        expect(find.text(oldValue), findsNWidgets(trend ? 1 : 2));
+        expect(find.text(oldValue), findsOneWidget);
         final pending = Completer<List<HealthRecord>>();
         controller.pendingLoad = pending;
         controller.changed();

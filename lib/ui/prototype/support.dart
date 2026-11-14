@@ -165,11 +165,13 @@ class CustomerServicePage extends StatelessWidget {
   const CustomerServicePage({
     this.isGlobalEdition = false,
     this.controller,
+    this.legacyOnly = false,
     super.key,
   });
 
   final bool isGlobalEdition;
   final AppController? controller;
+  final bool legacyOnly;
 
   static const _phone = '4006386738';
   static const _officialAccount = '赛电';
@@ -308,6 +310,20 @@ class CustomerServicePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final state = controller;
+    if (!legacyOnly &&
+        isGlobalEdition &&
+        state != null &&
+        state.onlineSupportApi != null) {
+      return OnlineSupportPage(
+        controller: state,
+        legacyContacts: (_) => CustomerServicePage(
+          controller: state,
+          isGlobalEdition: true,
+          legacyOnly: true,
+        ),
+      );
+    }
     if (isGlobalEdition) {
       return Scaffold(
         key: const Key('global-customer-service'),

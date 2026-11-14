@@ -1,5 +1,6 @@
 import CryptoKit
 import AVFoundation
+import Darwin
 import Flutter
 import Photos
 import StoreKit
@@ -1213,6 +1214,19 @@ private final class RingHealthReminderSoundBridge: NSObject, AVAudioPlayerDelega
       messenger: registrar.messenger(),
       assetKey: registrar.lookupKey(forAsset: "assets/audio/health_reminder_alarm.wav")
     )
+    FlutterMethodChannel(name: "cn.saydian.ring/diagnostics", binaryMessenger: registrar.messenger())
+      .setMethodCallHandler { call, result in
+        guard call.method == "systemBuild" else { result(FlutterMethodNotImplemented); return }
+        var size = 0
+        guard sysctlbyname("kern.osversion", nil, &size, nil, 0) == 0, size > 1, size <= 64 else {
+          result(nil); return
+        }
+        var bytes = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("kern.osversion", &bytes, &size, nil, 0) == 0, bytes.last == 0 else {
+          result(nil); return
+        }
+        result(bytes.withUnsafeBufferPointer { pointer in String(cString: pointer.baseAddress!) })
+      }
 
     let methods = FlutterMethodChannel(
       name: "cc.saidian/wearable_methods",

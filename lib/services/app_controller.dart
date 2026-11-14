@@ -33,6 +33,7 @@ import '../domain/urion_pulse_record.dart';
 import 'u19_health_service.dart';
 import '../domain/module_visibility.dart';
 import '../domain/sleep_timeline.dart';
+import '../domain/sleep_report_view.dart';
 import '../domain/global_account.dart';
 import '../domain/global_commerce.dart';
 import '../domain/global_care.dart';
@@ -166,6 +167,7 @@ class AppController extends ChangeNotifier {
           !isLocalMode &&
           !isPreviewMode,
       snapshot: syncDiagnosticSnapshot,
+      locale: () => GlobalLocaleController.instance.locale.toLanguageTag(),
       onChanged: () {
         if (!_disposed) notifyListeners();
       },
@@ -173,6 +175,16 @@ class AppController extends ChangeNotifier {
   }
 
   late final SyncDiagnosticsService syncDiagnostics;
+  OnlineSupportApi? get onlineSupportApi =>
+      _api is OnlineSupportApi ? _api as OnlineSupportApi : null;
+  OnlineSupportVault? get onlineSupportVault =>
+      _vault is OnlineSupportVault ? _vault as OnlineSupportVault : null;
+  int get supportOwnerGeneration => _sessionGeneration;
+  String get supportOwner => _healthOwnerFor(session);
+  Future<Map<String, Object?>?> supportGuestDiagnostic(String locale) =>
+      session == null && isLocalMode && !isPreviewMode
+      ? syncDiagnostics.guestConnection(locale)
+      : Future.value(null);
   DeviceInfo? _diagnosticDevice;
   bool syncDiagnosticRecoveryBusy = false;
 
@@ -2101,13 +2113,18 @@ class AppController extends ChangeNotifier {
   }
 
   int _advanceSessionGeneration(Session? value) {
-    syncDiagnostics.clear();
+    final nextOwner = _healthOwnerFor(value);
+    syncDiagnostics.clear(
+      discardPendingFor: nextOwner != _activeHealthOwner
+          ? _activeHealthOwner
+          : null,
+    );
     _diagnosticDevice = null;
     _sessionGeneration++;
     // 恢复列表可能含上个账号的绑定标识。切换会话就撤下旧列表，迟到的查询也不能再发布。
     scannedDevices = const [];
     deviceScanIssue = null;
-    _activeHealthOwner = _healthOwnerFor(value);
+    _activeHealthOwner = nextOwner;
     cycles.setOwner(value == null ? null : _activeHealthOwner);
     _heartRateReminders.reset();
     _readingReminderEngine.reset();
@@ -3289,6 +3306,7 @@ class AppController extends ChangeNotifier {
       if (identical(_wearableConnectInFlight, connecting)) {
         _wearableConnectInFlight = null;
         _flushDeviceDetailsRefresh();
+        syncDiagnostics.flushConnection();
         syncDiagnostics.flushPending();
       }
     }
@@ -3298,6 +3316,7 @@ class AppController extends ChangeNotifier {
     final sessionGeneration = _sessionGeneration;
     final connectionOwner = _healthOwnerFor(session);
     int? connectionSyncGeneration;
+    var failureCode = SyncDiagnosticCode.connectFailed;
     bool isCurrent() =>
         !_accountTransitioning &&
         _healthOwnerFor(session) == connectionOwner &&
@@ -3307,7 +3326,11 @@ class AppController extends ChangeNotifier {
     errorMessage = null;
     _invalidateDeviceSync();
     _diagnosticDevice = device;
-    syncDiagnostics.begin(_healthOwnerFor(session), device.id);
+    syncDiagnostics.begin(
+      connectionOwner,
+      device.id,
+      connectionKind: rememberedDevice == null ? 'first' : 'explicit',
+    );
     _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
     _latestDeviceDetails = null;
     try {
@@ -3363,7 +3386,6 @@ class AppController extends ChangeNotifier {
         ),
       );
       if (!isCurrent()) return;
-      _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
       final eligible = await _readRememberedRecoveryEligibility();
       if (!isCurrent()) return;
       _wearableAccountRecoveryAllowed = true;
@@ -3385,6 +3407,7 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.ready);
       // Authentication is the connection boundary. Historical data is a
       // background follow-up and must not keep the add-device page spinning.
+      syncDiagnostics.connectionCompleted();
       if (_ringInitializationStage ==
           RingInitializationStage.decisionRequired) {
         // Persist uncertainty before the request: a lost response cannot be
@@ -3450,6 +3473,7 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.error);
     } on PlatformException catch (error) {
       if (!isCurrent()) return;
+      failureCode = connectionDiagnosticCode(error.code);
       if (error.code == 'CONNECT_CANCELLED') {
         errorMessage = null;
         if (deviceState != DeviceConnectionState.disconnected) {
@@ -3470,7 +3494,7 @@ class AppController extends ChangeNotifier {
       _diagnose(
         SyncDiagnosticStage.connect,
         SyncDiagnosticState.failed,
-        code: SyncDiagnosticCode.connectFailed,
+        code: failureCode,
       );
       _errorUsesDeviceTerms = device.sdkSource == WearableSdkSource.urion;
     }
@@ -5518,6 +5542,54 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  /// Read exact-source samples for the report without selecting another ring,
+  /// calling BLE, changing records, or exposing an expired metric grant.
+  Future<List<HealthRecord>> loadSleepReportReadings(
+    List<HealthRecord> sleep,
+  ) async {
+    final generation = _sessionGeneration;
+    final target = (connectedDevice ?? rememberedDevice)?.id;
+    final windows = sleep
+        .expand(sleepObservationWindows)
+        .where(
+          (w) =>
+              w.kind != SleepSessionKind.nap && !w.end.isAfter(DateTime.now()),
+        )
+        .toList();
+    if (windows.isEmpty || _accountTransitioning) return const [];
+    windows.sort((a, b) => a.start.compareTo(b.start));
+    final start = windows.first.start;
+    final end = windows
+        .map((w) => w.end)
+        .reduce((a, b) => a.isAfter(b) ? a : b);
+    if (end.difference(start) > const Duration(days: 35)) return const [];
+    final ids = sleep
+        .map((r) => r.deviceId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final records = <HealthRecord>[];
+    for (final metric in [
+      HealthMetric.heartRate,
+      HealthMetric.hrv,
+      HealthMetric.bloodOxygen,
+    ]) {
+      final rows = await _healthStore.range(
+        metric: metric,
+        start: start,
+        end: end,
+      );
+      if (!_isCurrentSessionGeneration(generation) ||
+          _accountTransitioning ||
+          target != (connectedDevice ?? rememberedDevice)?.id) {
+        return const [];
+      }
+      records.addAll(
+        _releaseRecords(rows.where((r) => ids.contains(r.deviceId))),
+      );
+    }
+    return records;
+  }
+
   Future<List<HealthRecord>> loadHealthRecords({
     required HealthMetric metric,
     required DateTime start,
@@ -6373,6 +6445,34 @@ class AppController extends ChangeNotifier {
   Future<void> _runWearableConnectionRestore(int generation) async {
     final bridge = _wearable;
     if (bridge is! WearableConnectionRecoveryBridge) return;
+    final target = rememberedDevice;
+    final ownerGeneration = _sessionGeneration;
+    bool current() =>
+        !_disposed &&
+        !_accountTransitioning &&
+        ownerGeneration == _sessionGeneration &&
+        generation == _wearableRestoreGeneration &&
+        rememberedDevice?.id == target?.id &&
+        connectedDevice == null;
+    if (target != null) {
+      _diagnosticDevice = target;
+      syncDiagnostics.begin(
+        _healthOwnerFor(session),
+        target.id,
+        connectionKind: 'automatic_recovery',
+      );
+      _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
+    }
+    void diagnoseFailure([String? nativeCode]) {
+      if (target != null && current()) {
+        _diagnose(
+          SyncDiagnosticStage.connect,
+          SyncDiagnosticState.failed,
+          code: connectionDiagnosticCode(nativeCode),
+        );
+      }
+    }
+
     try {
       final device = await (bridge as WearableConnectionRecoveryBridge)
           .restoreConnection(
@@ -6392,15 +6492,21 @@ class AppController extends ChangeNotifier {
         }
         return;
       }
-      if (device == null || connectedDevice != null) return;
+      if (device == null) {
+        diagnoseFailure();
+        return;
+      }
+      if (connectedDevice != null) return;
       await _restoreReconnectedDevice(device.toJson());
     } on PlatformException catch (error) {
       if (generation != _wearableRestoreGeneration) return;
       if (error.code == 'NO_SAVED_DEVICE') return;
+      diagnoseFailure(error.code);
       sdkStatus = _wearableErrorMessage(error, fallback: '戒指自动重连失败');
       notifyListeners();
     } catch (_) {
       if (generation != _wearableRestoreGeneration) return;
+      diagnoseFailure();
       sdkStatus = '戒指自动重连失败，可在设备页重新连接';
       notifyListeners();
     }
@@ -9898,6 +10004,18 @@ class AppController extends ChangeNotifier {
         owner == _healthOwnerFor(session) &&
         (connectedDevice == null || connectedDevice?.id == device.id);
     _latestDeviceDetails = device;
+    if (_wearableRestoreInFlight == null ||
+        _diagnosticDevice?.id != device.id) {
+      _diagnosticDevice = device;
+      syncDiagnostics.begin(
+        owner,
+        device.id,
+        connectionKind: _wearableReconnectInFlight == null
+            ? 'automatic_recovery'
+            : 'explicit',
+      );
+      _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
+    }
     errorMessage = null;
     try {
       deviceMachine.transition(DeviceConnectionState.connecting);
@@ -9932,6 +10050,8 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '设备已自动重连';
       deviceMachine.transition(DeviceConnectionState.ready);
+      syncDiagnostics.connectionCompleted();
+      syncDiagnostics.flushConnection();
       if (_firstRingBindingPending) {
         notifyListeners();
         unawaited(_recoverExistingMemberBindingDecision());
@@ -9943,6 +10063,11 @@ class AppController extends ChangeNotifier {
     } on PlatformException catch (error) {
       // 异常也是旧异步任务的回包：换号、换设备或断开后，不能清掉新连接。
       if (!isCurrentRecovery()) return;
+      _diagnose(
+        SyncDiagnosticStage.connect,
+        SyncDiagnosticState.failed,
+        code: connectionDiagnosticCode(error.code),
+      );
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;
       capabilities = null;
@@ -9955,6 +10080,11 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       // 当前恢复真正失败仍需报告；只丢弃已失效代次的迟到异常。
       if (!isCurrentRecovery()) return;
+      _diagnose(
+        SyncDiagnosticStage.connect,
+        SyncDiagnosticState.failed,
+        code: SyncDiagnosticCode.connectFailed,
+      );
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;
       capabilities = null;

@@ -43,6 +43,10 @@ class _VisualController extends Fake implements AppController {
   Future<HealthRecord?> loadLatestSleepDay() async =>
       stored.where((record) => record.metric == HealthMetric.sleep).firstOrNull;
   @override
+  Future<List<HealthRecord>> loadSleepReportReadings(
+    List<HealthRecord> sleep,
+  ) async => const [];
+  @override
   Future<List<HealthRecord>> loadSleepDays({
     required DateTime start,
     required DateTime end,

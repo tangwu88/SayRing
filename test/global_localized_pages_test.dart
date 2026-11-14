@@ -8,6 +8,7 @@ import 'package:saydian_app/domain/reading_reminder.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:saydian_app/services/app_controller.dart';
+import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/health_reminder_notifications.dart';
 import 'package:saydian_app/ui/health_reports_page.dart';
 import 'package:saydian_app/ui/pages.dart';
@@ -19,6 +20,8 @@ const _articleId = '1b31a3cb-77ee-4cc6-ad93-0a640e496817';
 
 class _GlobalPageController extends Fake implements AppController {
   _GlobalPageController({this.reminderMetricsAvailable = false});
+  @override
+  OnlineSupportApi? get onlineSupportApi => null;
   final bool reminderMetricsAvailable;
   @override
   DeviceCapabilities? get capabilities => reminderMetricsAvailable

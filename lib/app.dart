@@ -19,6 +19,7 @@ import 'ui/pages.dart';
 import 'ui/cycle_tracking_page.dart';
 import 'ui/prototype_pages.dart';
 import 'ui/global_code_login_page.dart';
+import 'ui/online_support_page.dart';
 import 'ui/review_demo_page.dart';
 import 'ui/health_reminder_center.dart';
 import 'ui/reading_reminder_widgets.dart';
@@ -295,6 +296,10 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         ),
         NotificationRouteTarget.cycleTracking => CycleTrackingPage(
           controller: controller,
+        ),
+        NotificationRouteTarget.supportConversation => OnlineSupportPage(
+          controller: controller,
+          initialConversation: intent.entityId,
         ),
         NotificationRouteTarget.notificationInbox => NotificationsPage(
           controller: controller,

@@ -113,6 +113,11 @@ abstract interface class SyncDiagnosticsVault {
   Future<void> writeSyncDiagnostics(String owner, Map<String, Object?> value);
 }
 
+abstract interface class OnlineSupportVault {
+  Future<Map<String, Object?>?> readSupportGuest();
+  Future<void> writeSupportGuest(Map<String, Object?>? value);
+}
+
 class SecureSessionVault
     implements
         SessionVault,
@@ -120,6 +125,7 @@ class SecureSessionVault
         HomeHealthCardsVault,
         RingInitializationVault,
         SyncDiagnosticsVault,
+        OnlineSupportVault,
         RingInitializationOperationVault {
   SecureSessionVault([FlutterSecureStorage? storage])
     : storageNamespace = null,
@@ -131,6 +137,19 @@ class SecureSessionVault
        _storage = storage ?? safeSecureStorage;
 
   final String? storageNamespace;
+  String get _supportGuestKey => '$_prefix.support.guest.v1';
+  @override
+  Future<Map<String, Object?>?> readSupportGuest() async {
+    final raw = await _storage.read(key: _supportGuestKey);
+    if (raw == null) return null;
+    final value = jsonDecode(raw);
+    return value is Map<String, Object?> ? value : null;
+  }
+
+  @override
+  Future<void> writeSupportGuest(Map<String, Object?>? value) => value == null
+      ? _storage.delete(key: _supportGuestKey)
+      : _storage.write(key: _supportGuestKey, value: jsonEncode(value));
   String _syncDiagnosticKey(String owner) =>
       '$_prefix.sync-diagnostics.v1.${sha256.convert(utf8.encode(owner))}';
   @override

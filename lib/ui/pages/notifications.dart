@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/app_controller.dart';
 import '../../services/notification_models.dart';
+import '../../services/notification_route_service.dart';
 import '../../l10n/global_locale_controller.dart';
 import '../app_theme.dart';
 import '../prototype_pages.dart';
 import '../widgets/inline_notice.dart';
 import '../html_text.dart';
 import '../health_reminder_center.dart';
+import '../online_support_page.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({required this.controller, super.key});
@@ -34,6 +36,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
       await widget.controller.markNotificationEventRead(eventId);
     }
     if (!mounted || owner != widget.controller.homeHealthCardOwner) return;
+    final support = supportConversationFromLink(
+      item['deepLink'] ?? item['deep_link'],
+    );
+    if (support != null &&
+        eventId.startsWith('support-reply:') &&
+        widget.controller.isAuthenticated) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => OnlineSupportPage(
+            controller: widget.controller,
+            initialConversation: support,
+          ),
+        ),
+      );
+      return;
+    }
     final eventType = '${item['_eventType'] ?? ''}';
     final reminderId = '${item['entity_id'] ?? ''}';
     if (eventType == NotificationEventType.healthWarning.name &&

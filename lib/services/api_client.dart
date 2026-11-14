@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -22,10 +23,12 @@ import 'cycle_tracking_service.dart';
 import 'network_audit.dart';
 import 'secure_vault.dart';
 import 'sleep_report_input.dart';
+import 'notification_route_service.dart' show supportConversationFromLink;
 import 'wearable_routing.dart';
 
 part 'global_api_client.dart';
 part 'global_health_api.dart';
+part 'online_support_api.dart';
 
 class ApiException implements Exception {
   const ApiException(this.message, {this.statusCode, this.code});
@@ -44,6 +47,10 @@ abstract interface class SyncDiagnosticsApi {
     Session expectedSession,
     Map<String, Object?> report,
   );
+}
+
+abstract interface class SyncDiagnosticsVersionsApi {
+  Future<int> syncDiagnosticSchema(Session expectedSession);
 }
 
 class FeatureNotConfiguredException extends ApiException {

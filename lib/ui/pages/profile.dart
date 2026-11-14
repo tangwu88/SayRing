@@ -354,6 +354,26 @@ class SettingsPage extends StatelessWidget {
                   ),
                 ),
                 _MyServicesGrid(controller: controller),
+                if (controller.isGlobalEdition) ...[
+                  const SizedBox(height: 10),
+                  const Divider(),
+                  ListTile(
+                    key: const Key('my-services-faq'),
+                    leading: const Icon(Icons.quiz_outlined),
+                    title: Text(
+                      supportCopy(
+                        context,
+                        '常见问题',
+                        'Frequently asked questions',
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => _openPage(
+                      context,
+                      SupportFaqPage(controller: controller),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

@@ -20,6 +20,12 @@ import 'widgets/usage_info_button.dart';
 const _maxReportPolls = 90;
 const _maxReadFailures = 3;
 
+String _firstSentence(String text) {
+  final value = text.trim();
+  final end = RegExp(r'[。！？]|[.!?](?=\s|$)|\n').firstMatch(value);
+  return (end == null ? value : value.substring(0, end.end)).trim();
+}
+
 class SleepAiReportCard extends StatefulWidget {
   const SleepAiReportCard({
     required this.controller,
@@ -160,6 +166,15 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
     }
   }
 
+  String? get _preview {
+    final report = _report;
+    if (report?.status != HealthReportStatus.ready) return null;
+    final text = report?.freePreview['summary'];
+    return text is String && text.trim().isNotEmpty
+        ? _firstSentence(text)
+        : null;
+  }
+
   @override
   Widget build(BuildContext context) => !widget.controller.sleepAiEnabled
       ? const SizedBox.shrink()
@@ -175,27 +190,30 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
             style: TextStyle(fontWeight: FontWeight.w800),
           ),
           subtitle: Text(
-            _failed
-                ? _pausedPolling
-                      ? uiCopy(context, "报告未加载，点此重试")
-                      : uiCopy(context, "正在重新加载报告")
-                : _report?.sleepScore != null
-                ? uiCopy(
-                    context,
-                    "{p0} / 100 · 查看评分依据和建议",
-                    parameters: [_report!.sleepScore],
-                  )
-                : _report == null
-                ? uiCopy(context, "查看本次睡眠与建议")
-                : _report!.status == HealthReportStatus.ready
-                ? uiCopy(context, "查看报告")
-                : _pausedPolling
-                ? uiCopy(
-                    context,
-                    "{p0} · 点此刷新",
-                    parameters: [_report!.progressLabel],
-                  )
-                : _report!.progressLabel,
+            _preview ??
+                (_failed
+                    ? _pausedPolling
+                          ? uiCopy(context, "报告未加载，点此重试")
+                          : uiCopy(context, "正在重新加载报告")
+                    : _report?.sleepScore != null
+                    ? uiCopy(
+                        context,
+                        "{p0} / 100 · 查看评分依据和建议",
+                        parameters: [_report!.sleepScore],
+                      )
+                    : _report == null
+                    ? uiCopy(context, "查看本次睡眠与建议")
+                    : _report!.status == HealthReportStatus.ready
+                    ? uiCopy(context, "查看报告")
+                    : _pausedPolling
+                    ? uiCopy(
+                        context,
+                        "{p0} · 点此刷新",
+                        parameters: [_report!.progressLabel],
+                      )
+                    : _report!.progressLabel),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
           ),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () async {
@@ -556,6 +574,14 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     if (_closed) return const Scaffold(body: SizedBox.shrink());
     final content = _content ?? const <String, Object?>{};
     final score = _map(content['sleepScore']);
+    final overview = '${content['overview'] ?? ''}'.trim();
+    final suggestions = _strings(content['suggestions']);
+    final trends = [
+      for (final row
+          in content['trends'] is List ? content['trends'] as List : const [])
+        if (('${_map(row)['text'] ?? ''}').trim().isNotEmpty)
+          '${_map(row)['text']}',
+    ];
     return Scaffold(
       appBar: AppBar(
         title: Text(uiCopy(context, "睡眠报告")),
@@ -604,33 +630,33 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                     score: _report?.sleepScore,
                     explanation: '${score['explanation'] ?? ''}',
                   ),
-                  if (_visuals.isEmpty && _report?.sleepScore == null)
-                    _section(uiCopy(context, "睡眠参考评分"), [
-                      uiCopy(context, "证据不足，未评分"),
-                      '${score['explanation'] ?? ''}',
+                  if (overview.isNotEmpty || suggestions.isNotEmpty)
+                    _section(uiCopy(context, "睡眠分析"), [
+                      _firstSentence(overview),
+                      if (suggestions.isNotEmpty)
+                        _firstSentence(suggestions.first),
                     ]),
-                  _section(uiCopy(context, "睡眠分析"), [
-                    '${content['overview'] ?? ''}',
-                    for (final row
-                        in content['trends'] is List
-                            ? content['trends'] as List
-                            : const [])
-                      '${_map(row)['text'] ?? ''}',
-                  ]),
-                  Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      uiCopy(context, "睡眠改善建议"),
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 17,
-                      ),
+                  Card(
+                    child: ExpansionTile(
+                      title: Text(uiCopy(context, "如何看这份报告")),
+                      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (overview.isNotEmpty) Text(overview),
+                        for (final trend in trends)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(trend),
+                          ),
+                        if (suggestions.isNotEmpty)
+                          ReportAdviceList(items: suggestions),
+                        for (final line in _strings(content['limitations']))
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(line),
+                          ),
+                      ],
                     ),
-                  ),
-                  ReportAdviceList(items: _strings(content['suggestions'])),
-                  _section(
-                    uiCopy(context, "如何看这份报告"),
-                    _strings(content['limitations']),
                   ),
                 ] else ...[
                   _section(uiCopy(context, "评分与建议"), [

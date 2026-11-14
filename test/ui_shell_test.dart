@@ -12,6 +12,7 @@ import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/read_only_health_features.dart';
 import 'package:saydian_app/domain/wearable_sync_result.dart';
 import 'package:saydian_app/domain/wellness_release_policy.dart';
+import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
@@ -2093,7 +2094,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('sleep-overview-page')), findsOneWidget);
-    expect(find.text('7小时30分'), findsNWidgets(2));
+    expect(find.text('7小时30分'), findsOneWidget);
     expect(find.text('快速眼动'), findsOneWidget);
     expect(find.text('1小时0分'), findsOneWidget);
     await tester.scrollUntilVisible(
@@ -4717,18 +4718,23 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildSaydianTheme(),
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: HealthRecordDetailPage(controller: controller, record: record),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('清醒时长'), findsOneWidget);
-    expect(find.text('20 分钟'), findsOneWidget);
+    expect(find.text('清醒'), findsOneWidget);
+    expect(find.text('20分钟'), findsOneWidget);
     expect(find.text('20 h'), findsNothing);
     expect(find.text('awakeMinutes'), findsNothing);
     expect(find.text('深睡'), findsOneWidget);
     expect(find.text('2小时0分'), findsOneWidget);
     expect(find.text('快速眼动'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('85 分'), 220);
     expect(find.text('85 分'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('92 %'), 220);
     expect(find.text('92 %'), findsOneWidget);
     expect(find.text('建议结合长期趋势观察'), findsNothing);
     expect(find.text('查看长期趋势更有参考价值'), findsNothing);

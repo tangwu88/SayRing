@@ -555,7 +555,7 @@ void main() {
     (tester) async {
       final c = _Controller()..report = _report('ready');
       await _pump(tester, c, width: 320, scale: 2);
-      expect(find.text('证据不足，未评分'), findsOneWidget);
+      expect(find.text('证据不足，未评分'), findsNothing);
       await tester.scrollUntilVisible(find.text('合成建议'), 200);
       expect(find.text('合成建议'), findsOneWidget);
       expect(tester.takeException(), isNull);

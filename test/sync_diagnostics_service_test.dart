@@ -56,6 +56,11 @@ class Remote extends Fake implements SaydianApi, SyncDiagnosticsApi {
   }
 }
 
+class V2Remote extends Remote implements SyncDiagnosticsVersionsApi {
+  @override
+  Future<int> syncDiagnosticSchema(Session expectedSession) async => 2;
+}
+
 Future<void> settle() async {
   for (var i = 0; i < 60; i++) {
     await Future<void>.delayed(Duration.zero);
@@ -89,6 +94,82 @@ void main() {
     service.begin('global:a', 'PRIVATE-NATIVE-IDENTIFIER');
   });
   tearDown(() => service.dispose());
+
+  test('Bluetooth off remains a diagnostic reason on V2, never a V1 field', () {
+    final code = connectionDiagnosticCode('BLUETOOTH_DISABLED');
+    expect(code, SyncDiagnosticCode.bluetoothOff);
+    final stage = SyncDiagnosticEvent(
+      SyncDiagnosticStage.connect,
+      SyncDiagnosticState.failed,
+      code,
+      430,
+    ).toJson();
+    final downlevel = syncDiagnosticForV1({
+      'schemaVersion': 2,
+      'phone': {'modelId': 'PPA-LX3'},
+      'stages': [stage],
+    });
+    expect(stage['code'], 'bluetooth_off');
+    expect(downlevel.containsKey('phone'), isFalse);
+    expect((downlevel['stages'] as List).single['code'], 'connect_failed');
+  });
+
+  test(
+    'V2 caches nonidentifying phone data and discards an old owner outbox',
+    () async {
+      service.dispose();
+      final api = V2Remote()..offline = true;
+      service = SyncDiagnosticsService(
+        vault: vault,
+        api: api,
+        session: () => current,
+        allowed: () => true,
+        snapshot: snapshot,
+        onChanged: () {},
+        locale: () => 'zh-Hans',
+        clock: () => now,
+        metadata: () async => {
+          'appVersion': '1.0.14',
+          'buildNumber': 1308,
+          'phone': {
+            'brand': 'HUAWEI',
+            'modelId': 'PPA-LX3',
+            'osVersion': '10.1',
+            'osBuild': 'R12',
+            'apiLevel': 29,
+            'imei': 'private',
+          },
+        },
+      );
+      service.begin(
+        'global:a',
+        'fixture-r7',
+        connectionKind: 'automatic_recovery',
+      );
+      service.record(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
+      service.connectionCompleted();
+      service.flushConnection();
+      await settle();
+      expect(api.reports.single['schemaVersion'], 2);
+      expect(api.reports.single['connectionKind'], 'automatic_recovery');
+      final phone = api.reports.single['phone'] as Map;
+      expect(phone, containsPair('modelId', 'PPA-LX3'));
+      expect(phone, containsPair('locale', 'zh-Hans'));
+      expect(phone.containsKey('imei'), isFalse);
+      expect(
+        (await vault.readSyncDiagnostics('global:a'))!['pending'],
+        isNotNull,
+      );
+      current = owner('b');
+      api.offline = false;
+      service.clear(discardPendingFor: 'global:a');
+      service.begin('global:b', 'fixture-r8', connectionKind: 'explicit');
+      service.flushPending();
+      await settle();
+      expect((await vault.readSyncDiagnostics('global:a'))!['pending'], isNull);
+      expect(api.owners, ['a']);
+    },
+  );
 
   test(
     'automatic failure summary contains only fixed metadata, enums and counts',
@@ -202,7 +283,12 @@ void main() {
       remote.offline = true;
       await service.send();
       final first = remote.reports.single;
-      expect((await vault.readSyncDiagnostics('global:a'))!['pending'], first);
+      expect(
+        (await vault.readSyncDiagnostics('global:a'))!['pending'],
+        containsPair('reportId', first['reportId']),
+      );
+      expect(first['schemaVersion'], 1);
+      expect(first.containsKey('phone'), isFalse);
       service.flushPending();
       await settle();
       expect(remote.reports, hasLength(1));
