@@ -1448,6 +1448,9 @@ class AppController extends ChangeNotifier {
   // The connection read has two stages: health history, then sport history.
   // Keep the consumer busy state until both SDK reads and local imports settle.
   (int, String, Object)? _initialDeviceHistorySync;
+  ({int session, int sync, String device, Set<String> metrics})?
+  _coolWearCapabilityHistoryRetry;
+  bool _coolWearCapabilityHistoryRetryUsed = false;
   bool get _usesCoolWearAndroid =>
       !kIsWeb &&
       defaultTargetPlatform == TargetPlatform.android &&
@@ -2878,6 +2881,8 @@ class AppController extends ChangeNotifier {
   }
 
   void _flushDeviceDetailsRefresh() {
+    // Finish the deferred history read before an optional battery/detail poll.
+    if (_flushCoolWearCapabilityHistoryRetry()) return;
     if (!_deviceDetailsRefreshQueued || _disposed || !_appIsForeground) return;
     _deviceDetailsRefreshQueued = false;
     unawaited(refreshConnectedDeviceDetails(quiet: true));
@@ -3093,6 +3098,7 @@ class AppController extends ChangeNotifier {
     } finally {
       if (identical(_wearableConnectInFlight, connecting)) {
         _wearableConnectInFlight = null;
+        _flushDeviceDetailsRefresh();
       }
     }
   }
@@ -3814,6 +3820,54 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  bool _flushCoolWearCapabilityHistoryRetry() {
+    final retry = _coolWearCapabilityHistoryRetry;
+    if (retry == null) return false;
+    if (!_usesCoolWearAndroid ||
+        !_isDeviceSyncCurrent(retry.sync, retry.device, retry.session)) {
+      _coolWearCapabilityHistoryRetry = null;
+      return false;
+    }
+    bool canRead() =>
+        !_coolWearCapabilityHistoryRetryUsed &&
+        _appIsForeground &&
+        !_firstRingBindingPending &&
+        !isDeviceSyncPreparing &&
+        !isDeviceHistorySyncing &&
+        deviceState == DeviceConnectionState.ready &&
+        _hasResolvedDeviceCapabilities &&
+        !_deviceDetailsRefreshing &&
+        _wearableConnectInFlight == null &&
+        _wearableReconnectInFlight == null &&
+        _activeMeasurementMetric == null &&
+        _measurementStopInFlight == null &&
+        activeSport == null &&
+        _startingSport == null &&
+        !isDeviceSettingsLoading &&
+        !isDeviceSettingsWriting &&
+        deviceFeatureBusy.isEmpty &&
+        capabilities?.supportsHistorySync != false &&
+        (capabilities?.historyMetrics ?? capabilities?.metrics ?? {}).any(
+          (metric) => !retry.metrics.contains(metric.wireName),
+        );
+
+    if (!canRead()) return false;
+    scheduleMicrotask(() {
+      if (_coolWearCapabilityHistoryRetry != retry ||
+          !_isDeviceSyncCurrent(retry.sync, retry.device, retry.session) ||
+          !canRead()) {
+        return;
+      }
+      // At most one recovery per connection, only after a native report of
+      // missing capabilities and a genuinely expanded history catalogue.
+      // Another timeout remains a failure; no timer/reset/reconnect loop.
+      _coolWearCapabilityHistoryRetry = null;
+      _coolWearCapabilityHistoryRetryUsed = true;
+      unawaited(_syncInitialDeviceData(retry.device));
+    });
+    return true;
+  }
+
   Future<bool> syncDeviceData() async {
     final device = connectedDevice;
     if (device == null) {
@@ -3976,6 +4030,8 @@ class AppController extends ChangeNotifier {
             matchesTarget(record.sleepTimeline!.deviceId));
 
     final generation = ++_deviceSyncGeneration;
+    // Any actual new read (including a user's retry) supersedes old evidence.
+    _coolWearCapabilityHistoryRetry = null;
     final idle = Completer<void>();
     _deviceSyncIdle = idle;
     isDeviceSyncing = true;
@@ -4045,6 +4101,17 @@ class AppController extends ChangeNotifier {
           : await _wearable.syncHealthData();
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
+      }
+      if (_usesCoolWearAndroid &&
+          !_coolWearCapabilityHistoryRetryUsed &&
+          receivedRecords is WearableSyncResult &&
+          receivedRecords.statuses['_capabilities'] == 'not_received') {
+        _coolWearCapabilityHistoryRetry = (
+          session: sessionGeneration,
+          sync: generation,
+          device: deviceId,
+          metrics: historyMetrics.toSet(),
+        );
       }
       // 同一 SDK 可服务多枚戒指。必须逐条核对目标，再写睡眠明细和会员记录；
       // 混入其他目标时保留已核实的数据，但本次不能推进历史同步检查点。
@@ -4335,6 +4402,8 @@ class AppController extends ChangeNotifier {
       connectedDevice?.id == deviceId;
 
   void _invalidateDeviceSync() {
+    _coolWearCapabilityHistoryRetry = null;
+    _coolWearCapabilityHistoryRetryUsed = false;
     final receiptWaiter = _ringInitializationReceiptWaiter;
     _ringInitializationReceiptWaiter = null;
     if (receiptWaiter != null && !receiptWaiter.isCompleted) {
@@ -4553,6 +4622,7 @@ class AppController extends ChangeNotifier {
         _wearableReconnectInFlight = null;
         _scheduleWearableRecoveryRetry();
         if (!_disposed) notifyListeners();
+        _flushDeviceDetailsRefresh();
       }
     }
   }
@@ -4777,6 +4847,7 @@ class AppController extends ChangeNotifier {
       return false;
     } finally {
       _deviceDetailsRefreshing = false;
+      _flushCoolWearCapabilityHistoryRetry();
     }
   }
 
@@ -5490,6 +5561,7 @@ class AppController extends ChangeNotifier {
       errorMessage = '结束运动失败，请稍后重试';
     }
     notifyListeners();
+    _flushDeviceDetailsRefresh();
   }
 
   Future<bool> setSportPaused(bool paused) async {
@@ -5681,6 +5753,7 @@ class AppController extends ChangeNotifier {
       if (_disposed) return;
       isDeviceSettingsLoading = false;
       notifyListeners();
+      _flushDeviceDetailsRefresh();
     });
     _deviceSettingsRefresh = refresh;
     return refresh;
@@ -5822,6 +5895,7 @@ class AppController extends ChangeNotifier {
       if (settingsGeneration == _deviceSettingsGeneration) {
         isDeviceSettingsWriting = false;
         if (!_disposed) notifyListeners();
+        _flushDeviceDetailsRefresh();
       }
     }
   }
@@ -6439,6 +6513,7 @@ class AppController extends ChangeNotifier {
     }
     deviceFeatureBusy = next;
     notifyListeners();
+    if (!busy) _flushDeviceDetailsRefresh();
   }
 
   Future<void> synchronizeCloud() async {
@@ -7080,6 +7155,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     _scheduleCareInvitationPoll(const Duration(seconds: 30));
+    _flushDeviceDetailsRefresh();
   }
 
   Future<void> handleAppResumed() async {
@@ -7131,6 +7207,7 @@ class AppController extends ChangeNotifier {
       unawaited(_registerPushDevice(resetBackoff: true));
     }
     await Future.wait(operations);
+    _flushDeviceDetailsRefresh();
     await refreshConnectedDeviceDetails(quiet: true);
     _scheduleDeviceDetailsPoll();
     _scheduleCareInvitationPoll(const Duration(seconds: 30));
@@ -9096,6 +9173,7 @@ class AppController extends ChangeNotifier {
           DeviceCapabilities.fromMap(event.payload),
         );
         deviceCapabilityState = DeviceCapabilityState.ready;
+        _flushDeviceDetailsRefresh();
       }
     } else if (event.type == 'syncRecords') {
       final count = event.payload['receivedRecords'];
