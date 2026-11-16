@@ -45,3 +45,11 @@
 - 切断实时消息连接后由本地坐席连续发送两条回复。App 无需刷新页面即可按上一次收到的消息进度补取，两条各显示一次。
 - 用户取消访客会话关联时，归属不变；明确关联后的首次回执若丢失，修复后的服务端向同一会员补发确认。旧访客及另一账号均不能查看原照片；切换账号会立即隐藏已打开的照片。
 - 与本地真实 API 和隔离 PostgreSQL 完成以上串联场景，证据保存在本机 `qa-1308-20261115/android-emulator-followup`。仅调整配套服务端；客户端运行代码与原签名 1308 安装包未变，仍可在原模拟器继续操作。生产后台及实体设备未参与。
+
+## 追加：2026-11-16 iPhone 15 Pro Max 真机调试
+
+- iPhone 15 Pro Max（iOS 26.6）经 USB 在线，XR 不在线。安装前核对 `cn.saydian.ring` 原为 1.0.14（1303）；旧版不允许导出数据容器。`codesign --verify --deep --strict` 和 `shasum -a 256` 通过后，以 `xcrun devicectl device install app` 原位覆盖 1308 Profile。升级后用 `devicectl device copy from --domain-type appDataContainer --domain-identifier cn.saydian.ring --source .` 在 Git 外私下备份当前容器（23 文件）；这个副本不等于 1303 安装前的完整备份。测试中未卸载 App、清数据、换账号或重置设备，原登录会话和已有睡眠记录在新版均可读取。
+- 普通 Profile 能前台启动；`flutter attach` 首次含此命令不支持的 `--no-pub`，移除后未发现 Profile VM。改用同一构建的正常开发签名包执行 `flutter run --debug --no-pub --no-uninstall-first --device-connection attached --use-application-binary=<1308 iOS Development IPA>`，实际读回安装构建为 1308，精确安装路径匹配正在运行的 App。Dart VM HTTP 200，iOS 主 isolate 为 `Resume`，Flutter view 与 Inspector 在线，DevTools 本机 HTTP 200。
+- 首轮探针在构建之外调用 `ModalRoute.of`，意外记录了路由依赖，随后触发 Flutter 框架断言；热重启及多次独立查询也曾超时。移除这些路由依赖，重新启动正常 Debug，把应用恢复前台并在一个调试会话中执行现有页面按钮回调。复测完成全部页面标记，最终会话无框架异常、布局溢出或调试断开日志；未修改 App 运行代码。
+- 实机核对睡眠日视图有既有汇总与阶段图，周、月切换均生成真实记录时长趋势。通过「我的服务」打开 FAQ，搜索框和空态正常；通过「联系客服」打开备用页，线上 `online-config` 返回 HTTP 404。在线客服发消息、转人工、系统推送、WhatsApp，以及外设新采样与重连均未在本轮验收。
+- 最终回到首页并保留正常 Debug 运行、Flutter 调试会话及私有日志。未操作生产后台、下载页、TestFlight 或 App Store 审核。
