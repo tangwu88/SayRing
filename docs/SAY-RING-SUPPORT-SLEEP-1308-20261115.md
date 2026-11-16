@@ -61,3 +61,9 @@
 - 首次在旧 1308 会话热重载时，编译器启用 Widget 跟踪而原包关闭，界面构建报 `_location` 查找错误。重新以 `xcodebuild` 串行编译 iOS Debug／Profile，均通过；保持 `TRACK_WIDGET_CREATION=false`，用 `flutter run --debug --no-track-widget-creation --no-pub --no-uninstall-first --use-application-binary=<本次开发包>` 原位安装 Debug 到 iPhone 15 Pro Max（iOS 26.6）。开发包已验签及核对 `cn.saydian.ring`，仅供本机验证，不替换之前交付的 1308 制品。
 - 真机读取实际页面结构及行内顺序，确认 FAQ 与关于同网格、诊断与连接说明同卡片；通过原有入口打开 FAQ、诊断和连接说明均正常。复测无框架异常或溢出，回到首页并保留调试会话。验收未执行上传诊断、恢复、清数据或设备操作，未改变商店审核状态。
 - `flutter build apk --debug/--release --no-pub --target-platform=android-arm,android-arm64 --build-name=1.0.14 --build-number=1308` 两种均通过；Release 使用 `SAIDIAN_ALLOW_QA_RELEASE=true` 的本机测试签名。两个 APK 均用 `aapt dump badging`、`apksigner verify`、`zipalign -c -P 16 4` 检查通过，包名和双 ARM 正确；保留既有第三方 Kotlin 迁移提示。本轮安卓未装机，QA APK 不供正式分发，两端日志留在本机 `qa-1308-20261115/menu-layout-20261116`。
+
+## 追加：2026-11-16 设备页帮助顺序修正
+
+- 按最新要求在 `2ff6882` 上调整 `lib/ui/pages/devices.dart`。同一张帮助卡片内，「连接说明」的下一行是「同步诊断与恢复」。
+- 从 iPhone 15 Pro Max 现有 1308 Debug 会话热重载，验证两项的相邻顺序和实际跳转。第一次探针在已有诊断页面上重复推入该页，得到两层同类路由。回到设备页后逐项复测，两项都能打开，验收结束时留在设备页帮助卡片。
+- `dart format --output=none --set-exit-if-changed lib/ui/pages/devices.dart`、`git diff --check`、`flutter analyze --no-pub` 和 `TZ=Asia/Shanghai flutter test --no-pub --reporter expanded --concurrency=4` 均通过，共 2,435 项。`xcodebuild` 的 iOS Debug 和 Profile 构建及验签通过。`flutter build apk --debug/--release --no-pub --target-platform=android-arm,android-arm64 --build-name=1.0.14 --build-number=1308` 两种通过，Release 为 `SAIDIAN_ALLOW_QA_RELEASE=true` 测试包。验证日志在本机 `menu-layout-20261116/order-correction`。
