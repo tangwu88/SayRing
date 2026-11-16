@@ -67,3 +67,10 @@
 - 按最新要求在 `2ff6882` 上调整 `lib/ui/pages/devices.dart`。同一张帮助卡片内，「连接说明」的下一行是「同步诊断与恢复」。
 - 从 iPhone 15 Pro Max 现有 1308 Debug 会话热重载，验证两项的相邻顺序和实际跳转。第一次探针在已有诊断页面上重复推入该页，得到两层同类路由。回到设备页后逐项复测，两项都能打开，验收结束时留在设备页帮助卡片。
 - `dart format --output=none --set-exit-if-changed lib/ui/pages/devices.dart`、`git diff --check`、`flutter analyze --no-pub` 和 `TZ=Asia/Shanghai flutter test --no-pub --reporter expanded --concurrency=4` 均通过，共 2,435 项。`xcodebuild` 的 iOS Debug 和 Profile 构建及验签通过。`flutter build apk --debug/--release --no-pub --target-platform=android-arm,android-arm64 --build-name=1.0.14 --build-number=1308` 两种通过，Release 为 `SAIDIAN_ALLOW_QA_RELEASE=true` 测试包。验证日志在本机 `menu-layout-20261116/order-correction`。
+
+## 2026-11-16：15 Pro Max 到 XR 的调试接续
+
+- 客户端基线 `c297469dc7719cf1ae038c24397efeedc1821ea3`，1.0.14（1308）。15 Pro Max 原位接入普通 Debug，核对安装包、进程和 Flutter VM。手机随后离线，本轮没有新完成的戒指同步。此前 1308 在这台手机显示的现有睡眠记录不作为本轮实时同步证据。
+- Mac 识别到 iPhone XR（iOS 18.7.11）。原商店版 1.0.13（1296）正常启动，系统不允许导出原容器。两次 `xcrun devicectl device install app` 原位尝试均收到 App Store 已有安装任务的冲突（`IXErrorDomain 46`）。未卸载、解绑、清记录或换账号；核对 XR 仍保留 1296。
+- `xcodebuild` 使用独立、仅供本机的 Profile 测试入口，构建通过；测试 IPA 通过 `codesign --verify --deep --strict`、`unzip -tq` 和 SHA-256 校验，开发描述文件包括 XR。普通 1308 Debug 独立保留。因 iOS 安装冲突，未运行真机测试入口。Mac 锁屏时，QuickTime 画面同样无法读取。
+- 宿主回归针对睡眠日／周／月、在线客服、常见问题及同步诊断与恢复，`TZ=Asia/Shanghai flutter test --no-pub --reporter expanded --concurrency=4` 定向 50 项通过。后续用原账号与原绑定完成 XR 实际戒指连接、读取活动和睡眠、真实睡眠日周月以及三个入口，自动测试使用 `tool/drive_ios_preserving_data.mjs` 并恢复普通入口。
