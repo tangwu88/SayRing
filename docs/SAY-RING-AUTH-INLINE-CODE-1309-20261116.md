@@ -22,3 +22,9 @@
 - 产物`E:/SayRing-auth-inline-1309-20261116/SayRing-1.0.14-1309-release.apk`，74519917字节，SHA256 `2a1be5acb286e4f7438da779c999690c87ddbff27e7a30303edfce71b14dc426`，1.0.14（1309）、cn.saydian.ring、正式证书SHA256 `81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de`。无临时key.properties，pubspec/lock及原生三平台源码均未变化。
 - 再次fetch后HEAD和同名origin仍均85c0b7a。显式提交页面、索引与本记录三文件，不改后台、更新清单或商店状态。
 - 当前同一华为已发起`adb install -r`，安装前仍读回1308；手机锁屏，已请本人完成华为确认，实际安装完成后独立读回再记，不把已发起当成功。
+
+## 安装确认
+
+- 源码8a1dfa45790b0ff7f7397073c61532a4093a5ba5已推送原SayRing分支。
+- 等待安装确认后，`adb install -r`返回Success；独立package读回versionCode=1309/versionName=1.0.14，当前为正常MainActivity。保留数据覆盖安装实际完成，先前锁屏问题已解除，无需再等待那条安装确认请求。
+- 没有退出/替换账号、解绑戒指或清除记录，没有发送真实验证码；因此此回执仅证明正式包安装与组件回归，不冒充真实邮箱/短信注册联调或iPhone验收。云端跨平台构建另行核对，不把旧iOS供应商下载失败算通过。
