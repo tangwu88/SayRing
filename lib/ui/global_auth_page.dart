@@ -2,6 +2,7 @@ import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -318,6 +319,8 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
 
   @override
   Widget build(BuildContext context) {
+    final inlineCodeAction =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final canRegister = _channel == AccountChannel.email
         ? (_mode == _AuthMode.reset
                   ? _capabilities?.recoveryEmail
@@ -332,6 +335,20 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
       _AuthMode.signUp => l.createAccount,
       _AuthMode.reset => l.resetPassword,
     };
+    final sendCodeButton = TextButton(
+      key: const Key('auth-send-code'),
+      style: inlineCodeAction
+          ? TextButton.styleFrom(
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            )
+          : null,
+      onPressed: _busy || !canRegister || _remaining > 0 ? null : _sendCode,
+      child: Text(_remaining > 0 ? l.resendCode(_remaining) : l.sendCode),
+    );
     return Scaffold(
       key: const Key('global-auth-page'),
       appBar: AppBar(),
@@ -447,6 +464,12 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                           ],
                           decoration: InputDecoration(
                             labelText: l.verificationCode,
+                            suffixIcon: inlineCodeAction
+                                ? Padding(
+                                    padding: const EdgeInsets.only(right: 4),
+                                    child: sendCodeButton,
+                                  )
+                                : null,
                           ),
                           validator: (value) =>
                               _challenge == null ||
@@ -456,16 +479,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                               ? l.codeRequired
                               : null,
                         ),
-                        TextButton(
-                          onPressed: _busy || !canRegister || _remaining > 0
-                              ? null
-                              : _sendCode,
-                          child: Text(
-                            _remaining > 0
-                                ? l.resendCode(_remaining)
-                                : l.sendCode,
-                          ),
-                        ),
+                        if (!inlineCodeAction) sendCodeButton,
                         if (_challenge != null)
                           Text(
                             l.verificationSentTo(_challenge!.maskedIdentifier),
