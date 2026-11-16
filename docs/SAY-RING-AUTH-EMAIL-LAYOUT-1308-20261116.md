@@ -30,3 +30,9 @@
 - 服务端运行时代码d090de9、[CI/双区部署43826724525](https://github.com/tangwu88/saydianserver/actions/runs/43826724525)全部成功，root/global readiness均同revision，公开Say Ring能力emailAutoRegistration=true/smsAutoRegistration=true。未向真实邮箱或手机号发送验证码，无新增生产测试账号。
 - 用户重新接入的当前华为仍为同一设备，安装前读回1307；物理1228×2700/density540，约364dp宽，与360dp紧凑回归相近。已发起`adb install -r`保留数据覆盖，当前华为风险确认待本人完成，未卸载/退出账号/改绑定/清记录。实际安装回执另记。
 - 提交前第一次fetch网络Empty reply失败，改用本机现有代理仅对本命令重试后成功；HEAD和同名origin均仍01a8df1，未覆盖远端。仅显式提交本轮AGENTS、页面、能力解析、测试及记录。
+
+## 手机安装与Git回执
+
+- 运行时代码721fc59f4010664fad7a6a7a61bfd2369fe49b21已推送原SayRing工作分支，未覆盖main或其他分支。
+- 用户本人完成华为安装确认后，`adb install -r`明确Success；独立`dumpsys package cn.saydian.ring`读回versionCode=1308、versionName=1.0.14、lastUpdateTime=2026-11-16 16:18:23。保留数据覆盖安装完成，没有卸载、代登录、真实发码或戒指操作。
+- 此追加仅记录实际安装回执，不修改运行时代码或APK。云端mobile-ci状态仍需单独核对，不将本机双时区及Android成功写作macOS签名/实机验收。
