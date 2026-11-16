@@ -75,6 +75,7 @@ class GlobalAuthCapabilities {
     this.loginSms = false,
     this.explicitRegistrationCodeLogin = false,
     this.smsAutoRegistration = false,
+    this.emailAutoRegistration = false,
     this.wechatApp = const GlobalWechatAppCapability(),
   });
   final bool email;
@@ -90,6 +91,7 @@ class GlobalAuthCapabilities {
   final bool loginSms;
   final bool explicitRegistrationCodeLogin;
   final bool smsAutoRegistration;
+  final bool emailAutoRegistration;
   final GlobalWechatAppCapability wechatApp;
 
   factory GlobalAuthCapabilities.fromJson(Map<String, Object?> data) {
@@ -118,6 +120,9 @@ class GlobalAuthCapabilities {
       smsAutoRegistration:
           data['login'] is Map &&
           (data['login'] as Map)['smsAutoRegistration'] == true,
+      emailAutoRegistration:
+          data['login'] is Map &&
+          (data['login'] as Map)['emailAutoRegistration'] == true,
       wechatApp: GlobalWechatAppCapability.fromJson(
         data['login'] is Map ? (data['login'] as Map)['wechatApp'] : null,
       ),

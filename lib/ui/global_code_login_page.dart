@@ -19,8 +19,8 @@ import 'global_legal_page.dart';
 import 'global_auth_page.dart';
 
 /// Say Ring shares the global member account. Password sign-in is the default
-/// for both channels. Verified phone-code sign-in can create a new account;
-/// email registration retains the separate password-and-code flow.
+/// for both channels. Verified phone/email code sign-in can create a new account
+/// when the server advertises the corresponding registration capability.
 class GlobalCodeLoginPage extends StatefulWidget {
   const GlobalCodeLoginPage({super.key, required this.controller});
 
@@ -471,6 +471,81 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
         ),
       );
     }
+    final compactAndroid =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final inlineHeading =
+        compactAndroid &&
+        Localizations.localeOf(context).languageCode == 'zh' &&
+        MediaQuery.sizeOf(context).width >= 340 &&
+        MediaQuery.textScalerOf(context).scale(16) <= 19.2;
+    final modeSwitch = Align(
+      alignment: Alignment.centerRight,
+      child: TextButton(
+        key: const Key('code-login-mode'),
+        onPressed: _busy
+            ? null
+            : () => setState(() {
+                _usePassword = !_usePassword;
+                _password.clear();
+                _resetChallenge();
+              }),
+        child: Text(
+          _passwordMode
+              ? uiCopy(context, "使用验证码登录")
+              : uiCopy(context, "使用密码登录"),
+        ),
+      ),
+    );
+    final sendCodeButton = TextButton(
+      style: compactAndroid
+          ? TextButton.styleFrom(
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            )
+          : null,
+      key: const Key('code-login-send'),
+      onPressed: _busy || _remaining > 0 ? null : _sendCode,
+      child: Text(_remaining > 0 ? l.resendCode(_remaining) : l.sendCode),
+    );
+    final channelChoices = Wrap(
+      spacing: 8,
+      children: [
+        for (final channel in [AccountChannel.sms, AccountChannel.email])
+          ChoiceChip(
+            label: Text(
+              channel == AccountChannel.sms ? l.phoneNumber : l.email,
+            ),
+            selected: _channel == channel,
+            onSelected: _busy
+                ? null
+                : (_) => setState(() {
+                    _channel = channel;
+                    _usePassword = true;
+                    _contact.clear();
+                    _password.clear();
+                    _resetChallenge();
+                  }),
+          ),
+      ],
+    );
+    final urgentHelp = Align(
+      alignment: Alignment.centerRight,
+      child: TextButton.icon(
+        key: const Key('login-urgent-help'),
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const EmergencyHelpPage()),
+        ),
+        icon: const Icon(Icons.emergency_outlined),
+        label: Text(
+          Localizations.localeOf(context).languageCode == 'zh'
+              ? '急症求助'
+              : 'Urgent help',
+        ),
+      ),
+    );
     return Scaffold(
       key: const Key('global-code-login-page'),
       body: SafeArea(
@@ -478,32 +553,48 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 480),
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+              padding: compactAndroid
+                  ? const EdgeInsets.fromLTRB(20, 4, 20, 16)
+                  : const EdgeInsets.fromLTRB(24, 12, 24, 24),
               children: [
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    key: const Key('login-urgent-help'),
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const EmergencyHelpPage(),
+                if (compactAndroid &&
+                    MediaQuery.textScalerOf(context).scale(16) <= 22.4)
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: SaydianBrandLockup(
+                            width: 150,
+                            color: Colors.black,
+                          ),
+                        ),
                       ),
-                    ),
-                    icon: const Icon(Icons.emergency_outlined),
-                    label: Text(
-                      Localizations.localeOf(context).languageCode == 'zh'
-                          ? '急症求助'
-                          : 'Urgent help',
-                    ),
+                      urgentHelp,
+                    ],
+                  )
+                else ...[
+                  urgentHelp,
+                  const Center(child: SaydianBrandLockup(color: Colors.black)),
+                ],
+                SizedBox(height: compactAndroid ? 8 : 16),
+                if (inlineHeading)
+                  Row(
+                    children: [
+                      Text(
+                        l.signIn,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const Spacer(),
+                      channelChoices,
+                    ],
+                  )
+                else
+                  Text(
+                    l.signIn,
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
-                ),
-                const Center(child: SaydianBrandLockup(color: Colors.black)),
-                const SizedBox(height: 16),
-                Text(
-                  l.signIn,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 12),
+                SizedBox(height: compactAndroid ? 8 : 12),
                 if (_loading) const LinearProgressIndicator(),
                 if (_capabilities == null && !_loading)
                   TextButton.icon(
@@ -511,32 +602,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     icon: const Icon(Icons.refresh),
                     label: Text(l.retry),
                   ),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final channel in [
-                      AccountChannel.sms,
-                      AccountChannel.email,
-                    ])
-                      ChoiceChip(
-                        label: Text(
-                          channel == AccountChannel.sms
-                              ? l.phoneNumber
-                              : l.email,
-                        ),
-                        selected: _channel == channel,
-                        onSelected: _busy
-                            ? null
-                            : (_) => setState(() {
-                                _channel = channel;
-                                _usePassword = true;
-                                _contact.clear();
-                                _password.clear();
-                                _resetChallenge();
-                              }),
-                      ),
-                  ],
-                ),
+                if (!inlineHeading) channelChoices,
                 TextField(
                   key: const Key('code-login-contact'),
                   controller: _contact,
@@ -556,6 +622,12 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                         ]
                       : null,
                   decoration: InputDecoration(
+                    contentPadding: compactAndroid
+                        ? const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          )
+                        : null,
                     labelText: _channel == AccountChannel.sms
                         ? l.phoneNumber
                         : l.email,
@@ -565,25 +637,8 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                   ),
                   onChanged: (_) => setState(_resetChallenge),
                 ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    key: const Key('code-login-mode'),
-                    onPressed: _busy
-                        ? null
-                        : () => setState(() {
-                            _usePassword = !_usePassword;
-                            _password.clear();
-                            _resetChallenge();
-                          }),
-                    child: Text(
-                      _passwordMode
-                          ? uiCopy(context, "使用验证码登录")
-                          : uiCopy(context, "使用密码登录"),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
+                if (!compactAndroid) modeSwitch,
+                SizedBox(height: compactAndroid ? 10 : 12),
                 if (_passwordMode)
                   TextField(
                     key: const Key('code-login-password'),
@@ -591,7 +646,15 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     enabled: !_busy,
                     obscureText: true,
                     autofillHints: const [AutofillHints.password],
-                    decoration: InputDecoration(labelText: l.password),
+                    decoration: InputDecoration(
+                      labelText: l.password,
+                      contentPadding: compactAndroid
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            )
+                          : null,
+                    ),
                   )
                 else ...[
                   TextField(
@@ -607,34 +670,55 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                         maxLengthEnforcement: MaxLengthEnforcement.enforced,
                       ),
                     ],
-                    decoration: InputDecoration(labelText: l.verificationCode),
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      key: const Key('code-login-send'),
-                      onPressed: _busy || _remaining > 0 ? null : _sendCode,
-                      child: Text(
-                        _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
-                      ),
+                    decoration: InputDecoration(
+                      labelText: l.verificationCode,
+                      contentPadding: compactAndroid
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            )
+                          : null,
+                      suffixIcon: compactAndroid
+                          ? Padding(
+                              padding: const EdgeInsets.only(right: 4),
+                              child: sendCodeButton,
+                            )
+                          : null,
                     ),
                   ),
+                  if (!compactAndroid)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: sendCodeButton,
+                    ),
                 ],
+                if (compactAndroid) modeSwitch,
                 if (!_passwordMode && _challenge != null)
                   Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
                 if (!_passwordMode &&
-                    _channel == AccountChannel.sms &&
                     _capabilities?.explicitRegistrationCodeLogin == true &&
-                    _capabilities?.loginSms == true &&
-                    _capabilities?.smsCountries.contains('CN') == true &&
-                    _capabilities?.smsAutoRegistration == true)
+                    (_channel == AccountChannel.sms
+                        ? _capabilities?.loginSms == true &&
+                              _capabilities?.smsCountries.contains('CN') ==
+                                  true &&
+                              _capabilities?.smsAutoRegistration == true
+                        : _capabilities?.loginEmail == true &&
+                              _capabilities?.emailAutoRegistration == true))
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       Localizations.localeOf(context).languageCode == 'zh'
-                          ? '未注册的手机号将自动注册并登录'
-                          : 'New phone numbers are registered when you sign in with a valid code.',
-                      key: const Key('code-login-sms-auto-register-hint'),
+                          ? (_channel == AccountChannel.sms
+                                ? '未注册的手机号将自动注册并登录'
+                                : '未注册的邮箱将自动注册并登录')
+                          : (_channel == AccountChannel.sms
+                                ? 'New phone numbers are registered when you sign in with a valid code.'
+                                : 'New email addresses are registered when you sign in with a valid code.'),
+                      key: Key(
+                        _channel == AccountChannel.sms
+                            ? 'code-login-sms-auto-register-hint'
+                            : 'code-login-email-auto-register-hint',
+                      ),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),

@@ -583,6 +583,26 @@ void main() {
       );
     });
     test(
+      'Email automatic registration requires an explicit public boolean',
+      () {
+        for (final value in [null, false, 'true', 1, true]) {
+          final caps = GlobalAuthCapabilities.fromJson({
+            ...capabilities(),
+            'login': {
+              'email': true,
+              'explicitRegistrationCodeLogin': true,
+              'emailAutoRegistration': value,
+            },
+          });
+          expect(caps.emailAutoRegistration, value == true);
+        }
+        expect(
+          GlobalAuthCapabilities.fromJson(capabilities()).emailAutoRegistration,
+          isFalse,
+        );
+      },
+    );
+    test(
       'login capabilities are separate from registration and fail closed',
       () {
         final caps = GlobalAuthCapabilities.fromJson({
