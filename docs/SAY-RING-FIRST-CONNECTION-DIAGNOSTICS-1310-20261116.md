@@ -35,3 +35,10 @@
 - apksigner核对原正式证书SHA256 81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de；ZIP 16KB对齐、生产清单、ARMv7/ARM64和QRing复制30项校验通过。沿用已有受控JPush仅ARM64库例外，以及32位libDspConfig/libEcgAnaly ELF LOAD 4KB限制，不称所有库/应用市场16KB验收全通过。
 - 临时android/key.properties不存在，密钥、APK及审计输出均不提交Git。最新fetch显示当前分支与其upstream仍d5bc643，另一同事睡眠分支有新提交；本轮未合入无关分支，也不推进落后大量历史的App main。
 - 手机ADB已授权、原安装为1309；覆盖安装及App源代码远端CI结果待完成后追加。后台CI验证通过、海外发布完成，国内发布仍运行中，暂不称整体已上线。
+
+## 手机安装与Git同步
+
+- App源码提交6db41aa942e49450a01dfba77e84cd5f9b926944已推送当前codex/u19s-android-connect-20261111分支，未强推或改动同事分支。
+- adb -s L2E0222510006851 install -r 正式1310包，最初AOD遮住安装页；按手机本人安全验证提示用户确认后，命令返回Performing Streamed Install / Success。dumpsys核实versionName=1.0.14、versionCode=1310，lastUpdateTime=2026-11-16 18:46:01。未卸载/切号/解绑/重置，没有新账号实体首绑验收。
+- mobile-ci运行43851553879的鸿蒙契约两个时区已通过，quality全量检查运行中；本机Android完整结果不能代替云端iOS/Apple真机验收。后续状态单独据实际记录，不改已有失败/未执行说明。
+- 后台国内自动部署当时仍在执行，海外已成功；部署SHA与只读公开探测会继续核对。线上客户须升级支持该逻辑的App才会隐藏入口、限制客户端采集；服务端同样拒绝旧模式新增摘要。
