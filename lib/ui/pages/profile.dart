@@ -354,26 +354,6 @@ class SettingsPage extends StatelessWidget {
                   ),
                 ),
                 _MyServicesGrid(controller: controller),
-                if (controller.isGlobalEdition) ...[
-                  const SizedBox(height: 10),
-                  const Divider(),
-                  ListTile(
-                    key: const Key('my-services-faq'),
-                    leading: const Icon(Icons.quiz_outlined),
-                    title: Text(
-                      supportCopy(
-                        context,
-                        '常见问题',
-                        'Frequently asked questions',
-                      ),
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () => _openPage(
-                      context,
-                      SupportFaqPage(controller: controller),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -730,41 +710,58 @@ class _MyServicesGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = <({String label, IconData icon, Widget page})>[
+    Widget entry(String label, IconData icon, Widget page, {Key? key}) =>
+        _MyServiceEntry(
+          key: key,
+          label: label,
+          icon: icon,
+          onTap: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute<void>(builder: (_) => page)),
+        );
+
+    final entries = <Widget>[
       if (!controller.hideAiContent)
-        (
-          label: context.l10n.healthProfile,
-          icon: Icons.assignment_ind_outlined,
-          page: HealthProfilePage(controller: controller),
+        entry(
+          context.l10n.healthProfile,
+          Icons.assignment_ind_outlined,
+          HealthProfilePage(controller: controller),
         ),
-      (
-        label: context.l10n.accountSettings,
-        icon: Icons.manage_accounts_outlined,
-        page: AccountSettingsPage(controller: controller),
+      entry(
+        context.l10n.accountSettings,
+        Icons.manage_accounts_outlined,
+        AccountSettingsPage(controller: controller),
       ),
-      (
-        label: context.l10n.permissions,
-        icon: Icons.admin_panel_settings_outlined,
-        page: PermissionManagementPage(controller: controller),
+      entry(
+        context.l10n.permissions,
+        Icons.admin_panel_settings_outlined,
+        PermissionManagementPage(controller: controller),
       ),
-      (
-        label: uiCopy(context, "帮助反馈"),
-        icon: Icons.help_outline_rounded,
-        page: FeedbackPage(controller: controller),
+      entry(
+        uiCopy(context, "帮助反馈"),
+        Icons.help_outline_rounded,
+        FeedbackPage(controller: controller),
       ),
-      (
-        label: context.l10n.customerService,
-        icon: Icons.headset_mic_outlined,
-        page: CustomerServicePage(
+      entry(
+        context.l10n.customerService,
+        Icons.headset_mic_outlined,
+        CustomerServicePage(
           isGlobalEdition: controller.isGlobalEdition,
           controller: controller,
         ),
       ),
-      (
-        label: context.l10n.aboutApp,
-        icon: Icons.info_outline_rounded,
-        page: AboutSaydianPage(controller: controller),
+      entry(
+        context.l10n.aboutApp,
+        Icons.info_outline_rounded,
+        AboutSaydianPage(controller: controller),
       ),
+      if (controller.isGlobalEdition)
+        entry(
+          supportCopy(context, '常见问题', 'Frequently asked questions'),
+          Icons.quiz_outlined,
+          SupportFaqPage(controller: controller),
+          key: const Key('my-services-faq'),
+        ),
     ];
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -775,17 +772,7 @@ class _MyServicesGrid extends StatelessWidget {
           alignment: WrapAlignment.start,
           runSpacing: 16,
           children: [
-            for (final entry in entries)
-              SizedBox(
-                width: width,
-                child: _MyServiceEntry(
-                  label: entry.label,
-                  icon: entry.icon,
-                  onTap: () => Navigator.of(
-                    context,
-                  ).push(MaterialPageRoute<void>(builder: (_) => entry.page)),
-                ),
-              ),
+            for (final entry in entries) SizedBox(width: width, child: entry),
           ],
         );
       },
@@ -937,6 +924,7 @@ class _MyServiceEntry extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.onTap,
+    super.key,
   });
 
   final String label;

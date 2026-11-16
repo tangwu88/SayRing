@@ -53,3 +53,11 @@
 - 首轮探针在构建之外调用 `ModalRoute.of`，意外记录了路由依赖，随后触发 Flutter 框架断言；热重启及多次独立查询也曾超时。移除这些路由依赖，重新启动正常 Debug，把应用恢复前台并在一个调试会话中执行现有页面按钮回调。复测完成全部页面标记，最终会话无框架异常、布局溢出或调试断开日志；未修改 App 运行代码。
 - 实机核对睡眠日视图有既有汇总与阶段图，周、月切换均生成真实记录时长趋势。通过「我的服务」打开 FAQ，搜索框和空态正常；通过「联系客服」打开备用页，线上 `online-config` 返回 HTTP 404。在线客服发消息、转人工、系统推送、WhatsApp，以及外设新采样与重连均未在本轮验收。
 - 最终回到首页并保留正常 Debug 运行、Flutter 调试会话及私有日志。未操作生产后台、下载页、TestFlight 或 App Store 审核。
+
+## 追加：2026-11-16 「我的」和「设备」帮助入口归组
+
+- 基线 `9d4515a`；只改 Flutter 共用页面 `lib/ui/pages/profile.dart`、`lib/ui/pages/devices.dart`。FAQ 紧随「关于 Say Ring」，复用「我的服务」图标网格，去掉原来单独的一行；设备页把「同步诊断与恢复」放到「连接说明」正上方，共用原帮助卡片，保留原有跳转、入口条件和诊断逻辑。
+- `dart format --output=none --set-exit-if-changed lib/ui/pages/profile.dart lib/ui/pages/devices.dart`、`git diff --check`、`flutter analyze --no-pub` 通过。`TZ=UTC` 和 `TZ=Asia/Shanghai` 分别执行 `flutter test --no-pub --reporter expanded --concurrency=4`，各 2,435 项通过。
+- 首次在旧 1308 会话热重载时，编译器启用 Widget 跟踪而原包关闭，界面构建报 `_location` 查找错误。重新以 `xcodebuild` 串行编译 iOS Debug／Profile，均通过；保持 `TRACK_WIDGET_CREATION=false`，用 `flutter run --debug --no-track-widget-creation --no-pub --no-uninstall-first --use-application-binary=<本次开发包>` 原位安装 Debug 到 iPhone 15 Pro Max（iOS 26.6）。开发包已验签及核对 `cn.saydian.ring`，仅供本机验证，不替换之前交付的 1308 制品。
+- 真机读取实际页面结构及行内顺序，确认 FAQ 与关于同网格、诊断与连接说明同卡片；通过原有入口打开 FAQ、诊断和连接说明均正常。复测无框架异常或溢出，回到首页并保留调试会话。验收未执行上传诊断、恢复、清数据或设备操作，未改变商店审核状态。
+- `flutter build apk --debug/--release --no-pub --target-platform=android-arm,android-arm64 --build-name=1.0.14 --build-number=1308` 两种均通过；Release 使用 `SAIDIAN_ALLOW_QA_RELEASE=true` 的本机测试签名。两个 APK 均用 `aapt dump badging`、`apksigner verify`、`zipalign -c -P 16 4` 检查通过，包名和双 ARM 正确；保留既有第三方 Kotlin 迁移提示。本轮安卓未装机，QA APK 不供正式分发，两端日志留在本机 `qa-1308-20261115/menu-layout-20261116`。
