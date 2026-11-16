@@ -42,3 +42,9 @@
 - adb -s L2E0222510006851 install -r 正式1310包，最初AOD遮住安装页；按手机本人安全验证提示用户确认后，命令返回Performing Streamed Install / Success。dumpsys核实versionName=1.0.14、versionCode=1310，lastUpdateTime=2026-11-16 18:46:01。未卸载/切号/解绑/重置，没有新账号实体首绑验收。
 - mobile-ci运行43851553879的鸿蒙契约两个时区已通过，quality全量检查运行中；本机Android完整结果不能代替云端iOS/Apple真机验收。后续状态单独据实际记录，不改已有失败/未执行说明。
 - 后台国内自动部署当时仍在执行，海外已成功；部署SHA与只读公开探测会继续核对。线上客户须升级支持该逻辑的App才会隐藏入口、限制客户端采集；服务端同样拒绝旧模式新增摘要。
+
+## 云端CI与并行后台发布
+
+- mobile-ci43851553879最终success：quality、Android、iOS release no-codesign和Harmony UTC/Asia-Shanghai均成功。App正式1310已保留数据安装；源码6db41aa保持本轮正式包的功能基线。
+- 国内后台慢速拉取经用户明确授权仅终止PID3920961，准备相同原始镜像传输；期间另一路将main推进83f7d05（在线客服中国区发布），镜像传输的latest-main保护拒绝发送旧aed4a21。新main包含本轮诊断，保留firstConnectionOnly/maximumFirstConnectionReports=1，并兼容schema1。未回退或强推新main，也不代替在线客服迁移验收。
+- 后台新main的CI43854630031正在构建/发布，公开ready当时仍d090de9；本轮不能声称国内后台已生效。旧源码aed4a21的verify、海外部署成功，国内旧deploy因获准中止下载失败，均如实记录。服务端最新过程日志保留原分支，按远端变化即停止旧发布的约定不抢发旧版本。
