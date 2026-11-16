@@ -46,6 +46,14 @@ abstract interface class SyncDiagnosticsApi {
   );
 }
 
+abstract interface class FirstConnectionDiagnosticsApi {
+  Future<Map<String, Object?>> beginFirstConnectionDiagnostics(
+    Session expectedSession,
+    String connectionId, {
+    String? firstBindingOperationId,
+  });
+}
+
 class FeatureNotConfiguredException extends ApiException {
   const FeatureNotConfiguredException(super.message, {super.statusCode});
 }

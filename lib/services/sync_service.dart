@@ -48,6 +48,14 @@ class HealthSyncService {
       final allowed = policy.allowedMetrics;
       final store = _store;
       if (allowed != null && store is! MetricFilteredPendingHealthStore) {
+        try {
+          onDiagnostic?.call(
+            SyncDiagnosticState.blocked,
+            SyncDiagnosticCode.unsupportedMetric,
+            uploaded,
+            rejected,
+          );
+        } catch (_) {}
         return SyncOutcome(
           uploaded: uploaded,
           rejected: rejected,
@@ -64,6 +72,22 @@ class HealthSyncService {
         return SyncOutcome(uploaded: uploaded, rejected: rejected);
       }
       if (pending.isEmpty) {
+        try {
+          onDiagnostic?.call(
+            rejected > 0
+                ? SyncDiagnosticState.partial
+                : uploaded > 0
+                ? SyncDiagnosticState.ok
+                : SyncDiagnosticState.empty,
+            rejected > 0
+                ? (quarantined == rejected
+                      ? SyncDiagnosticCode.invalidRecord
+                      : SyncDiagnosticCode.uploadRejected)
+                : SyncDiagnosticCode.none,
+            uploaded,
+            rejected,
+          );
+        } catch (_) {}
         return SyncOutcome(
           uploaded: uploaded,
           rejected: rejected,
@@ -77,6 +101,14 @@ class HealthSyncService {
       // Product-disabled records remain stored and pending. They are not
       // invalid measurements and must never be removed or acknowledged.
       if (projected.isEmpty) {
+        try {
+          onDiagnostic?.call(
+            SyncDiagnosticState.blocked,
+            SyncDiagnosticCode.unsupportedMetric,
+            uploaded,
+            rejected,
+          );
+        } catch (_) {}
         return SyncOutcome(uploaded: uploaded, rejected: rejected);
       }
       // Store 已在入库时永久隔离未来历史；此处同时保护旧版/测试适配器，
@@ -154,6 +186,14 @@ class HealthSyncService {
           );
         }
       } on FeatureNotConfiguredException catch (error) {
+        try {
+          onDiagnostic?.call(
+            SyncDiagnosticState.blocked,
+            SyncDiagnosticCode.backendUnavailable,
+            uploaded,
+            rejected,
+          );
+        } catch (_) {}
         return SyncOutcome(
           uploaded: uploaded,
           rejected: rejected,

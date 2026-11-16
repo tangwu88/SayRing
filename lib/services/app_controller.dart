@@ -2276,6 +2276,7 @@ class AppController extends ChangeNotifier {
       if (results.any((result) => result != ConnectivityResult.none) &&
           session != null) {
         unawaited(synchronizeCloud());
+        prepareSyncDiagnostics();
         syncDiagnostics.flushPending();
       }
     });
@@ -3289,6 +3290,7 @@ class AppController extends ChangeNotifier {
       if (identical(_wearableConnectInFlight, connecting)) {
         _wearableConnectInFlight = null;
         _flushDeviceDetailsRefresh();
+        prepareSyncDiagnostics();
         syncDiagnostics.flushPending();
       }
     }
@@ -3307,7 +3309,11 @@ class AppController extends ChangeNotifier {
     errorMessage = null;
     _invalidateDeviceSync();
     _diagnosticDevice = device;
-    syncDiagnostics.begin(_healthOwnerFor(session), device.id);
+    syncDiagnostics.begin(
+      _healthOwnerFor(session),
+      device.id,
+      connectionAttempt: true,
+    );
     _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
     _latestDeviceDetails = null;
     try {
@@ -3402,6 +3408,10 @@ class AppController extends ChangeNotifier {
         );
         if (!isCurrent() || connectedDevice?.id != device.id) return;
         if (shouldClear == true) {
+          final operationId = _ringInitializationOperationId;
+          if (operationId != null) {
+            syncDiagnostics.authorizeFirstBinding(device.id, operationId);
+          }
           await _initializeFirstRingBinding(device, isCurrent);
           return;
         }
@@ -4022,11 +4032,15 @@ class AppController extends ChangeNotifier {
         (activeSport != null && _usesCoolWearAndroid)) {
       return;
     }
+    final diagnosticGeneration = syncDiagnostics.connectionGeneration;
     if (!_usesCoolWearAndroid) {
       final isCurrent = await _syncDeviceData(deviceId, initial: true);
-      if (!isCurrent) return;
+      if (!isCurrent) {
+        if (!isDeviceSyncing) _completeInitialDiagnostics(diagnosticGeneration);
+        return;
+      }
       unawaited(refreshSportRecords());
-      unawaited(synchronizeCloud());
+      _uploadInitialHealthAndReport(diagnosticGeneration);
       return;
     }
     if (_initialDeviceHistorySync?.$1 == _sessionGeneration &&
@@ -4044,19 +4058,52 @@ class AppController extends ChangeNotifier {
       final sportRead = isDeviceSyncing ? refreshSportRecords() : null;
       final isCurrent = await healthRead;
       await sportRead;
-      if (!isCurrent) return;
+      if (!isCurrent) {
+        if (!isDeviceSyncing) _completeInitialDiagnostics(diagnosticGeneration);
+        return;
+      }
       if (_initialDeviceHistorySync != scope ||
           !_isCurrentSessionGeneration(scope.$1) ||
           connectedDevice?.id != deviceId) {
         return;
       }
-      unawaited(synchronizeCloud());
+      _uploadInitialHealthAndReport(diagnosticGeneration);
     } finally {
       if (_initialDeviceHistorySync == scope) {
         _initialDeviceHistorySync = null;
         if (!_disposed) notifyListeners();
         _flushDeviceDetailsRefresh();
       }
+    }
+  }
+
+  void _uploadInitialHealthAndReport(int generation) {
+    unawaited(
+      synchronizeCloud().then<void>(
+        (_) => syncDiagnostics.completeInitialSync(generation),
+        onError: (Object _, StackTrace _) {
+          if (syncDiagnostics.connectionGeneration != generation) return;
+          _diagnose(
+            SyncDiagnosticStage.upload,
+            SyncDiagnosticState.failed,
+            code: SyncDiagnosticCode.unknown,
+          );
+          syncDiagnostics.completeInitialSync(generation);
+        },
+      ),
+    );
+  }
+
+  void _completeInitialDiagnostics(int generation) {
+    final pending = _activeCloudSync;
+    if (pending == null) {
+      syncDiagnostics.completeInitialSync(generation);
+    } else {
+      unawaited(
+        pending.then<void>(
+          (_) => syncDiagnostics.completeInitialSync(generation),
+        ),
+      );
     }
   }
 
@@ -4253,6 +4300,11 @@ class AppController extends ChangeNotifier {
       return false;
     }
     if (capabilities?.supportsHistorySync == false) {
+      _diagnose(
+        SyncDiagnosticStage.read,
+        SyncDiagnosticState.blocked,
+        code: SyncDiagnosticCode.unsupportedMetric,
+      );
       _clearDeviceSyncError();
       syncStatus = '';
       notifyListeners();
@@ -4649,6 +4701,21 @@ class AppController extends ChangeNotifier {
       errorMessage = _deviceSyncErrorMessage;
     } finally {
       if (!idle.isCompleted) idle.complete();
+      if (!succeeded &&
+          _isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+        final read = syncDiagnostics.events
+            .where((e) => e.stage == SyncDiagnosticStage.read)
+            .lastOrNull;
+        if (read?.state == SyncDiagnosticState.ok ||
+            read?.state == SyncDiagnosticState.empty) {
+          _diagnose(
+            SyncDiagnosticStage.read,
+            SyncDiagnosticState.partial,
+            code: SyncDiagnosticCode.readPartial,
+            received: read?.received,
+          );
+        }
+      }
       if (identical(_deviceSyncIdle, idle)) _deviceSyncIdle = null;
       if (_deviceSyncGeneration == generation) {
         isDeviceSyncing = false;
@@ -7470,6 +7537,7 @@ class AppController extends ChangeNotifier {
     }
     _scheduleCareInvitationPoll(const Duration(seconds: 30));
     _flushDeviceDetailsRefresh();
+    prepareSyncDiagnostics();
     syncDiagnostics.flushPending();
   }
 
