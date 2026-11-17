@@ -74,3 +74,13 @@
 - Mac 识别到 iPhone XR（iOS 18.7.11）。原商店版 1.0.13（1296）正常启动，系统不允许导出原容器。两次 `xcrun devicectl device install app` 原位尝试均收到 App Store 已有安装任务的冲突（`IXErrorDomain 46`）。未卸载、解绑、清记录或换账号；核对 XR 仍保留 1296。
 - `xcodebuild` 使用独立、仅供本机的 Profile 测试入口，构建通过；测试 IPA 通过 `codesign --verify --deep --strict`、`unzip -tq` 和 SHA-256 校验，开发描述文件包括 XR。普通 1308 Debug 独立保留。因 iOS 安装冲突，未运行真机测试入口。Mac 锁屏时，QuickTime 画面同样无法读取。
 - 宿主回归针对睡眠日／周／月、在线客服、常见问题及同步诊断与恢复，`TZ=Asia/Shanghai flutter test --no-pub --reporter expanded --concurrency=4` 定向 50 项通过。后续用原账号与原绑定完成 XR 实际戒指连接、读取活动和睡眠、真实睡眠日周月以及三个入口，自动测试使用 `tool/drive_ios_preserving_data.mjs` 并恢复普通入口。
+
+## 2026-11-17：XR 安装恢复与真机验证
+
+- 测试基线为 `c297469dc7719cf1ae038c24397efeedc1821ea3` 的应用代码，1.0.14（1308）。用户处理 App Store 更新后，`devicectl device install app` 仍返回同一 App Store 安装任务的 `IXErrorDomain 46`。iOS 原位升级接口第一次把 IPA 内的 macOS AppleDouble 元数据误当作另一个 App，重新封包并核对签名和主可执行文件后，仍返回相同的 App Store 安装冲突。
+- 通过 `devicectl device reboot` 重启 USB 连接的 XR 后，`devicectl device install app` 成功原位覆盖 `cn.saydian.ring`。核对安装构建为 1308 并在真机测试前私下备份应用容器（129 个文件）。
+- 使用 `tool/drive_ios_preserving_data.mjs --profile --no-uninstall-first --use-application-binary=<验签 IPA>` 运行真机测试。实际进入睡眠报告并操作日／周／月按钮。首轮没有可用睡眠记录，未验收有数据的概览和分期图。在线客服、常见问题和同步诊断与恢复均实际打开，诊断页面显示恢复按钮。线上公开配置响应 200 且客服已开启，中文 FAQ 暂无文章，XR 展示对应空态。
+- XR 蓝牙扫描实际读到 R7 Ultra、R21、R8 和 R12。保留已有账号，通过已在本机测试过的目标名称选 R21；连接及能力握手 13.613 秒。日志记录两次完整的空读取，手动同步耗时 3.380 秒，新增及入库数都是 0。自动测试核对睡眠页日、周、月的实际选中状态。页面没有活动记录可供校验，睡眠数据与分期图仍未验收。
+- 再检查已在 XR 上测试过的 R8。发现广播且尝试实际连接，但在此轮等待窗口内没有到达就绪状态，因此未开始 R8 的历史同步。测试框架的退出码仅表明测试脚本执行完毕，具体以各项设备状态为准。
+- 发布的客服公开配置按当前状态检查：中文和英文均已启用；英文配置提供有效格式的 WhatsApp 入口；中文和英文 FAQ 当前均未返回已发布文章。
+- 测试结束后原位恢复普通 `lib/main.dart` Debug 1308。真机安装路径与运行进程对应，Flutter 主 isolate 继续运行，DevTools HTTP 200。最终在正常 App 中读回保存设备和实际连接均为 R21。真机照片、健康数据、容器副本和调试凭据未写入仓库。
