@@ -540,19 +540,6 @@ class DevicePage extends StatelessWidget {
                 title: Text(context.l10n.connectionHelp),
                 trailing: const Icon(Icons.chevron_right_rounded),
               ),
-              const Divider(indent: 56),
-              ListTile(
-                key: const Key('device-sync-diagnostics'),
-                leading: const Icon(Icons.troubleshoot_rounded),
-                title: const Text('同步诊断与恢复'),
-                subtitle: const Text('数据未更新时，检查状态或提交诊断'),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => SyncDiagnosticsPage(controller: controller),
-                  ),
-                ),
-              ),
             ],
           ),
         ),

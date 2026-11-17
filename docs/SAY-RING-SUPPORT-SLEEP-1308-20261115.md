@@ -111,3 +111,10 @@
 - Xcode 返回 `Upload completed with warnings`，Organizer 的 1308 行实读 `Uploaded to Apple`。15 个第三方 SDK 缺少 dSYM 的警告不阻止上传，但会影响对应 SDK 的崩溃定位；苹果接收和内测可用分别核验。
 - TestFlight 实际显示苹果 15:19 收到 1308，先为「正在处理」。原标签刷新后页面空白，通过同一登录会话的另一标签重新打开该构建列表，确认处理完成。为本构建按实际 SQLCipher 用法保存标准加密选项；先只读核对正式 App 的 174 个供应地区，唯一未供应地区为法国，因此如实选择不在法国分发。保存后 1308 显示「准备测试」。
 - 1308（苹果构建 ID `11c8f72b-18ea-4a53-83c6-856ccb734d80`）加入既有内部组「Say Ring 真机验证」后，在当行读回「内部」「正在测试」及该群组，显示 90 天后过期。现有组成员可通过 TestFlight 更新；未操作任何成员的设备，不计为已下载。未新增测试员、启用外测、修改公开供应、撤换正式 1.0.14 或发起 App Store 审核。
+
+## 2026-11-17 设备页移除同步诊断入口
+
+- 基线为 `7962386382dc3000bbe43f109160f65a7b13d3a0`。从 iOS 和 Android 共用的设备页帮助卡移除「同步诊断与恢复」、副标题和分隔线。未绑定设备时卡片显示「连接说明」，已连接时同时显示「关于设备」。
+- 在 `test/prototype_coverage_test.dart` 中复用既有的两种设备状态测试。首次已连接测试打开说明页后未退出，影响了后续「关于设备」断言。补上返回动作后，`flutter test --no-pub --reporter expanded test/prototype_coverage_test.dart` 的 27 项全部通过。最终使用页面实际的 Material 返回按钮，`dart format --output=none --set-exit-if-changed`、`git diff --check`、`flutter analyze --no-pub` 和 `TZ=Asia/Shanghai flutter test --no-pub --reporter expanded --concurrency=4` 均通过，共 2,435 项测试。
+- 本机验证构建为 1.0.15（1309）。`xcodebuild` 在 `ios/Runner.xcworkspace` 上串行完成 iOS Debug 和 Profile，均通过 `codesign --verify --deep --strict`。`flutter build apk --debug/--release --no-pub --target-platform=android-arm,android-arm64 --build-name=1.0.15 --build-number=1309` 通过，包名、双 ARM 架构、签名和对齐均已核对。Android Release 使用 `SAIDIAN_ALLOW_QA_RELEASE=true` 的本机测试签名，验收范围为构建和自动回归。
+- XR 使用隔离的内存状态分别模拟未绑定和已连接，确认移除整行后，两种状态都能打开「连接说明」。首次真机脚本按 iOS 平台寻找 Cupertino 返回按钮，改为点击实际的 Material `BackButton` 后通过。通过 `tool/drive_ios_preserving_data.mjs --profile --no-uninstall-first --use-application-binary=<已验签的 Profile 测试包>` 执行，事前已备份应用容器，结束后原位装回普通 1309 并成功启动。真机验收范围为入口布局和跳转。证据保存在本机 `/private/tmp/sayring-device-help-removal.wZtrQZPH`。

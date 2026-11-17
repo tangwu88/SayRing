@@ -47,7 +47,6 @@ import 'shop_pages.dart';
 import 'sleep_detail_widgets.dart';
 import 'support_faq_page.dart';
 import 'online_support_page.dart' show supportCopy;
-import 'sync_diagnostics_page.dart';
 import 'watch_face_market_page.dart';
 
 import 'pages/content.dart';

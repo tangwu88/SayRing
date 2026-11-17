@@ -98,12 +98,20 @@ void main() {
     );
 
     expect(find.text('添加智能设备'), findsOneWidget);
-    expect(find.text('连接说明'), findsOneWidget);
+    final connectionHelp = find.text('连接说明');
+    expect(connectionHelp, findsOneWidget);
+    expect(find.text('同步诊断与恢复'), findsNothing);
     expect(find.text('显示样式'), findsNothing);
     expect(find.text('查找戒指'), findsNothing);
     expect(find.text('联系人'), findsNothing);
     expect(find.text('健康提醒'), findsNothing);
     expect(find.text('屏幕显示'), findsNothing);
+    await tester.tap(connectionHelp);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: find.byType(AppBar), matching: connectionHelp),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -166,6 +174,18 @@ void main() {
       await tester.pump();
       expect(find.text('Vep'), findsNothing);
       expect(find.text('Yuc'), findsNothing);
+
+      final connectionHelp = find.text('连接说明');
+      await tester.scrollUntilVisible(connectionHelp, 240);
+      expect(find.text('同步诊断与恢复'), findsNothing);
+      await tester.tap(connectionHelp);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: connectionHelp),
+        findsOneWidget,
+      );
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
 
       await tester.pumpWidget(
         MaterialApp(home: DeviceInfoPage(controller: controller)),
