@@ -93,7 +93,8 @@ public final class CoolWearRingBridge
     private final Handler main = new Handler(Looper.getMainLooper());
     private final LinkedHashMap<String, Map<String, Object>> scanned = new LinkedHashMap<>();
     private BluetoothHelper helper;
-    private long clockSynchronizationEpoch = -1L;
+    private final CoolWearClockSync clockSync = new CoolWearClockSync();
+    private Runnable clockSyncTask;
     private final CoolWearRecoveryTarget recoveryTarget = new CoolWearRecoveryTarget();
     private final CoolWearRecoveryTarget.Sdk recoverySdk = new CoolWearRecoveryTarget.Sdk() {
         @Override public void clearTarget() {
@@ -311,7 +312,16 @@ public final class CoolWearRingBridge
                 (K6BleDataResult<K6_CESyncTime>) time -> {
                     if (time != null) {
                         final int format = time.getFormat(), mdFormat = time.getMdFormat();
-                        postCurrentPacket(() -> synchronizeConnectionClock(format, mdFormat));
+                        // Time can precede device-info. Retain it behind the
+                        // same exact owner/target/link, then wait for handshake.
+                        final long epoch = connectionEpoch, owner = recoveryTarget.generation();
+                        final String target = connectedId;
+                        main.post(() -> {
+                            if (activeBridge != this || !linkConnected || epoch != connectionEpoch
+                                    || !recoveryTarget.isActive() || !recoveryTarget.isCurrent(owner)
+                                    || target == null || !target.equals(connectedId)) return;
+                            synchronizeConnectionClock(format, mdFormat);
+                        });
                     }
                     return false;
                 });
@@ -984,6 +994,7 @@ public final class CoolWearRingBridge
     }
 
     private void failConnect(String code, String message) {
+        cancelConnectionClock();
         finishHistoryClear(false, code);
         cancelSdkRecoveryLease();
         cancelHealthPulse(true);
@@ -1101,6 +1112,7 @@ public final class CoolWearRingBridge
                 return;
             }
             if (!linkConnected) {
+                cancelConnectionClock();
                 connectionEpoch++;
                 connectionHealthRecords.clear();
                 connectionRecordReceipts.clear();
@@ -1130,6 +1142,7 @@ public final class CoolWearRingBridge
             }
             completeConnectIfReady();
         } else if (status == K6_Action.RCVD.BLUE_DISCONNECT) {
+            cancelConnectionClock();
             finishHistoryClear(false, "CONNECTION_DROPPED");
             boolean retainSport = activeSportMode != null && activeSportType != null
                     && connectedId != null && connectedId.equalsIgnoreCase(activeSportTargetId)
@@ -1267,17 +1280,52 @@ public final class CoolWearRingBridge
     }
 
     private void synchronizeConnectionClock(int format, int mdFormat) {
-        if (!linkConnected || !deviceInfoReceived || clockSynchronizationEpoch == connectionEpoch) return;
-        clockSynchronizationEpoch = connectionEpoch;
-        // 每条新连接最多一次；可选校时不插队干扰测量/同步，不阻塞握手，
-        // 未回读到真实格式时不使用安装缓存猜测，更不重发整包默认设置。
-        if (activeMeasurement != null || pendingHealthSync != null || pendingSportSync != null
-                || pendingReminders != null || pendingAutoSettings != null || gesture.pending()) return;
+        if (activeBridge != this || !linkConnected || !recoveryTarget.isActive()) return;
+        if (clockSync.offer(connectionEpoch, recoveryTarget.generation(), connectedId,
+                format, mdFormat, SystemClock.elapsedRealtime()) == null) return;
+        // Defer to the next main turn; never write from a history-read method.
+        if (clockSyncTask == null) {
+            clockSyncTask = this::flushConnectionClock;
+            main.post(clockSyncTask);
+        }
+    }
+
+    private void cancelConnectionClock() {
+        if (clockSyncTask != null) main.removeCallbacks(clockSyncTask);
+        clockSyncTask = null;
+        clockSync.cancel();
+    }
+
+    private void flushConnectionClock() {
+        if (clockSyncTask != null) main.removeCallbacks(clockSyncTask);
+        clockSyncTask = null;
+        CoolWearClockSync.Request request = clockSync.pending();
+        if (request == null) return;
+        if (activeBridge != this || !linkConnected || !recoveryTarget.isActive()
+                || !request.matches(connectionEpoch, recoveryTarget.generation(), connectedId)
+                || SystemClock.elapsedRealtime() >= request.expiresAt) {
+            clockSync.cancel();
+            return;
+        }
+        // Keep actual formats while busy, including the pre-device-info gap.
+        // At most five minutes; no cache guessing, settings bundle, or reset.
+        if (!deviceInfoReceived || pendingConnect != null || pendingClear != null
+                || activeMeasurement != null || activeSportMode != null || pendingSportStopTarget != null
+                || pendingHealthSync != null || pendingSportSync != null || syncWindow != null
+                || pendingReminders != null || pendingAutoSettings != null || pendingGesture != null
+                || gesture.pending() || pendingHealthPulse != null) {
+            clockSyncTask = this::flushConnectionClock;
+            main.postDelayed(clockSyncTask, 500L);
+            return;
+        }
+        if (!clockSync.claim(request)) return;
         try {
             CEDevData clock = CoolWearReadRequests.connectionClockUpdate(
-                    K6_CESyncTime.getCurrentTime(), format, mdFormat);
+                    K6_CESyncTime.getCurrentTime(), request.format, request.mdFormat);
             currentReadProxy().sendData(clock);
         } catch (RuntimeException error) {
+            // Submission may already have reached the SDK. Do not replay it
+            // or relabel it as acknowledged when its void API throws.
             Log.w(TAG, "optional clock synchronization skipped");
         }
     }
@@ -2278,6 +2326,7 @@ public final class CoolWearRingBridge
                         result.error("UNKNOWN_SCANNED_DEVICE", "请重新扫描并选择 CoolWear 戒指", null);
                         return;
                     }
+                    cancelConnectionClock();
                     boolean retainSportContext = activeSportMode != null
                             && id.equalsIgnoreCase(activeSportTargetId);
                     if (recoveringConnection) pauseSdkRecovery();
@@ -2323,6 +2372,7 @@ public final class CoolWearRingBridge
                     main.postDelayed(connectDeadline, CONNECT_MS);
                     break;
                 case "disconnect":
+                    cancelConnectionClock();
                     finishHistoryClear(false, "CONNECT_CANCELLED");
                     cancelSdkRecoveryLease();
                     cancelHealthPulse(true);
@@ -2607,6 +2657,9 @@ public final class CoolWearRingBridge
             result.error("MEASUREMENT_ACTIVE", "请先结束当前测量", null);
             return;
         }
+        // If history just finished before the scheduled idle turn, enqueue the
+        // one genuine clock update before this new manual command, not during it.
+        flushConnectionClock();
         measurementGeneration++;
         measurementStartedAt = System.currentTimeMillis();
         activeMeasurement = metric;
@@ -2713,6 +2766,7 @@ public final class CoolWearRingBridge
     }
 
     public void dispose() {
+        cancelConnectionClock();
         finishHistoryClear(false, "BRIDGE_DISPOSED");
         cancelSdkRecoveryLease();
         clearSportContext();

@@ -32,6 +32,10 @@ public final class CoolWearHrvProtocolHarness {
     private static final long LEGACY_HRV_FALLBACK_MS = 8_000L;
     private Runnable hrvFallback;
 
+    // These protocol-only scenarios have no pending optional clock request.
+    // Real clock/session behavior is executed in CoolWearClockHarness.
+    private void flushConnectionClock() { }
+
     private void live(List<k6_RRI_HRV_DATA> values) {
         onHrvValues(values, true, measurementGeneration);
     }

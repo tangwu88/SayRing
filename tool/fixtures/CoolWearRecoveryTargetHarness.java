@@ -20,6 +20,8 @@ public final class CoolWearRecoveryTargetHarness {
     private final int healthRecords = 134;
     private int disconnectedEvents;
     private int cancelledClears;
+    private int cancelledClocks;
+    private void cancelConnectionClock() { cancelledClocks++; }
     private void finishHistoryClear(boolean acknowledged, String code) {
         assert !acknowledged : "connection failure must not confirm a clear";
         assert "CONNECT_CANCELLED".equals(code);
@@ -99,6 +101,7 @@ public final class CoolWearRecoveryTargetHarness {
             assert BleFactory.getInstance().proxy.stored.isEmpty() : "result returned before cache cleanup";
         };
         bridge.failConnect("CONNECT_CANCELLED", "cancelled");
+        assert bridge.cancelledClocks == 1 : "failure must revoke pending connection clock";
         assert bridge.measurementGeneration == 1 && bridge.activeMeasurement == null;
         assert bridge.cancelledClears == 1;
         assert BleFactory.getInstance().proxy.stored.isEmpty() : "old target would be restored by vendor timer";
