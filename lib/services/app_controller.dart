@@ -1412,9 +1412,10 @@ class AppController extends ChangeNotifier {
     required bool privacyConsentGranted,
     bool ageConfirmed = false,
     String? consentVersion,
+    GlobalAccountIdentity? registrationIdentity,
   }) async {
-    if (isBusy ||
-        (!resetPassword && !ageConfirmed) ||
+    if (isBusy || _disposed) return false;
+    if ((!resetPassword && !ageConfirmed) ||
         !privacyConsentGranted ||
         consentVersion == null ||
         consentVersion.trim().isEmpty) {
@@ -1424,24 +1425,80 @@ class AppController extends ChangeNotifier {
       _accountTransitioning = true;
       try {
         await _drainCloudSync();
-        session = await (_api as GlobalAccountApi).completeVerification(
-          challengeId: challenge.id,
-          code: code.trim(),
-          password: password,
-          resetPassword: resetPassword,
-          locale: locale,
-          consentVersion: consentVersion,
-          ageConfirmed: ageConfirmed,
-        );
-        await _prepareAuthenticatedNotificationSession(
-          privacyConsentGranted: privacyConsentGranted,
-        );
+        try {
+          session = await (_api as GlobalAccountApi).completeVerification(
+            challengeId: challenge.id,
+            code: code.trim(),
+            password: password,
+            resetPassword: resetPassword,
+            locale: locale,
+            consentVersion: consentVersion,
+            ageConfirmed: ageConfirmed,
+          );
+        } on ApiException catch (error) {
+          // A lost response can follow a committed account/code transaction.
+          // Never replay registration or a consumed code to recover it.
+          final uncertain =
+              !resetPassword &&
+              (error.code == 'NETWORK_TIMEOUT' ||
+                  error.code == 'NETWORK_UNAVAILABLE' ||
+                  error.code == 'AUTH_IDENTITY_MISSING' ||
+                  // An invalid success body can follow a committed request.
+                  ((error.statusCode ?? 0) >= 200 &&
+                      (error.statusCode ?? 0) < 300) ||
+                  (error.statusCode ?? 0) >= 500);
+          if (!uncertain) rethrow;
+          final api = _api;
+          if (registrationIdentity != null && api is GlobalCodeAuthApi) {
+            try {
+              session = await (api as GlobalCodeAuthApi).loginWithPassword(
+                identity: registrationIdentity,
+                password: password,
+                consentVersion: consentVersion,
+                locale: locale,
+              );
+            } catch (_) {
+              throw const ApiException(
+                '注册结果暂未确认，请使用密码登录，无需重复注册',
+                code: 'REGISTRATION_CONFIRMATION_REQUIRED',
+              );
+            }
+          } else {
+            throw const ApiException(
+              '注册结果暂未确认，请使用密码登录，无需重复注册',
+              code: 'REGISTRATION_CONFIRMATION_REQUIRED',
+            );
+          }
+        }
+        try {
+          await _prepareAuthenticatedNotificationSession(
+            privacyConsentGranted: privacyConsentGranted,
+          );
+        } catch (_) {
+          if (resetPassword) rethrow;
+          throw const ApiException(
+            '账号已创建，请使用密码登录',
+            code: 'ACCOUNT_CREATED_SIGN_IN_REQUIRED',
+          );
+        }
         isPreviewMode = false;
-        await refreshMemberProfile();
-        await refreshActivityGoals();
-        await refreshCare();
-        await refreshCareInvitations();
-        await _refreshRemoteNotificationUnreadCount();
+        final generation = _sessionGeneration;
+        for (final refresh in <Future<void> Function()>[
+          refreshMemberProfile,
+          () => refreshActivityGoals(reportGlobalError: resetPassword),
+          () => refreshCare(reportGlobalError: resetPassword),
+          refreshCareInvitations,
+          _refreshRemoteNotificationUnreadCount,
+        ]) {
+          if (!_isCurrentSessionGeneration(generation)) break;
+          try {
+            await refresh();
+          } catch (_) {
+            if (resetPassword) rethrow;
+            // Account creation and local owner preparation already succeeded.
+            // Optional page data must not turn success into a code failure.
+          }
+        }
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
@@ -7017,7 +7074,7 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshCare() async {
+  Future<void> refreshCare({bool reportGlobalError = true}) async {
     final generation = _sessionGeneration;
     if (session == null) {
       careMembers = const [];
@@ -7044,7 +7101,7 @@ class AppController extends ChangeNotifier {
     } on ApiException catch (error) {
       if (!_isCurrentSessionGeneration(generation)) return;
       careErrorMessage = _apiErrorMessage(error, fallback: '关爱数据暂时无法读取');
-      errorMessage = careErrorMessage;
+      if (reportGlobalError) errorMessage = careErrorMessage;
       careStatus = error is FeatureNotConfiguredException ? '服务暂不可用' : '加载失败';
       if (kDebugMode) {
         debugPrint(
@@ -7359,7 +7416,7 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshActivityGoals() async {
+  Future<void> refreshActivityGoals({bool reportGlobalError = true}) async {
     final generation = _sessionGeneration;
     if (session == null) return;
     try {
@@ -7372,7 +7429,9 @@ class AppController extends ChangeNotifier {
           num.tryParse('${goals['reliang'] ?? ''}')?.toInt() ?? calorieGoal;
     } on ApiException catch (error) {
       if (!_isCurrentSessionGeneration(generation)) return;
-      errorMessage = _apiErrorMessage(error, fallback: '目标暂时无法读取');
+      if (reportGlobalError) {
+        errorMessage = _apiErrorMessage(error, fallback: '目标暂时无法读取');
+      }
     }
     if (_isCurrentSessionGeneration(generation)) notifyListeners();
   }

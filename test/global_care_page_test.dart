@@ -46,7 +46,7 @@ class _Controller extends Fake implements AppController {
   Future<void> globalInviteCareTarget(CareInvitationTarget target) async =>
       invitations.add(target);
   @override
-  Future<void> refreshCare() async {}
+  Future<void> refreshCare({bool reportGlobalError = true}) async {}
   @override
   Future<void> refreshCareInvitations() async {}
   void expireSession() {
