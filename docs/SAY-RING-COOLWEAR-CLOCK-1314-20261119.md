@@ -38,3 +38,9 @@
 - 与1313比较classes.dex/classes2.dex及manifest均变化；从本次R8映射定位两个新增时钟类，并在实际APK DEX的class_def中确认存在。两种ABI的Flutter主程序库与1313相同符合本次仅改Java桥接的范围，未误用旧原生程序。检查脚本和结果在Git外native-package-proof.json。
 - 原JPush ARM64-only受控例外及armeabi-v7a两项libDspConfig.so/libEcgAnaly.so的4KB ELF LOAD限制仍在，不宣称所有16KB ELF/市场审核通过。
 - Release后Debug复建通过（112.9秒），原有不可变SDK构建/缓存门禁保留。提交前再次fetch成功，原交付上游仍为d5940052b05f552c320466b6b634707f662fcd70，没有覆盖其他远端改动。Git推送和云端CI状态随后追加；本轮未安装手机、变更服务器或线上下载页，客户vivo/R7P实物测量仍待验证。
+
+## Git与云端检查
+
+- 源码、CI门禁和本轮记录已提交80ede1bfad90b7df1aa5ac6942e72ef791beae84，推送origin/codex/coolwear-deferred-clock-1314-20261119；ls-remote核对同一SHA，工作区干净。未强推或覆盖其他分支。
+- 匿名GitHub API返回403，当前Git凭据接口未提供可用HTTP认证；没有输出或另存凭据。改读GitHub公开Actions页面，确认对应源码的mobile-ci运行44526027176（https://github.com/tangwu88/SayRing/actions/runs/44526027176）已触发，最后检查为In progress，Harmony矩阵2项已完成；不把云端进行中写成全部通过。
+- 此次交付以本机双时区完整回归、实际Debug/生产Release及制品检查为证；Windows无法完成本机iOS编译，客户634或其他R7P手机的物理测量结果没有被本机夹具替代。公开下载配置仍是原版本，本轮仅交付本地1314正式APK。
