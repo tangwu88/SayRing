@@ -26,3 +26,11 @@
 - `flutter pub get --offline`、`flutter analyze --no-pub` 通过。完整 Flutter 测试 UTC 与 Asia/Shanghai 各2437项通过；原生135项通过。命令和过程见本机审计目录的 `Run-Checks.ps1` / `Resume-Checks.ps1` 与分阶段日志。
 - 原生实际依赖报告已生成，构建副本30项文件内容一致性通过，仅移除两个mapping输出指令。`git diff --check` 通过。没有升级Flutter/Gradle或其他厂商SDK。
 - 正在生成1.0.14（1311）Debug/原正式证书Release，尚未将打包中写为可交付；正式包身份、签名及云端CI结果随后追加。
+
+## 正式包与Git交付
+
+- 本轮实际Debug和Release构建通过，签名临时文件 `android/key.properties` 已清理。普通main入口，cn.saydian.ring、1.0.14（1311）、non-debuggable，原正式证书SHA-256 `81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de`，签名、生产清单、ZIP16KB、ARMv7/ARM64、SDK30项内容和diff检查通过，审计stage为complete。
+- 产物 `E:/SayRing-qring-sdk-86-20261119/SayRing-1.0.14-1311-release.apk`，74,617,969字节，SHA-256 `B6B039C7EECF24EF3A57612D728FF878537535E0E0DC379EC149FF8B8EECD97F`。APK/签名配置/审计原始日志不入Git。
+- 原有JPush ARM64-only受控例外和32位 `libDspConfig.so` / `libEcgAnaly.so` 的ELF LOAD 4KB限制仍在，未宣称全部16KB ELF或商店审核验收通过。
+- 源码 `997b00a03eb7805ee01b8b7d4c366629fd44e9ef` 已推送 `origin/codex/qring-sdk-86-20261119`。mobile-ci `44484018987` 的quality和两个时区Harmony contracts成功，检查时Android/iOS构建仍进行中，不将进行中写为成功。不合入旧main、不上传下载页或应用市场；该分支为本次独立升级交付。
+- 没有进行手机覆盖安装，也没有真实QRing连接/健康同步/测量/遥控实测。本轮是SDK接入与构建回归通过，实体数据和持续连接另验；R7P无数据仍需沿CoolWear通道继续定位。
