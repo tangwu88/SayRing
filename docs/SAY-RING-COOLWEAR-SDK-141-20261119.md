@@ -26,3 +26,12 @@
 - E盘空间恢复后，重新执行原生单测与releaseRuntimeClasspath依赖报告，135项通过，0失败/错误/跳过；没有跳过厂商SDK单测。`flutter analyze --no-pub` 无问题。前述失败日志保留在本机审计目录。
 - Flutter两个时区全量、Debug/Release、原正式签名和Git/CI状态待完成后追加；新包构建号预留为1.0.14（1312）。这不是客户手机故障已恢复的验收结论。
 - UTC完整Flutter回归2437项通过。此时上海时区回归和打包仍进行中；先推送本次已完成接口/SDK协议/原生/分析/UTC验证的独立SDK升级分支，继续本机剩余检查并核对云端CI，不将后续检查提前记为成功。
+
+## 最终本机验证和交付
+
+- UTC / Asia/Shanghai完整Flutter回归各2437项通过；原生135项通过；定向Node48项中46通过、2项macOS专属跳过。没有供应商SDK测试失败待隐瞒或跳过。本轮实际执行Debug、普通main入口原证书Release，SDK升级后的完整本机构建/验证stage=complete。
+- 原正式签名验证通过，cn.saydian.ring、1.0.14（1312）、non-debuggable；正式证书SHA-256 `81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de`。包身份、生产清单、ZIP16KB、ARMv7/ARM64和QRing86构建副本30项一致性检查通过；构建后CoolWear原始AAR仍为官方F9181033…校验值，临时android/key.properties不存在，git diff --check通过。
+- 产物 `E:/SayRing-coolwear-sdk-141-20261119/SayRing-1.0.14-1312-release.apk`，74,617,973字节，SHA-256 `092B20D5B722BCDA18C3ADCA2898982F9F56A8042B33DF5DC068DD6AFA250E25`。保留先前QRing1.0.0.86，包中没有新增左右手/计数器入口。APK、签名配置及原始日志不入Git。
+- 原有JPush仅ARM64受控例外和32位libDspConfig.so/libEcgAnaly.so的ELF LOAD 4KB限制仍保留，不以ZIP对齐通过宣称所有ELF/市场审核通过。
+- SDK源码 `3a03235d56282f21783972dec35ee92b548271ec` 已推送 `origin/codex/coolwear-sdk-141-20261119`。mobile-ci `44496521386` 的quality、Harmony两个时区已成功；最后检查Android/iOS构建仍进行中，不能记为已成功。后续交付记录提交不修改运行源码，不合入旧main或其他功能分支。
+- 未安装手机、触发实物初始化/测量或更改生产服务、后台下载配置、应用市场。此结果仅证明SDK接入及本机回归/正式构建通过；R7P客户无数据、运动持续连接与手势物理效果仍须实物验收，不能归为本轮已修复。
