@@ -73,6 +73,7 @@ class _AuthController extends Fake implements AppController {
     required bool privacyConsentGranted,
     bool ageConfirmed = false,
     String? consentVersion,
+    GlobalAccountIdentity? registrationIdentity,
   }) async {
     expect(resetPassword, isTrue);
     resetCalls++;

@@ -20,6 +20,199 @@ import 'package:saydian_app/ui/prototype_pages.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  Future<bool> registerForRecovery(
+    AppController controller, {
+    bool reset = false,
+    bool agreed = true,
+  }) => controller.completeGlobalVerification(
+    challenge: const VerificationChallenge(
+      id: 'synthetic-registration',
+      expiresIn: 300,
+      retryAfter: 0,
+      maskedIdentifier: 'synthetic-only',
+    ),
+    code: '123456',
+    password: 'Synthetic-only-password',
+    resetPassword: reset,
+    locale: 'en',
+    privacyConsentGranted: agreed,
+    ageConfirmed: true,
+    consentVersion: 'reviewed-test-v1',
+    registrationIdentity: GlobalAccountIdentity.email('recovery@example.test'),
+  );
+
+  AppController recoveryController(
+    _RegistrationRecoveryApi api, {
+    MemorySessionVault? vault,
+  }) {
+    final controller = AppController(
+      vault ?? MemorySessionVault(),
+      api,
+      MemoryHealthStore(),
+      _NotificationWearable(),
+      notificationService: _FakeNotificationService(),
+    );
+    addTearDown(controller.dispose);
+    return controller;
+  }
+
+  test(
+    'committed registration with lost response confirms via password once',
+    () async {
+      final api = _RegistrationRecoveryApi()
+        ..registrationError = const ApiException(
+          'Synthetic timeout',
+          code: 'NETWORK_TIMEOUT',
+        );
+      final controller = recoveryController(api);
+      await controller.initialize();
+      expect(await registerForRecovery(controller), isTrue);
+      expect(api.verificationCalls, 1);
+      expect(api.passwordCalls, 1);
+      expect(api.confirmedIdentity?.identifier, 'recovery@example.test');
+      expect(controller.session?.memberId, '100');
+    },
+  );
+
+  test(
+    'failed registration confirmation never repeats the one-use challenge',
+    () async {
+      final api = _RegistrationRecoveryApi()
+        ..registrationError = const ApiException(
+          'Synthetic unavailable',
+          statusCode: 503,
+        )
+        ..passwordError = const ApiException(
+          'Synthetic rejected',
+          code: 'invalid_credentials',
+          statusCode: 401,
+        );
+      final controller = recoveryController(api);
+      await controller.initialize();
+      expect(await registerForRecovery(controller), isFalse);
+      expect(api.verificationCalls, 1);
+      expect(api.passwordCalls, 1);
+      expect(
+        controller.lastApiError?.code,
+        'REGISTRATION_CONFIRMATION_REQUIRED',
+      );
+      expect(controller.session, isNull);
+    },
+  );
+
+  for (final code in [
+    'verification_invalid',
+    'verification_expired',
+    'verification_used',
+    'account_exists',
+    'consent_outdated',
+  ]) {
+    test(
+      '$code does not bypass verification through password confirmation',
+      () async {
+        final api = _RegistrationRecoveryApi()
+          ..registrationError = ApiException(
+            'Synthetic validation',
+            code: code,
+            statusCode: 400,
+          );
+        final controller = recoveryController(api);
+        await controller.initialize();
+        expect(await registerForRecovery(controller), isFalse);
+        expect(api.passwordCalls, 0);
+        expect(controller.lastApiError?.code, code);
+      },
+    );
+  }
+
+  test(
+    'recovery preserves explicit consent and does not alter password reset',
+    () async {
+      final api = _RegistrationRecoveryApi()
+        ..registrationError = const ApiException(
+          'Synthetic timeout',
+          code: 'NETWORK_TIMEOUT',
+        );
+      final controller = recoveryController(api);
+      await controller.initialize();
+      expect(await registerForRecovery(controller, agreed: false), isFalse);
+      expect(api.verificationCalls, 0);
+      expect(await registerForRecovery(controller, reset: true), isFalse);
+      expect(api.passwordCalls, 0);
+    },
+  );
+
+  test(
+    'optional profile failure cannot undo successful registration',
+    () async {
+      final api = _RegistrationRecoveryApi()
+        ..memberProfileFuture = Future.error(
+          StateError('Synthetic profile unavailable'),
+        );
+      unawaited(
+        api.memberProfileFuture!.then<void>((_) {}, onError: (Object _) {}),
+      );
+      final controller = recoveryController(api);
+      await controller.initialize();
+      expect(await registerForRecovery(controller), isTrue);
+      expect(controller.session?.memberId, '100');
+      expect(api.verificationCalls, 1);
+      expect(api.passwordCalls, 0);
+      expect(controller.lastApiError, isNull);
+    },
+  );
+
+  test(
+    'optional API rejection does not show a registration failure toast',
+    () async {
+      final api = _RegistrationRecoveryApi()
+        ..memberProfileFuture = Future.error(
+          const ApiException(
+            'Synthetic optional endpoint rejection',
+            statusCode: 401,
+          ),
+        )
+        ..careMembersFuture = Future.error(
+          const ApiException(
+            'Synthetic optional care rejection',
+            statusCode: 503,
+          ),
+        );
+      for (final future in [api.memberProfileFuture!, api.careMembersFuture!]) {
+        unawaited(future.then<void>((_) {}, onError: (Object _) {}));
+      }
+      final controller = recoveryController(api);
+      await controller.initialize();
+      final visibleErrors = <String>[];
+      controller.addListener(() {
+        if (controller.errorMessage case final message?) {
+          visibleErrors.add(message);
+        }
+      });
+      expect(await registerForRecovery(controller), isTrue);
+      expect(controller.memberProfileReadError, isNotNull);
+      expect(controller.careErrorMessage, isNotNull);
+      expect(controller.errorMessage, isNull);
+      expect(controller.lastApiError, isNull);
+      expect(visibleErrors, isEmpty);
+    },
+  );
+
+  test(
+    'known account creation with failed local preparation never blames the code',
+    () async {
+      final api = _RegistrationRecoveryApi();
+      final vault = _RegistrationPreparationVault();
+      final controller = recoveryController(api, vault: vault);
+      await controller.initialize();
+      vault.failConsentWrite = true;
+      expect(await registerForRecovery(controller), isFalse);
+      expect(api.verificationCalls, 1);
+      expect(api.passwordCalls, 0);
+      expect(controller.lastApiError?.code, 'ACCOUNT_CREATED_SIGN_IN_REQUIRED');
+    },
+  );
+
   test('persisted upgrade account adopts legacy health data once', () async {
     final vault = MemorySessionVault()
       ..session = Session(
@@ -1686,6 +1879,56 @@ class _ConsentApi extends _NotificationApi implements GlobalAccountApi {
   }) async {
     verificationCalls++;
     return _NotificationApi._session;
+  }
+}
+
+class _RegistrationRecoveryApi extends _ConsentApi
+    implements GlobalCodeAuthApi {
+  ApiException? registrationError;
+  ApiException? passwordError;
+  int passwordCalls = 0;
+  GlobalAccountIdentity? confirmedIdentity;
+
+  @override
+  Future<Session> completeVerification({
+    required String challengeId,
+    required String code,
+    required String password,
+    required bool resetPassword,
+    required String locale,
+    bool ageConfirmed = false,
+    String? nickname,
+    String? consentVersion,
+  }) async {
+    verificationCalls++;
+    if (registrationError case final error?) throw error;
+    return _NotificationApi._session;
+  }
+
+  @override
+  Future<Session> loginWithPassword({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String consentVersion,
+    required String locale,
+  }) async {
+    passwordCalls++;
+    confirmedIdentity = identity;
+    expect(password, 'Synthetic-only-password');
+    expect(consentVersion, 'reviewed-test-v1');
+    if (passwordError case final error?) throw error;
+    return _NotificationApi._session;
+  }
+}
+
+class _RegistrationPreparationVault extends MemorySessionVault {
+  bool failConsentWrite = false;
+  @override
+  Future<void> writePrivacyConsentGranted(bool granted) async {
+    if (failConsentWrite) {
+      throw StateError('Synthetic local preparation failure');
+    }
+    await super.writePrivacyConsentGranted(granted);
   }
 }
 
