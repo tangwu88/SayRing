@@ -65,10 +65,25 @@ project(":yc_product_plugin").afterEvaluate {
     }
 }
 
-val newBuildDir: Directory =
+// Flutter records canonical AOT outputs in its depfile. Keep Gradle on the same
+// physical directory when Windows build storage is redirected through a junction;
+// mixed aliases can otherwise make incremental cleanup remove the new app.so.
+val requestedBuildDirFile =
     rootProject.layout.buildDirectory
         .dir("../../build")
         .get()
+        .asFile
+// File.canonicalFile does not resolve NTFS junctions on Windows. NIO does;
+// resolve the existing parent as well on a fresh checkout with no build folder.
+val newBuildDirFile =
+    if (requestedBuildDirFile.exists()) {
+        requestedBuildDirFile.toPath().toRealPath().toFile()
+    } else {
+        requestedBuildDirFile.parentFile.toPath().toRealPath()
+            .resolve(requestedBuildDirFile.name).toFile()
+    }
+val newBuildDir: Directory =
+    rootProject.layout.dir(providers.provider { newBuildDirFile }).get()
 rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {

@@ -556,6 +556,7 @@ class ReleaseGateTest(unittest.TestCase):
                 for abi in gate.PRODUCTION_ANDROID_ABIS:
                     archive.writestr(f"lib/{abi}/libapp.so", b"fixture")
                     archive.writestr(f"lib/{abi}/libvendor.so", b"fixture")
+                    archive.writestr(f"lib/{abi}/libflutter.so", b"fixture")
             gate.apk_abis_command(argparse.Namespace(apk=str(valid)))
 
             asymmetric = root / "asymmetric.apk"
@@ -563,6 +564,8 @@ class ReleaseGateTest(unittest.TestCase):
                 archive.writestr("lib/armeabi-v7a/libapp.so", b"fixture")
                 archive.writestr("lib/arm64-v8a/libapp.so", b"fixture")
                 archive.writestr("lib/arm64-v8a/libvendor.so", b"fixture")
+                for abi in gate.PRODUCTION_ANDROID_ABIS:
+                    archive.writestr(f"lib/{abi}/libflutter.so", b"fixture")
             with self.assertRaisesRegex(gate.GateError, "not ABI-symmetric"):
                 gate.apk_abis_command(argparse.Namespace(apk=str(asymmetric)))
 
@@ -573,6 +576,26 @@ class ReleaseGateTest(unittest.TestCase):
             with self.assertRaisesRegex(gate.GateError, "unexpected ABI"):
                 gate.apk_abis_command(argparse.Namespace(apk=str(unexpected)))
 
+    def test_apk_requires_nonempty_flutter_program_and_engine_for_each_abi(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "runtime.apk"
+            for absent in ("libapp.so", "libflutter.so"):
+                with self.subTest(absent=absent):
+                    with zipfile.ZipFile(apk, "w") as archive:
+                        for abi in gate.PRODUCTION_ANDROID_ABIS:
+                            archive.writestr(f"lib/{abi}/libvendor.so", b"fixture")
+                            for library in ("libapp.so", "libflutter.so"):
+                                if library != absent:
+                                    archive.writestr(f"lib/{abi}/{library}", b"fixture")
+                    with self.assertRaisesRegex(gate.GateError, "missing required Flutter runtime"):
+                        gate.apk_abis_command(argparse.Namespace(apk=str(apk)))
+            with zipfile.ZipFile(apk, "w") as archive:
+                for abi in gate.PRODUCTION_ANDROID_ABIS:
+                    archive.writestr(f"lib/{abi}/libapp.so", b"")
+                    archive.writestr(f"lib/{abi}/libflutter.so", b"fixture")
+            with self.assertRaisesRegex(gate.GateError, "runtime library is empty"):
+                gate.apk_abis_command(argparse.Namespace(apk=str(apk)))
+
     def test_jutils_arm64_exception_requires_exact_locked_jpush_stack(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -580,6 +603,7 @@ class ReleaseGateTest(unittest.TestCase):
             with zipfile.ZipFile(apk, "w") as archive:
                 for abi in gate.PRODUCTION_ANDROID_ABIS:
                     archive.writestr(f"lib/{abi}/libapp.so", b"fixture")
+                    archive.writestr(f"lib/{abi}/libflutter.so", b"fixture")
                 archive.writestr("lib/arm64-v8a/libjutils.so", b"fixture")
             lock = root / "pubspec.lock"
             lock.write_text(

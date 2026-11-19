@@ -18,3 +18,12 @@
 - 合并后的lib/test内容与原已验证注册修复分支07dae22完全一致；android/pubspec/lock/config/assets/tool与已验证1312完全一致，SDK指纹保持F9181033…及1c89c4ae…。沿用原生证据有明确源码和依赖一致性依据。
 - `dart format --output=none --set-exit-if-changed lib test` 检查361个文件、0改动；四个认证相关Flutter测试文件64项全部通过。离线认证/账号QA/SDK锁定Node82项全部通过，均不发送真实请求。
 - 首轮离线CLI的Windows ACL夹具在E盘的临时目录被操作系统拒绝设置ACL，81通过/1失败；同一夹具在本人C盘临时目录可正确设置并验证ACL。只把本轮Node测试的临时目录移到本人C盘，Flutter/构建继续使用E/D既有缓存；完整82项重跑全通过。未修改ACL验证策略、跳过测试或更改客户凭据目录，原失败日志保留。
+
+## 全量回归与打包故障修正
+
+- 合并后静态分析无问题，UTC / Asia/Shanghai完整Flutter回归各2452项通过；Debug构建通过。库/原生桥接保持1312一致，135项原生与46项SDK协议结果沿用，非本轮重跑。合并源码ecfd84a已推送，保留3cfd0ea与07dae22双方父提交；初始CI44502526065状态另行核对。
+- 首个Release虽通过原签名/清单/ABI对称性检查，最终条目比较发现仅46,240,741字节，缺少两种架构的libapp.so。该包SHA-256 40AA2231…已隔离为rejected-missing-runtime-1313.apk，未发起手机安装，不能交付。此前stage=complete只反映旧门禁范围，不能当作可运行证明。
+- 实际Gradle输出中同一AOT文件同时出现E盘junction别名与D盘物理路径；新AOT已编译但复制后的app.so被增量输出清理。保留证据，把本次AOT缓存及release暂存目录完整移动到核验过的D盘备份位置后重新生成，不删除或复制旧APK内的主程序。
+- 修正Android构建根目录解析，使用Java NIO toRealPath统一实际物理路径，兼容首次checkout尚无build目录的情况。实测File.canonicalFile仍返回E盘别名，故不能仅靠该API；NIO返回D盘真实路径。旧SDK缓存与用户数据保留，只有本机生成缓存重建。
+- 发布门禁要求每个生产ABI必须包含非空libapp.so和libflutter.so，防止“两边同时缺失”绕过对称性检查。新增缺程序/缺引擎/空文件回归，原ABI/JPush正反例保留；相关APK测试7项、JPush1项通过，新门禁实际拒绝了上述损坏包。
+- 清理旧路径缓存后曾生成74,634,353字节的完整包并通过新门禁和Release后Debug复建；随后继续完成NIO真实路径构建复核。最终交付hash、正式验证与安装结果以末尾实测记录为准，不将中间包当作最终已安装版本。
