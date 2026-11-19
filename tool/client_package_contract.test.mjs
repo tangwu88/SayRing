@@ -6,6 +6,11 @@ import crypto from 'node:crypto';
 const read = path => fs.readFileSync(path, 'utf8');
 const sha = path => crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
 
+test('CoolWear uses the reviewed official Android SDK 1.4.1 artifact', () => {
+  assert.equal(sha('android/app/libs/coolwear_bluesdk-release.aar'),
+    'f9181033fc25c0eed3c5efc42aede2726b4017b4f5758037b1bc0d1121da13a1');
+});
+
 test('QRing mapping outputs are removed only in a build-local SDK copy', () => {
   assert.equal(sha('android/app/libs/qring_sdk_1.0.0.86.aar'), '1c89c4ae657e61d646669651e03d7fce4aea1e2adaf70288f9e0ecdc907927fa');
   const gradle = read('android/app/build.gradle.kts');
