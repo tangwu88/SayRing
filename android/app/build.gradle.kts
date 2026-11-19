@@ -16,7 +16,7 @@ val veepooSdkFiles = veepooSdkArtifacts.map { file("libs/$it") }
 val hasAnyVeepooArtifact = veepooSdkFiles.any { it.isFile }
 val hasCompleteVeepooSdk = veepooSdkFiles.all { it.isFile }
 val coolWearSdkFile = file("libs/coolwear_bluesdk-release.aar")
-val qringSdkFile = file("libs/qring_sdk_1.0.0.76.aar")
+val qringSdkFile = file("libs/qring_sdk_1.0.0.86.aar")
 val signingPropertiesFile = rootProject.file("key.properties")
 val signingProperties = Properties().apply {
     if (signingPropertiesFile.isFile) {
@@ -123,7 +123,7 @@ if (!qringSdkFile.isFile) {
 // writes the app's normal mapping.txt under build/app/outputs/mapping.
 val prepareQRingSdk by tasks.registering(Zip::class) {
     inputs.file(qringSdkFile)
-    archiveFileName.set("qring_sdk_1.0.0.76-build.aar")
+    archiveFileName.set("qring_sdk_1.0.0.86-build.aar")
     destinationDirectory.set(layout.buildDirectory.dir("generated/qring-sdk"))
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true

@@ -30,7 +30,17 @@ Gradle 会自动检测完整文件集；只放入部分文件时会直接停止�
 `AD482D5D69B99941D906038794165C1D479E5E038713954D9CA22059083D0F5F`。
 Gradle 缺少此锁定文件时停止构建；不得把调试 SDK、原始健康数据或供应商包公开分发。
 
-## 双 SDK 依赖选择
+## QRing Android SDK
+
+2026-11-19 按项目方提供的 `QRing_Android_SDK_1.0.0.86.zip` 升级至
+`qring_sdk_1.0.0.86.aar`，替换原 1.0.0.76。SHA-256：
+`1c89c4ae657e61d646669651e03d7fce4aea1e2adaf70288f9e0ecdc907927fa`。
+使用厂商原始 AAR；仅构建副本移除两个 `-printmapping map.txt` 输出指令。
+新 SDK 控制台、文件、原始包及 UUID 日志在初始化前关闭；保留真实能力、
+无默认测量值、账号隔离、一次初始化与恢复设置回读门禁。R7 Ultra/R7 Pro
+仍使用原 CoolWear SDK。此升级不开放 WhatsApp、录音或其他新业务功能。
+
+## 共享依赖选择
 
 最终 App 只从云创插件目录解析共享杰理 AAR，Veepoo 的协议和蓝牙 AAR 保持不变。
 原 `android/app/libs` 中的杰理文件只读保留，但不再进入 `veepooSdkFiles`，避免重复 dex。

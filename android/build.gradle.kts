@@ -46,7 +46,7 @@ allprojects {
 }
 
 // The pinned Yucheng plugin publishes an unused Realtek bbpro 1.6.1 JAR via a
-// broad `fileTree("*.jar")` dependency. QRing 1.0.0.76 embeds bbpro 1.9.4 and
+// broad `fileTree("*.jar")` dependency. QRing 1.0.0.86 embeds bbpro 1.9.4 and
 // requires APIs that do not exist in 1.6.1, so keeping both makes D8 reject the
 // APK for duplicate classes. Replace only that broad dependency with the other
 // JAR it contains; Yucheng's AARs do not reference bbpro-core.
