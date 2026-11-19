@@ -27,3 +27,11 @@
 - 修正Android构建根目录解析，使用Java NIO toRealPath统一实际物理路径，兼容首次checkout尚无build目录的情况。实测File.canonicalFile仍返回E盘别名，故不能仅靠该API；NIO返回D盘真实路径。旧SDK缓存与用户数据保留，只有本机生成缓存重建。
 - 发布门禁要求每个生产ABI必须包含非空libapp.so和libflutter.so，防止“两边同时缺失”绕过对称性检查。新增缺程序/缺引擎/空文件回归，原ABI/JPush正反例保留；相关APK测试7项、JPush1项通过，新门禁实际拒绝了上述损坏包。
 - 清理旧路径缓存后曾生成74,634,353字节的完整包并通过新门禁和Release后Debug复建；随后继续完成NIO真实路径构建复核。最终交付hash、正式验证与安装结果以末尾实测记录为准，不将中间包当作最终已安装版本。
+
+## 最终正式包与实装结果
+
+- NIO修正后的实际Flutter输出路径为D盘物理目录，两种架构的当前app.so均存在；普通main入口Release、原正式签名验证、新主程序完整性门禁、包身份/清单/ABI/ZIP16KB及Release后Debug复建全部通过。stage=complete，SDK构建副本30项一致性再次通过，android/key.properties不存在。
+- 最终APK `E:/SayRing-registration-sdk-1313-20261119/SayRing-1.0.14-1313-release.apk`，74,634,353字节，SHA-256 `AC5508112196957AADA65BAAEB2A8FCF1DF556A8A3DC79AB42AE6B62CC3E30C4`；cn.saydian.ring、1.0.14（1313）、non-debuggable，原正式证书SHA-256 `81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de`。相对1312文件集合1027项一致、无遗漏；两种ABI的libapp.so均含本次新增的两个注册状态标识，且hash与1312不同，确认并非误用旧主程序。
+- App lib/test与注册分支07dae22一致，SDK原始字节/原生桥接保持1312一致；后续1f42eef仅修正输出目录和发布门禁，不改变已通过两时区各2452项的业务逻辑。原生135项/SDK协议46项仍为明确沿用证据；新门禁APK7项及JPush1项实际通过。旧JPush ARM64-only受控例外及两项32位ELF LOAD 4KB限制保留，不宣称所有市场审核或16KB ELF要求通过。
+- 对当前USB授权的华为LIO-AL00执行adb install -r，等待本人解锁/确认后返回Success。手机PackageManager实读versionCode1313、versionName1.0.14；firstInstallTime与原1310一致，保留数据覆盖安装。再从手机只读取回base.apk，SHA-256与最终交付包AC550811…完全相同。启动/恢复MainActivity后进程持续存在、前台焦点为Say Ring，未执行退出账号、解绑、清空、重置或真实注册/验证码发送。
+- 合并源码ecfd84a及构建修正1f42eeffeef49089dde084c2a040854305160cb1已推送同一交付分支。后者CI44510667675最后检查两个时区Harmony成功，quality仍在上海时区测试；未将进行中写成全通过。无后台发布、商店提交或下载页变更，原始日志和手机读回APK仅在本机Git外private目录。
