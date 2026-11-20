@@ -44,3 +44,10 @@
 - 源码、CI门禁和本轮记录已提交80ede1bfad90b7df1aa5ac6942e72ef791beae84，推送origin/codex/coolwear-deferred-clock-1314-20261119；ls-remote核对同一SHA，工作区干净。未强推或覆盖其他分支。
 - 匿名GitHub API返回403，当前Git凭据接口未提供可用HTTP认证；没有输出或另存凭据。改读GitHub公开Actions页面，确认对应源码的mobile-ci运行44526027176（https://github.com/tangwu88/SayRing/actions/runs/44526027176）已触发，最后检查为In progress，Harmony矩阵2项已完成；不把云端进行中写成全部通过。
 - 此次交付以本机双时区完整回归、实际Debug/生产Release及制品检查为证；Windows无法完成本机iOS编译，客户634或其他R7P手机的物理测量结果没有被本机夹具替代。公开下载配置仍是原版本，本轮仅交付本地1314正式APK。
+
+## 2026-11-20 手机覆盖安装
+
+- 用户要求安装到当前手机。安装前确认唯一USB授权设备为华为LIO-AL00，原包1.0.14（1313）；重新核对1314的SHA-256和原正式签名一致。
+- 对精确USB目标执行`adb install -r`，返回Success；手机实读1.0.14（1314），北京时间09:46:55更新，firstInstallTime仍为2026-10-30 14:36:15，保留数据覆盖安装，没有卸载、解绑、切换账号或重置戒指。
+- 从手机只读取回installed-base.apk，与交付包SHA-256完全一致（24d14afe…c8f6）；启动MainActivity后进程持续存在，前台焦点为Say Ring。未发起额外测量或进行客户634实物验收，不把启动成功当作客户测量问题已解决。
+- 安装证据仅存Git外E:/SayRing-coolwear-clock-1314-20261119/phone-install-20261120。记录前工作区干净，fetch成功，本地/上游均a3f672147685b4e97259e06e5823e90bac550acf。此次仅更新安装记录，业务源码/依赖/制品不变，未重复运行完整构建测试。
