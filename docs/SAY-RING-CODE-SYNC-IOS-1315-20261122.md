@@ -26,3 +26,17 @@
 - 发行前发现 V1 的首次失败报告可能携带 V2 专用的 `bluetooth_off`、`bluetooth_permission`、`connection_timeout` 和 `handshake_failed`，导致有界校验拒绝这份报告。新增两版本共 8 个场景，修复前 4 个 V1 场景失败、4 个 V2 场景通过。复用 `syncDiagnosticForV1` 转换后再持久化不可变待发报告，V2 保留实际细分原因，V1 使用兼容原因。
 - 修正后服务 27 项通过，格式/静态分析通过，UTC 和 Asia/Shanghai 完整回归各 2,472 项通过。重新完成 Android Debug/Release QA 构建、运行库、验签及对齐检查，以及 iOS Debug/Profile 1316 构建和验签。原生桥接、SDK 与此前 257 项 Node/135 项 JVM 检查对应源码相同，本次 Dart 修正后没有重复运行原生用例。
 - XR 上重新验签安装 Profile 测试入口，8 种中英文/字号/模拟连接组合通过，报告 `deviceHelpCombinationsPassed=8`。结束后原位恢复普通 1316 并启动。完整真实戒指测量和同步不属于本次界面验收。
+
+## 1316 发行归档与上传
+
+- 最终运行源码 `043d35105b271ef4c05add57697c7beb9ab2cd7e` 已在 GitHub 与本机核对，运行源码树 `0cb2747393bebe2b1283718a8955d4dd32929409`。正常 `lib/main.dart` Release 归档成功，发行配置完成后已恢复工作区配置。
+- iOS 版本 `1.0.15（1316）`，Bundle ID `cn.saydian.ring`，团队 `W7SXQ4A226`。发行包严格验签通过，App Store provisioning、`get-task-allow=false`、生产 APNs 环境、arm64 与归档 UUID 均核对通过；不包含 Debug kernel。
+- 最终实际上传的 IPA 为 39,596,406 字节，SHA-256 `1043b0cc7ea3f0b94c407072ec7d9b4bbce39f4fe1b23b597de51b0cd348beb9`。制品和私下验签记录位于 `build/ios-testflight-1316-20261122.JGXurjLN`，Xcode 保留归档 `~/Library/Developer/Xcode/Archives/2026-11-22/Say Ring 2026-11-22 22.41.21 1.0.15-1316.xcarchive`。
+- `xcodebuild -exportArchive` 使用既有账号自动发行签名，`testFlightInternalTestingOnly=true`。北京时间 2026-11-22 22:46:27 返回上传成功，命令结束 `Uploaded Runner / EXPORT SUCCEEDED`；随后 App Store Connect 显示 1316 正在处理。
+- 上传有 15 项原厂蓝牙 SDK 缺少 dSYM 的非阻断警告，涉及 ABParTool、BluetoothLibrary、GRDFUSDK、JL 系列和 RTK 系列。此类 SDK 的崩溃符号解析仍受限制，不能把上传成功当作符号文件齐全。
+
+## TestFlight 内部测试结果
+
+- 北京时间 2026-11-22 22:52 观察到苹果处理完成，构建 ID `c1821304-5a9d-42f4-8e7b-85f6932b08b2`。按实际使用的标准加密填写本次出口合规信息；法国问题沿用现有未分发的范围，并只读核对 Apple 法国公开查询无条目、美国返回 `cn.saydian.ring`。未修改现有分发地区。
+- 22:53 将 1316 加入既有内部组「Say Ring 真机验证」`d46bbf49-2fc9-44f6-a313-b018f88b37dc`，随后实时页面同时显示 1316「正在测试」和已选原组。截图 `build/ios-testflight-1316-20261122.JGXurjLN/testflight-1316-internal.jpg` 及对应 AX 状态已私下保存。既有 1309、1308 仍显示正在测试，没有替换正式审核或上架版本。
+- 本轮交付包含源码、已验签制品、自动回归、XR 界面结果、苹果上传接收和内部组可测试状态。没有把成员实际下载、15 Pro Max/华为实测、真实戒指活动/睡眠同步或测量返回计为已验收；后续使用真实设备验证这些项目。
