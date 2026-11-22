@@ -246,6 +246,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         CycleRemote,
         SyncDiagnosticsApi,
         SyncDiagnosticsVersionsApi,
+        FirstConnectionDiagnosticsApi,
         GlobalAccountApi,
         GlobalCodeAuthApi,
         GlobalWechatAuthApi,
@@ -269,6 +270,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
   Future<http.Response> _syncDiagnosticRequest(
     Session expected, {
     Map<String, Object?>? report,
+    bool beginFirstConnection = false,
   }) async {
     // Diagnostics must never rotate credentials or sign the user out while a
     // foreground measurement/upload is using the normal authorization flow.
@@ -293,7 +295,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
                 .timeout(const Duration(seconds: 5))
           : _client
                 .post(
-                  _uri('/api/saydian-app/v2/support/sync-diagnostics'),
+                  _uri(
+                    beginFirstConnection
+                        ? '/api/saydian-app/v2/support/sync-diagnostics/first-connection'
+                        : '/api/saydian-app/v2/support/sync-diagnostics',
+                  ),
                   headers: {
                     ..._authorizationHeaders(requestSession),
                     'Content-Type': 'application/json',
@@ -302,6 +308,39 @@ class GlobalSaydianApiClient extends SaydianApiClient
                 )
                 .timeout(const Duration(seconds: 8)),
     );
+  }
+
+  @override
+  Future<Map<String, Object?>> beginFirstConnectionDiagnostics(
+    Session expectedSession,
+    String connectionId, {
+    String? firstBindingOperationId,
+  }) async {
+    final uuid = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    );
+    if (!uuid.hasMatch(connectionId) ||
+        (firstBindingOperationId != null &&
+            !uuid.hasMatch(firstBindingOperationId))) {
+      throw const ApiException('首次连接摘要标识无效');
+    }
+    final data = _data(
+      _decode(
+        await _syncDiagnosticRequest(
+          expectedSession,
+          beginFirstConnection: true,
+          report: {
+            'product': 'say-ring',
+            'connectionId': connectionId,
+            'firstBindingOperationId': ?firstBindingOperationId,
+          },
+        ),
+      ),
+    );
+    if (data['connectionId'] != connectionId || data['accepted'] is! bool) {
+      throw const ApiException('首次连接摘要资格暂未确认');
+    }
+    return data;
   }
 
   @override

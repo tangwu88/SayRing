@@ -593,6 +593,16 @@ def apk_abis_command(args: argparse.Namespace) -> None:
         fail("APK is missing required ABI(s): " + ", ".join(sorted(missing)))
     if unexpected:
         fail("APK contains unexpected ABI(s): " + ", ".join(sorted(unexpected)))
+    # Symmetry alone accepts an APK missing its Flutter program in BOTH ABIs.
+    # Require the application and engine, not merely any vendor native library.
+    with zipfile.ZipFile(args.apk) as archive:
+        for abi in PRODUCTION_ANDROID_ABIS:
+            for runtime_library in ("libapp.so", "libflutter.so"):
+                member = f"lib/{abi}/{runtime_library}"
+                if runtime_library not in libraries[abi]:
+                    fail(f"APK is missing required Flutter runtime library: {member}.")
+                if archive.getinfo(member).file_size == 0:
+                    fail(f"APK Flutter runtime library is empty: {member}.")
     baseline_abi = PRODUCTION_ANDROID_ABIS[0]
     baseline = libraries[baseline_abi]
     if not baseline:

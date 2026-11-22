@@ -88,7 +88,7 @@ import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 
-/** Native Android adapter for QRing SDK 1.0.0.76. */
+/** Native Android adapter for QRing SDK 1.0.0.86. */
 public final class QRingBridge
         implements MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
     private static final String TAG = "QRingBridge";
@@ -316,6 +316,7 @@ public final class QRingBridge
 
     private void ensureSdk() {
         if (manager != null) return;
+        QRingSdkPrivacy.disableLogs();
         manager = BleOperateManager.getInstance(activity.getApplication());
         manager.init();
         manager.setManualMeasurementDefaultValuesEnabled(false);

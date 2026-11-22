@@ -15,43 +15,60 @@ Session owner(String id) => Session(
   displayName: 'Synthetic',
   accountKey: 'global:$id',
 );
-Map<String, Object?> snapshot() => diagnosticDeviceSnapshot(
-  platform: 'android',
-  sdk: 'coolwear',
-  model: 'R7Pro',
-  firmware: '819.0.1.0.0',
-  connectionState: 'ready',
-  initializationState: 'ready',
-  capabilityState: 'ready',
-  metrics: ['heart_rate'],
-);
+Map<String, Object?> snapshot({String model = 'R7Pro'}) =>
+    diagnosticDeviceSnapshot(
+      platform: 'android',
+      sdk: 'coolwear',
+      model: model,
+      firmware: '819.0.1.0.0',
+      connectionState: 'ready',
+      initializationState: 'ready',
+      capabilityState: 'ready',
+      metrics: ['heart_rate'],
+    );
 
-class Remote extends Fake implements SaydianApi, SyncDiagnosticsApi {
-  final reports = <Map<String, Object?>>[];
-  final owners = <String>[];
-  bool supported = true, offline = false, limited = false, wrongReceipt = false;
-  int configReads = 0;
-  Completer<bool>? config;
+class Remote extends Fake
+    implements SaydianApi, SyncDiagnosticsApi, FirstConnectionDiagnosticsApi {
+  final reports = <Map<String, Object?>>[],
+      starts = <String>[],
+      owners = <String>[];
+  bool eligible = true,
+      offline = false,
+      beginOffline = false,
+      needsProof = false,
+      wrongReceipt = false;
+  Completer<void>? beginGate;
   @override
-  Future<bool> supportsSyncDiagnostics(Session expectedSession) async {
-    configReads++;
-    return config == null ? supported : await config!.future;
+  Future<bool> supportsSyncDiagnostics(Session s) async => true;
+  @override
+  Future<Map<String, Object?>> beginFirstConnectionDiagnostics(
+    Session s,
+    String id, {
+    String? firstBindingOperationId,
+  }) async {
+    starts.add(id);
+    if (beginGate != null) await beginGate!.future;
+    if (beginOffline) throw const ApiException('Synthetic offline');
+    final accepted =
+        eligible && (!needsProof || firstBindingOperationId != null);
+    return {
+      'connectionId': id,
+      'accepted': accepted,
+      if (!accepted) 'reason': 'has_binding_history',
+    };
   }
 
   @override
   Future<Map<String, Object?>> submitSyncDiagnostics(
-    Session expectedSession,
+    Session s,
     Map<String, Object?> report,
   ) async {
     reports.add(jsonDecode(jsonEncode(report)) as Map<String, Object?>);
-    owners.add(expectedSession.memberId);
-    if (offline) {
-      throw const ApiException('Synthetic transport error', statusCode: 503);
-    }
+    owners.add(s.memberId);
+    if (offline) throw const ApiException('Synthetic offline');
     return {
-      'accepted': !limited,
+      'accepted': true,
       'reportId': wrongReceipt ? 'wrong' : report['reportId'],
-      if (limited) 'retryAfterSeconds': 900,
     };
   }
 }
@@ -62,7 +79,7 @@ class V2Remote extends Remote implements SyncDiagnosticsVersionsApi {
 }
 
 Future<void> settle() async {
-  for (var i = 0; i < 60; i++) {
+  for (var i = 0; i < 160; i++) {
     await Future<void>.delayed(Duration.zero);
   }
 }
@@ -75,33 +92,67 @@ void main() {
   late Session? current;
   late DateTime now;
   late bool consent;
+  late String model;
+  SyncDiagnosticsService create({Map<String, Object?>? details}) =>
+      SyncDiagnosticsService(
+        vault: vault,
+        api: remote,
+        session: () => current,
+        allowed: () => consent,
+        snapshot: () => snapshot(model: model),
+        onChanged: () {},
+        locale: () => 'en',
+        clock: () => now,
+        metadata: () async =>
+            details ??
+            {
+              'appVersion': '1.0.14',
+              'buildNumber': 1310,
+              'osMajor': 12,
+              'osVersion': '12.0',
+            },
+      );
+  void start([String target = 'PRIVATE-NATIVE-ID']) => service.begin(
+    'global:${current!.memberId}',
+    target,
+    connectionAttempt: true,
+  );
+  void healthy() {
+    service.record(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
+    service.record(
+      SyncDiagnosticStage.read,
+      SyncDiagnosticState.ok,
+      received: 7,
+    );
+    service.record(
+      SyncDiagnosticStage.persist,
+      SyncDiagnosticState.ok,
+      saved: 7,
+    );
+    service.record(
+      SyncDiagnosticStage.upload,
+      SyncDiagnosticState.ok,
+      uploaded: 7,
+    );
+    service.completeInitialSync(service.connectionGeneration);
+  }
+
   setUp(() {
     vault = MemorySessionVault();
     remote = Remote();
     current = owner('a');
+    now = DateTime.utc(2026, 11, 16);
     consent = true;
-    now = DateTime.utc(2026, 11, 14);
-    service = SyncDiagnosticsService(
-      vault: vault,
-      api: remote,
-      session: () => current,
-      allowed: () => consent,
-      snapshot: snapshot,
-      onChanged: () {},
-      clock: () => now,
-      metadata: () async => {'appVersion': '1.0.14', 'buildNumber': 1307},
-    );
-    service.begin('global:a', 'PRIVATE-NATIVE-IDENTIFIER');
+    model = 'R7Pro';
+    service = create();
   });
   tearDown(() => service.dispose());
 
-  test('Bluetooth off remains a diagnostic reason on V2, never a V1 field', () {
-    final code = connectionDiagnosticCode('BLUETOOTH_DISABLED');
-    expect(code, SyncDiagnosticCode.bluetoothOff);
+  test('Bluetooth off remains a V2 reason with a compatible V1 payload', () {
     final stage = SyncDiagnosticEvent(
       SyncDiagnosticStage.connect,
       SyncDiagnosticState.failed,
-      code,
+      connectionDiagnosticCode('BLUETOOTH_DISABLED'),
       430,
     ).toJson();
     final downlevel = syncDiagnosticForV1({
@@ -114,297 +165,393 @@ void main() {
     expect((downlevel['stages'] as List).single['code'], 'connect_failed');
   });
 
-  test(
-    'V2 caches nonidentifying phone data and discards an old owner outbox',
-    () async {
+  for (final version in [1, 2]) {
+    test('first summary retains phone data only on schema $version', () async {
       service.dispose();
-      final api = V2Remote()..offline = true;
-      service = SyncDiagnosticsService(
-        vault: vault,
-        api: api,
-        session: () => current,
-        allowed: () => true,
-        snapshot: snapshot,
-        onChanged: () {},
-        locale: () => 'zh-Hans',
-        clock: () => now,
-        metadata: () async => {
-          'appVersion': '1.0.14',
-          'buildNumber': 1308,
+      remote = version == 2 ? V2Remote() : Remote();
+      service = create(
+        details: {
+          'appVersion': '1.0.15',
+          'buildNumber': 1315,
+          'osMajor': 12,
+          'osVersion': '12.0',
           'phone': {
             'brand': 'HUAWEI',
             'modelId': 'PPA-LX3',
-            'osVersion': '10.1',
-            'osBuild': 'R12',
-            'apiLevel': 29,
-            'imei': 'private',
+            'apiLevel': 31,
+            'name': 'Private phone name',
           },
         },
       );
-      service.begin(
-        'global:a',
-        'fixture-r7',
-        connectionKind: 'automatic_recovery',
-      );
-      service.record(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
-      service.connectionCompleted();
-      service.flushConnection();
-      await settle();
-      expect(api.reports.single['schemaVersion'], 2);
-      expect(api.reports.single['connectionKind'], 'automatic_recovery');
-      final phone = api.reports.single['phone'] as Map;
-      expect(phone, containsPair('modelId', 'PPA-LX3'));
-      expect(phone, containsPair('locale', 'zh-Hans'));
-      expect(phone.containsKey('imei'), isFalse);
-      expect(
-        (await vault.readSyncDiagnostics('global:a'))!['pending'],
-        isNotNull,
-      );
-      current = owner('b');
-      api.offline = false;
-      service.clear(discardPendingFor: 'global:a');
-      service.begin('global:b', 'fixture-r8', connectionKind: 'explicit');
-      service.flushPending();
-      await settle();
-      expect((await vault.readSyncDiagnostics('global:a'))!['pending'], isNull);
-      expect(api.owners, ['a']);
-    },
-  );
-
-  test(
-    'automatic failure summary contains only fixed metadata, enums and counts',
-    () async {
-      service.record(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
-      service.record(
-        SyncDiagnosticStage.read,
-        SyncDiagnosticState.failed,
-        code: SyncDiagnosticCode.readTimeout,
-        received: 0,
-      );
+      start();
+      healthy();
       await settle();
       expect(remote.reports, hasLength(1));
       final report = remote.reports.single;
+      expect(report['schemaVersion'], version);
+      expect(report['mode'], 'first_connection');
       expect(isBoundedDiagnosticReport(report), isTrue);
-      final text = jsonEncode(report);
-      expect(text, isNot(contains('PRIVATE-NATIVE-IDENTIFIER')));
-      expect(text, isNot(contains('synthetic-a')));
-      expect(text, isNot(contains('global:a')));
-      expect(report['mode'], 'automatic');
-      expect(report['buildNumber'], 1307);
-      expect((await vault.readSyncDiagnostics('global:a'))!['pending'], isNull);
-      expect(service.lastReportId, report['reportId']);
-    },
-  );
-
-  test(
-    'empty reads report no-data evidence without claiming a sensor failure',
-    () async {
-      service.record(
-        SyncDiagnosticStage.read,
-        SyncDiagnosticState.empty,
-        code: SyncDiagnosticCode.noData,
-        received: 0,
-      );
+      if (version == 2) {
+        expect(report['phone'], {
+          'brand': 'HUAWEI',
+          'modelId': 'PPA-LX3',
+          'apiLevel': 31,
+          'locale': 'en',
+        });
+      } else {
+        expect(report.containsKey('phone'), isFalse);
+      }
+      start('another-device');
+      healthy();
       await settle();
       expect(remote.reports, hasLength(1));
-      expect(
-        (remote.reports.single['stages'] as List).last,
-        containsPair('state', 'empty'),
-      );
-      service.record(
-        SyncDiagnosticStage.read,
-        SyncDiagnosticState.empty,
-        code: SyncDiagnosticCode.noData,
-        received: 0,
-      );
-      await settle();
-      expect(remote.reports, hasLength(1));
-    },
-  );
-
-  test('healthy progress never sends automatic traffic', () async {
-    service.record(
-      SyncDiagnosticStage.read,
-      SyncDiagnosticState.ok,
-      received: 3,
-    );
-    await settle();
-    expect(remote.configReads, 0);
-    expect(remote.reports, isEmpty);
-  });
+    });
+  }
 
   test(
-    'guest, preview/privacy gate prevents requests and outbox writes',
+    'guest context stays local until requested for its support session',
     () async {
-      consent = false;
-      service.record(SyncDiagnosticStage.read, SyncDiagnosticState.failed);
-      await service.send();
-      await settle();
-      expect(remote.configReads, 0);
-      expect(await vault.readSyncDiagnostics('global:a'), isNull);
-      consent = true;
+      service.dispose();
       current = null;
+      var metadataReads = 0;
+      service = SyncDiagnosticsService(
+        vault: vault,
+        api: remote,
+        session: () => current,
+        allowed: () => false,
+        snapshot: snapshot,
+        onChanged: () {},
+        metadata: () async {
+          metadataReads++;
+          return {
+            'appVersion': '1.0.15',
+            'buildNumber': 1315,
+            'phone': {'brand': 'HUAWEI', 'modelId': 'PPA-LX3'},
+          };
+        },
+      );
+      service.begin('anonymous', 'PRIVATE-NATIVE-ID', connectionKind: 'first');
+      service.record(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
+      await settle();
+      expect(metadataReads, 0);
+      expect(remote.starts, isEmpty);
+      expect(remote.reports, isEmpty);
+      final context = await service.guestConnection('en');
+      expect(context, isNotNull);
+      expect(isBoundedDiagnosticReport(context!), isTrue);
+      expect((context['phone'] as Map)['modelId'], 'PPA-LX3');
+      expect(jsonEncode(context), isNot(contains('PRIVATE-NATIVE-ID')));
+      expect(remote.reports, isEmpty);
+      current = owner('b');
+      expect(await service.guestConnection('en'), isNull);
+    },
+  );
+  test(
+    'healthy first sync automatically reports system/app, connection, read, save and upload',
+    () async {
+      start();
+      await settle();
+      service.record(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
+      await settle();
+      expect(remote.reports, isEmpty);
+      healthy();
+      await settle();
+      expect(remote.reports, hasLength(1));
+      final r = remote.reports.single;
+      expect(r['mode'], 'first_connection');
+      expect(r['osVersion'], '12.0');
+      expect(r['buildNumber'], 1310);
+      expect((r['stages'] as List).map((e) => e['stage']), [
+        'connect',
+        'read',
+        'persist',
+        'upload',
+      ]);
+      expect(isBoundedDiagnosticReport(r), isTrue);
+      expect(jsonEncode(r), isNot(contains('PRIVATE-NATIVE-ID')));
+      expect(jsonEncode(r), isNot(contains('synthetic-a')));
+      expect((await vault.readSyncDiagnostics('global:a'))!['pending'], isNull);
+    },
+  );
+  test(
+    'later reconnects, failures, repeated completions and manual entry never upload new data',
+    () async {
+      start();
+      healthy();
+      await settle();
+      start();
+      service.record(SyncDiagnosticStage.read, SyncDiagnosticState.failed);
+      healthy();
       await service.send();
+      await service.send(mode: 'automatic');
+      service.flushPending();
+      await settle();
+      expect(remote.starts, hasLength(1));
+      expect(remote.reports, hasLength(1));
+      service.dispose();
+      service = create();
+      start();
+      healthy();
+      await settle();
+      expect(remote.starts, hasLength(1));
+      expect(remote.reports, hasLength(1));
+    },
+  );
+  test(
+    'existing-account refusal is persisted and is not retried on later connections',
+    () async {
+      remote.eligible = false;
+      start();
+      await settle();
+      healthy();
+      await settle();
+      expect(remote.reports, isEmpty);
+      expect(remote.starts, hasLength(1));
+      service.dispose();
+      service = create();
+      start();
+      healthy();
+      service.flushPending();
+      await settle();
+      expect(remote.starts, hasLength(1));
       expect(remote.reports, isEmpty);
     },
   );
-
-  test('automatic summaries are spaced by fifteen minutes per owner', () async {
-    service.record(SyncDiagnosticStage.read, SyncDiagnosticState.failed);
-    await settle();
-    service.record(SyncDiagnosticStage.upload, SyncDiagnosticState.failed);
-    await settle();
-    expect(remote.reports, hasLength(1));
-    now = now.add(const Duration(minutes: 16));
-    service.record(SyncDiagnosticStage.upload, SyncDiagnosticState.failed);
-    await settle();
-    expect(remote.reports, hasLength(2));
-  });
-
-  test('manual upload remains available during automatic cooldown', () async {
-    service.record(SyncDiagnosticStage.read, SyncDiagnosticState.failed);
-    await settle();
-    await service.send();
-    expect(remote.reports.map((r) => r['mode']), ['automatic', 'manual']);
-  });
-
-  test('single flight prevents repeated taps from posting twice', () async {
-    remote.config = Completer();
-    final first = service.send(), second = service.send();
-    expect(identical(first, second), isTrue);
-    remote.config!.complete(true);
-    await first;
-    expect(remote.reports, hasLength(1));
-  });
-
   test(
-    'network failure retains exact report ID and retries after backoff',
+    'a failed first connection reports once and is not replaced by a later healthy connection',
+    () async {
+      start();
+      service.record(
+        SyncDiagnosticStage.connect,
+        SyncDiagnosticState.failed,
+        code: SyncDiagnosticCode.connectFailed,
+      );
+      await settle();
+      expect(remote.reports, hasLength(1));
+      final first = remote.reports.single;
+      start();
+      healthy();
+      await settle();
+      expect(remote.reports, hasLength(1));
+      expect((first['stages'] as List).single['state'], 'failed');
+    },
+  );
+  testWidgets(
+    'the watchdog reports pending initialization without fabricating a failure or reading',
+    (tester) async {
+      service.dispose();
+      service = create();
+      start();
+      await tester.pump();
+      service.record(
+        SyncDiagnosticStage.initialization,
+        SyncDiagnosticState.blocked,
+        code: SyncDiagnosticCode.initializationPending,
+      );
+      await tester.pump();
+      expect(remote.reports, isEmpty);
+      await tester.pump(const Duration(minutes: 3));
+      await tester.pumpAndSettle();
+      expect(remote.reports, hasLength(1));
+      expect(
+        (remote.reports.single['stages'] as List).single['state'],
+        'blocked',
+      );
+      service.dispose();
+    },
+  );
+  test(
+    'offline delivery retries the identical frozen first report after a restart and another target',
     () async {
       remote.offline = true;
-      await service.send();
-      final first = remote.reports.single;
-      expect(
-        (await vault.readSyncDiagnostics('global:a'))!['pending'],
-        containsPair('reportId', first['reportId']),
-      );
-      expect(first['schemaVersion'], 1);
-      expect(first.containsKey('phone'), isFalse);
-      service.flushPending();
+      start();
+      healthy();
       await settle();
-      expect(remote.reports, hasLength(1));
+      final first = Map<String, Object?>.from(remote.reports.single);
+      service.dispose();
+      service = create();
+      model = 'R8';
       now = now.add(const Duration(minutes: 16));
       remote.offline = false;
-      service.flushPending();
+      start('ANOTHER-PRIVATE-ID');
+      healthy();
       await settle();
       expect(remote.reports, hasLength(2));
-      expect(remote.reports.last['reportId'], first['reportId']);
-      expect((await vault.readSyncDiagnostics('global:a'))!['pending'], isNull);
+      expect(remote.reports.last, first);
+      expect(remote.reports.last['model'], 'R7Pro');
+      expect(remote.starts, hasLength(1));
     },
   );
-
   test(
-    'old server leaves a pending summary and manual can retry after server update',
+    'a reservation response lost to network is retried with its original ID only',
     () async {
-      remote.supported = false;
-      expect(await service.send(), contains('后台'));
-      expect(remote.reports, isEmpty);
-      expect(
-        (await vault.readSyncDiagnostics('global:a'))!['pending'],
-        isNotNull,
-      );
-      service.record(SyncDiagnosticStage.read, SyncDiagnosticState.failed);
+      remote.beginOffline = true;
+      start();
+      healthy();
       await settle();
-      expect(remote.configReads, 1);
-      remote.supported = true;
-      await service.send();
+      expect(remote.reports, isEmpty);
+      final id = remote.starts.single;
+      remote.beginOffline = false;
+      now = now.add(const Duration(minutes: 16));
+      service.flushPending();
+      await settle();
+      expect(remote.starts, [id, id]);
+      expect(remote.reports, hasLength(1));
+      start();
+      healthy();
+      await settle();
       expect(remote.reports, hasLength(1));
     },
   );
-
   test(
-    'rate-limited or mismatching receipt never drops pending report',
+    'a genuine first-binding receipt repairs only the reservation race',
     () async {
-      remote.limited = true;
-      await service.send();
-      expect(
-        (await vault.readSyncDiagnostics('global:a'))!['pending'],
-        isNotNull,
-      );
-      now = now.add(const Duration(minutes: 16));
-      remote.limited = false;
-      remote.wrongReceipt = true;
-      service.flushPending();
+      remote.needsProof = true;
+      start();
       await settle();
-      expect(service.lastReportId, isNull);
+      expect(remote.reports, isEmpty);
+      service.authorizeFirstBinding(
+        'WRONG-TARGET',
+        '11111111-1111-4111-8111-111111111111',
+      );
+      await settle();
+      expect(remote.starts, hasLength(1));
+      service.authorizeFirstBinding(
+        'PRIVATE-NATIVE-ID',
+        '11111111-1111-4111-8111-111111111111',
+      );
+      await settle();
+      healthy();
+      await settle();
+      expect(remote.reports, hasLength(1));
+      expect(remote.starts, hasLength(2));
       expect(
-        (await vault.readSyncDiagnostics('global:a'))!['pending'],
-        isNotNull,
+        remote.reports.single.containsKey('firstBindingOperationId'),
+        isFalse,
       );
     },
   );
-
   test(
-    'account switch during configuration cannot send under the new account',
+    'account change rejects late authorization and cannot send old stages under the new account',
     () async {
-      remote.config = Completer();
-      final sending = service.send();
+      remote.beginGate = Completer();
+      start();
+      service.record(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
       await settle();
       current = owner('b');
-      service.begin('global:b', 'OTHER-PRIVATE-ID');
-      remote.config!.complete(true);
-      await sending;
-      expect(remote.reports, isEmpty);
-      expect(await vault.readSyncDiagnostics('global:b'), isNull);
-      remote.config = null;
-      await service.send();
+      start('TARGET-B');
+      remote.beginGate!.complete();
+      await settle();
+      healthy();
+      await settle();
       expect(remote.owners, ['b']);
+      expect(await vault.readSyncDiagnostics('global:b'), isNotNull);
     },
   );
-
   test(
-    'corrupted outbox cannot upload arbitrary fields or raw values',
+    'guest and missing privacy consent prevent reservations and private writes',
     () async {
-      await vault.writeSyncDiagnostics('global:a', {
-        'pending': {
-          'product': 'say-ring',
-          'healthValues': [72],
-          'accessToken': 'synthetic-private',
-        },
-      });
+      consent = false;
+      start();
+      healthy();
+      await settle();
+      expect(remote.starts, isEmpty);
+      expect(await vault.readSyncDiagnostics('global:a'), isNull);
+      current = null;
       service.flushPending();
       await settle();
       expect(remote.reports, isEmpty);
     },
   );
-
   test(
-    'bounded history and metadata drop unsupported model/metric/error data',
+    'a changed target freezes the previous target snapshot, not the new device',
     () async {
-      final safe = diagnosticDeviceSnapshot(
-        platform: 'android',
-        sdk: 'private',
-        model: 'customer@example.com',
-        firmware: 'private-secret',
-        connectionState: 'raw-error',
-        initializationState: 'raw-error',
-        capabilityState: 'raw-error',
-        metrics: ['heart_rate', 'private-record'],
+      start();
+      service.record(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
+      await settle();
+      model = 'R8';
+      start('TARGET-B');
+      await settle();
+      expect(remote.reports, hasLength(1));
+      expect(remote.reports.single['model'], 'R7Pro');
+      expect(
+        (remote.reports.single['stages'] as List).last['code'],
+        'cancelled',
       );
-      expect(safe['sdk'], 'unknown');
-      expect(safe['model'], 'other');
-      expect(safe['metrics'], ['heart_rate']);
-      expect(safe.containsKey('firmware'), isFalse);
-      for (var i = 0; i < 100; i++) {
-        service.record(
-          i.isEven ? SyncDiagnosticStage.read : SyncDiagnosticStage.persist,
-          SyncDiagnosticState.ok,
-          saved: 2000000,
-        );
-      }
-      expect(service.events, hasLength(16));
+    },
+  );
+  test(
+    'a crashed first draft keeps its original app version and is not replaced on upgrade',
+    () async {
+      start();
+      service.record(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
+      await settle();
+      service.dispose();
+      service = SyncDiagnosticsService(
+        vault: vault,
+        api: remote,
+        session: () => current,
+        allowed: () => consent,
+        snapshot: () => snapshot(model: 'R8'),
+        onChanged: () {},
+        clock: () => now,
+        metadata: () async => {'appVersion': '1.0.15', 'buildNumber': 1400},
+      );
+      start('OTHER-TARGET');
+      healthy();
+      await settle();
+      expect(remote.reports, hasLength(1));
+      expect(remote.reports.single['buildNumber'], 1310);
+      expect(remote.reports.single['model'], 'R7Pro');
+      expect(
+        (remote.reports.single['stages'] as List).any(
+          (e) => e['stage'] == 'read',
+        ),
+        isFalse,
+      );
+    },
+  );
+  test(
+    'background progress without an explicit first attempt never reserves or sends',
+    () async {
+      service.begin('global:a', null);
+      service.record(SyncDiagnosticStage.upload, SyncDiagnosticState.failed);
       await service.send();
-      expect(isBoundedDiagnosticReport(remote.reports.single), isTrue);
-      expect((remote.reports.single['stages'] as List).last['saved'], 1000000);
+      await settle();
+      expect(remote.starts, isEmpty);
+      expect(remote.reports, isEmpty);
+    },
+  );
+  test(
+    'wrong receipts retain the immutable first report and do not claim completion',
+    () async {
+      remote.wrongReceipt = true;
+      start();
+      healthy();
+      await settle();
+      expect(service.lastReportId, isNull);
+      final stored = (await vault.readSyncDiagnostics('global:a'))!['pending'];
+      expect(stored, remote.reports.single);
+    },
+  );
+  test(
+    'report validation rejects identifiers and non-numeric system version',
+    () async {
+      start();
+      healthy();
+      await settle();
+      final first = remote.reports.single;
+      expect(
+        isBoundedDiagnosticReport({
+          ...first,
+          'osVersion': 'private-build-name',
+        }),
+        isFalse,
+      );
+      expect(
+        isBoundedDiagnosticReport({...first, 'deviceId': 'PRIVATE'}),
+        isFalse,
+      );
     },
   );
 }

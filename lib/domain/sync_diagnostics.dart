@@ -171,6 +171,7 @@ Map<String, Object?> diagnosticDeviceSnapshot({
         'scanning',
         'connecting',
         'authenticating',
+        'measuring',
         'syncing',
         'ready',
         'error',
@@ -246,6 +247,7 @@ bool isBoundedDiagnosticReport(Map<String, Object?> report) {
     'model',
     'firmware',
     'osMajor',
+    'osVersion',
     'connectionState',
     'initializationState',
     'capabilityState',
@@ -285,7 +287,12 @@ bool isBoundedDiagnosticReport(Map<String, Object?> report) {
   if (report['product'] != 'say-ring' ||
       !uuid.hasMatch('${report['reportId']}') ||
       !uuid.hasMatch('${report['connectionId']}') ||
-      !const {'automatic', 'manual', 'recovery'}.contains(report['mode']) ||
+      !const {
+        'automatic',
+        'manual',
+        'recovery',
+        'first_connection',
+      }.contains(report['mode']) ||
       !const {'android', 'ios', 'harmonyos'}.contains(report['platform']) ||
       !RegExp(
         r'^\d{1,4}\.\d{1,4}\.\d{1,4}$',
@@ -305,6 +312,7 @@ bool isBoundedDiagnosticReport(Map<String, Object?> report) {
         'scanning',
         'connecting',
         'authenticating',
+        'measuring',
         'syncing',
         'ready',
         'error',
@@ -326,7 +334,11 @@ bool isBoundedDiagnosticReport(Map<String, Object?> report) {
       }.contains(report['capabilityState']) ||
       (report.containsKey('firmware') &&
           !RegExp(r'^\d[\d.]{0,31}$').hasMatch('${report['firmware']}')) ||
-      (report.containsKey('osMajor') && !count(report['osMajor'], 100))) {
+      (report.containsKey('osMajor') && !count(report['osMajor'], 100)) ||
+      (report.containsKey('osVersion') &&
+          !RegExp(
+            r'^\d{1,2}(\.\d{1,4}){0,3}$',
+          ).hasMatch('${report['osVersion']}'))) {
     return false;
   }
   final metrics = report['metrics'], rows = report['stages'];

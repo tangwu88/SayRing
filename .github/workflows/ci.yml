@@ -86,12 +86,13 @@ jobs:
             tool/coolwear_android_recovery_target.test.mjs \
             tool/coolwear_android_hrv_protocol.test.mjs tool/coolwear_android_hrv_sdk.test.mjs \
             tool/coolwear_android_gesture_pairing.test.mjs \
+            tool/coolwear_android_clock_session.test.mjs \
             tool/qring_android_gesture_exclusion.test.mjs \
             tool/coolwear_history_sdk.test.mjs \
             tool/coolwear_android_readonly_sdk.test.mjs
       - name: Verify SDK bytes and Release-to-Debug immutable cache regression
         run: |
-          node tool/verify_qring_sdk_copy.mjs android/app/libs/qring_sdk_1.0.0.76.aar build/app/generated/qring-sdk/qring_sdk_1.0.0.76-build.aar
+          node tool/verify_qring_sdk_copy.mjs android/app/libs/qring_sdk_1.0.0.86.aar build/app/generated/qring-sdk/qring_sdk_1.0.0.86-build.aar
           flutter build apk --debug --target-platform=android-arm,android-arm64
 
   ios:

@@ -9,6 +9,18 @@ const yucheng = source('android/yc_product_plugin_android/build.gradle');
 const releaseRules = source('android/app/proguard-rules.pro');
 const jpush = 'third_party/jpush_flutter/android/src/main/java/com/jiguang/jpush/';
 
+test('QRing closes new SDK log sinks before obtaining the Bluetooth manager', () => {
+  const bridge = source('android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java');
+  const init = bridge.split('private void ensureSdk() {')[1].split('receiver = new BroadcastReceiver()')[0];
+  assert.ok(init.indexOf('QRingSdkPrivacy.disableLogs();') >= 0);
+  assert.ok(init.indexOf('QRingSdkPrivacy.disableLogs();') < init.indexOf('BleOperateManager.getInstance('));
+  const privacy = source('android/app/src/main/java/cc/saidian/saydian_app/QRingSdkPrivacy.java');
+  for (const flag of ['ConsoleLog', 'FileLog', 'FileRawData', 'PacketUuid']) {
+    assert.ok(privacy.includes(`SdkLog.set${flag}Enabled(false);`));
+  }
+  assert.doesNotMatch(privacy, /BuildConfig\.DEBUG|setLogFilePath|initialize\(/);
+});
+
 test('Veepoo disables protocol, transport and file logging in every build', () => {
   assert.match(activity, /VPLogger\.setDebug\(false\)/);
   assert.match(activity, /BluetoothLog\.setDebug\(false\)/);

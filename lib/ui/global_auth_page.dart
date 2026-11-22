@@ -2,6 +2,7 @@ import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -145,6 +146,14 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
     'login' => l.loginFailed,
     'account' => l.accountAlreadyExists,
     'passwordLength' => l.passwordRequirement,
+    'accountCreated' =>
+      Localizations.localeOf(context).languageCode == 'zh'
+          ? '账号已创建，请使用密码登录'
+          : 'Your account was created. Sign in with your password.',
+    'registrationUnconfirmed' =>
+      Localizations.localeOf(context).languageCode == 'zh'
+          ? '注册结果暂未确认，请使用密码登录，无需重复注册'
+          : 'Registration could not be confirmed. Sign in with your password instead of registering again.',
     'age' =>
       Localizations.localeOf(context).languageCode == 'zh'
           ? '请确认已满14周岁后继续'
@@ -155,6 +164,12 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
   String _errorFrom(Object error) {
     if (error is FormatException) return error.message;
     if (error is ApiException) {
+      if (error.code == 'ACCOUNT_CREATED_SIGN_IN_REQUIRED') {
+        return 'accountCreated';
+      }
+      if (error.code == 'REGISTRATION_CONFIRMATION_REQUIRED') {
+        return 'registrationUnconfirmed';
+      }
       if (error.code == 'invalid_password') return 'passwordLength';
       if (error.code == 'minimum_age_confirmation_required') return 'age';
       if (error.statusCode == 429) return 'rate';
@@ -271,8 +286,21 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
               privacyConsentGranted: _accepted,
               consentVersion: _capabilities?.consentVersion,
               ageConfirmed: _ageConfirmed,
+              registrationIdentity: _mode == _AuthMode.signUp ? identity : null,
             );
       if (mounted && !success) {
+        final failure = widget.controller.lastApiError;
+        if (_mode == _AuthMode.signUp &&
+            (failure?.code == 'ACCOUNT_CREATED_SIGN_IN_REQUIRED' ||
+                failure?.code == 'REGISTRATION_CONFIRMATION_REQUIRED')) {
+          // The original challenge may already be consumed. The next explicit
+          // action must authenticate, not submit that registration again.
+          setState(() {
+            _mode = _AuthMode.signIn;
+            _resetChallenge();
+            _confirmation.clear();
+          });
+        }
         setState(
           () => _error = _errorFrom(
             widget.controller.lastApiError ?? const ApiException('Unavailable'),
@@ -318,6 +346,8 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
 
   @override
   Widget build(BuildContext context) {
+    final inlineCodeAction =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final canRegister = _channel == AccountChannel.email
         ? (_mode == _AuthMode.reset
                   ? _capabilities?.recoveryEmail
@@ -332,6 +362,20 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
       _AuthMode.signUp => l.createAccount,
       _AuthMode.reset => l.resetPassword,
     };
+    final sendCodeButton = TextButton(
+      key: const Key('auth-send-code'),
+      style: inlineCodeAction
+          ? TextButton.styleFrom(
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            )
+          : null,
+      onPressed: _busy || !canRegister || _remaining > 0 ? null : _sendCode,
+      child: Text(_remaining > 0 ? l.resendCode(_remaining) : l.sendCode),
+    );
     return Scaffold(
       key: const Key('global-auth-page'),
       appBar: AppBar(),
@@ -447,6 +491,12 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                           ],
                           decoration: InputDecoration(
                             labelText: l.verificationCode,
+                            suffixIcon: inlineCodeAction
+                                ? Padding(
+                                    padding: const EdgeInsets.only(right: 4),
+                                    child: sendCodeButton,
+                                  )
+                                : null,
                           ),
                           validator: (value) =>
                               _challenge == null ||
@@ -456,16 +506,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                               ? l.codeRequired
                               : null,
                         ),
-                        TextButton(
-                          onPressed: _busy || !canRegister || _remaining > 0
-                              ? null
-                              : _sendCode,
-                          child: Text(
-                            _remaining > 0
-                                ? l.resendCode(_remaining)
-                                : l.sendCode,
-                          ),
-                        ),
+                        if (!inlineCodeAction) sendCodeButton,
                         if (_challenge != null)
                           Text(
                             l.verificationSentTo(_challenge!.maskedIdentifier),

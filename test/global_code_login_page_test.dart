@@ -5,6 +5,7 @@ import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/brand_assets.dart';
+import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/global_code_login_page.dart';
 
 class CodeLoginController extends Fake implements AppController {
@@ -25,6 +26,8 @@ class CodeLoginController extends Fake implements AppController {
   String? openedLegalPath;
   bool explicitCodeLoginAvailable = true;
   bool smsAutoRegistrationAvailable = true;
+  bool loginEmailAvailable = false;
+  bool emailAutoRegistrationAvailable = false;
   int codeLoginCalls = 0;
 
   @override
@@ -64,10 +67,11 @@ class CodeLoginController extends Fake implements AppController {
     return GlobalAuthCapabilities(
       email: true,
       sms: true,
-      loginEmail: false,
+      loginEmail: loginEmailAvailable,
       loginSms: true,
       explicitRegistrationCodeLogin: explicitCodeLoginAvailable,
       smsAutoRegistration: smsAutoRegistrationAvailable,
+      emailAutoRegistration: emailAutoRegistrationAvailable,
       smsCountries: {'CN'},
       supportedLocales: ['en'],
       consentVersion: 'reviewed-test-v1',
@@ -210,6 +214,208 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  testWidgets(
+    'verified email code signs in and advertises automatic registration only from capability',
+    (tester) async {
+      final controller = CodeLoginController()
+        ..loginEmailAvailable = true
+        ..emailAutoRegistrationAvailable = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GlobalCodeLoginPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, '邮箱'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('code-login-mode')));
+      await tester.pumpAndSettle();
+      expect(find.text('未注册的邮箱将自动注册并登录'), findsOneWidget);
+      expect(
+        find.byKey(const Key('code-login-sms-auto-register-hint')),
+        findsNothing,
+      );
+      await tester.enterText(
+        find.byKey(const Key('code-login-contact')),
+        'NEW@example.net',
+      );
+      for (final key in ['code-login-minimum-age', 'code-login-consent']) {
+        await tester.ensureVisible(find.byKey(Key(key)));
+        await tester.tap(find.byKey(Key(key)));
+        await tester.pumpAndSettle();
+      }
+      await tester.ensureVisible(find.byKey(const Key('code-login-send')));
+      await tester.tap(find.byKey(const Key('code-login-send')));
+      await tester.pumpAndSettle();
+      expect(controller.requested?.identifier, 'new@example.net');
+      await tester.enterText(
+        find.byKey(const Key('code-login-code')),
+        '123456',
+      );
+      await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
+      await tester.tap(find.byKey(const Key('code-login-submit')));
+      await tester.pumpAndSettle();
+      expect(controller.signedIn?.identifier, 'new@example.net');
+      expect(controller.codeLoginCalls, 1);
+      expect(controller.passwordLoginEmail, isNull);
+      expect(
+        find.byKey(const Key('global-code-login-success')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  for (final enabled in [false, true]) {
+    testWidgets(
+      'email automatic registration disclosure is explicit: $enabled',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('zh'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: GlobalCodeLoginPage(
+              controller: CodeLoginController()
+                ..loginEmailAvailable = true
+                ..emailAutoRegistrationAvailable = enabled,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(ChoiceChip, '邮箱'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('code-login-mode')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('code-login-email-auto-register-hint')),
+          enabled ? findsOneWidget : findsNothing,
+        );
+      },
+    );
+  }
+  for (final size in [const Size(360, 800), const Size(393, 852)]) {
+    testWidgets('Android login keeps all actions on one screen at $size', (
+      tester,
+    ) async {
+      tester.view
+        ..physicalSize = size
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GlobalCodeLoginPage(
+            controller: WechatCodeLoginController()..localOnlySupported = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('code-login-mode')));
+      await tester.pumpAndSettle();
+      for (final key in [
+        'code-login-contact',
+        'code-login-code',
+        'code-login-send',
+        'code-login-mode',
+        'code-login-minimum-age',
+        'code-login-consent',
+        'code-login-submit',
+        'code-login-create',
+        'code-login-recover',
+        'local-ring-use-entry',
+        'global-wechat-login',
+      ]) {
+        final rect = tester.getRect(find.byKey(Key(key)));
+        expect(rect.top, greaterThanOrEqualTo(0), reason: key);
+        expect(rect.bottom, lessThanOrEqualTo(size.height - 16), reason: key);
+        expect(find.byKey(Key(key)).hitTestable(), findsOneWidget, reason: key);
+      }
+      final field = tester.getRect(find.byKey(const Key('code-login-code')));
+      final send = tester.getRect(find.byKey(const Key('code-login-send')));
+      final mode = tester.getRect(find.byKey(const Key('code-login-mode')));
+      expect(field.contains(send.center), isTrue);
+      expect(send.right, lessThan(field.right));
+      expect(mode.top, greaterThanOrEqualTo(field.bottom));
+      expect(tester.takeException(), isNull);
+    });
+  }
+  testWidgets(
+    'Android code field and all actions remain reachable with large text and keyboard',
+    (tester) async {
+      tester.view
+        ..physicalSize = const Size(332, 700)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: TextScaler.linear(2),
+              viewInsets: const EdgeInsets.only(bottom: 250),
+            ),
+            child: child!,
+          ),
+          home: GlobalCodeLoginPage(
+            controller: WechatCodeLoginController()..localOnlySupported = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('code-login-mode')),
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('code-login-mode')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('code-login-code')),
+        -180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.enterText(
+        find.byKey(const Key('code-login-code')),
+        '123456123456',
+      );
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('code-login-code')))
+            .controller!
+            .text,
+        '123456',
+      );
+      for (final key in [
+        'code-login-send',
+        'code-login-consent',
+        'code-login-submit',
+        'local-ring-use-entry',
+        'global-wechat-login',
+      ]) {
+        await tester.scrollUntilVisible(
+          find.byKey(Key(key)),
+          180,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(Key(key)).hitTestable(), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('phone code autofill cannot append a second six-digit code', (
     tester,
   ) async {

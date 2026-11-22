@@ -10,8 +10,9 @@ import '../domain/sync_diagnostics.dart';
 import 'api_client.dart';
 import 'secure_vault.dart';
 
-/// Account-scoped, small outbox. No timers, raw payloads or diagnostic-on-error
-/// recursion; ordinary connection/measurement work never waits for this service.
+/// One account's first connection only. A server reservation and an encrypted
+/// local marker survive reinstall/reconnect independently from health storage.
+/// Collection and retries never await or alter a BLE/measurement operation.
 class SyncDiagnosticsService {
   SyncDiagnosticsService({
     required this.vault,
@@ -36,24 +37,29 @@ class SyncDiagnosticsService {
   final Future<Map<String, Object?>> Function() metadata;
   final DateTime Function() clock;
   String? _owner, _target;
-  String? _connectionKind;
-  bool _successPending = false;
-  String _connectionId = const Uuid().v4();
+  String? _guestConnectionKind;
+  String _connectionId = const Uuid().v4(), _reportId = const Uuid().v4();
   Stopwatch _elapsed = Stopwatch()..start();
   final List<SyncDiagnosticEvent> _events = [];
+  Map<String, Object?> _lastSnapshot = {};
   Map<String, Object?>? _metadata;
-  Future<String?>? _inFlight;
-  Future<void> _writes = Future.value();
-  int _generation = 0;
-  bool _disposed = false;
-  String? lastReportId;
-  String? status;
-  bool get busy => _inFlight != null;
+  Future<void> _tasks = Future.value();
+  Timer? _initialTimer, _retryTimer;
+  int _generation = 0, _tasksPending = 0;
+  bool _disposed = false,
+      _attemptStarted = false,
+      _frozen = false,
+      _closed = false,
+      _draftScheduled = false;
+  String? lastReportId, status;
+  bool get busy => _tasksPending > 0;
   bool get hasContext => _owner != null;
+  int get connectionGeneration => _generation;
   List<SyncDiagnosticEvent> get events => List.unmodifiable(_events);
 
   static Future<Map<String, Object?>> _packageMetadata() async {
     final package = await PackageInfo.fromPlatform();
+    String? osVersion;
     int? osMajor;
     var phone = <String, Object?>{};
     if (!kIsWeb) {
@@ -96,69 +102,228 @@ class SyncDiagnosticsService {
         osMajor = int.tryParse(
           RegExp(r'^\d{1,2}').firstMatch(release)?.group(0) ?? '',
         );
+        if (RegExp(r'^\d{1,2}(\.\d{1,4}){0,3}$').hasMatch(release)) {
+          osVersion = release;
+        }
       } catch (_) {
-        /* OS metadata is optional, never a reporting prerequisite. */
+        /* Optional OS information is never a connection gate. */
       }
     }
     return {
       'osMajor': ?osMajor,
+      'osVersion': ?osVersion,
       'appVersion': package.version,
       'buildNumber': int.tryParse(package.buildNumber) ?? 0,
       if (phone.isNotEmpty) 'phone': phone,
     };
   }
 
-  void begin(String owner, String? target, {String? connectionKind}) {
-    if (connectionKind == null &&
-        _owner == owner &&
-        _target == target &&
-        _events.isNotEmpty) {
-      return;
-    }
-    _generation++;
-    _owner = owner;
-    _target = target;
-    _connectionKind = connectionKind;
-    _successPending = false;
-    _connectionId = const Uuid().v4();
-    _elapsed = Stopwatch()..start();
-    _events.clear();
-    lastReportId = null;
-    status = null;
-    _inFlight = null;
+  bool _current(int generation, Session expected) =>
+      !_disposed &&
+      allowed() &&
+      generation == _generation &&
+      session()?.accountKey == expected.accountKey &&
+      session()?.memberId == expected.memberId;
+
+  Map<String, Object?> _boundedMetadata(
+    Map<String, Object?> details, {
+    required int version,
+    required String platform,
+    required String language,
+  }) {
+    final rawPhone = details['phone'];
+    final phone = boundedDiagnosticPhone({
+      if (rawPhone is Map) ...rawPhone,
+      if (language.isNotEmpty) 'locale': language,
+    }, platform);
+    return {
+      'schemaVersion': version,
+      for (final key in ['appVersion', 'buildNumber', 'osMajor', 'osVersion'])
+        if (details[key] != null) key: details[key],
+      if (version == 2 && phone.isNotEmpty) 'phone': phone,
+    };
   }
 
-  void clear({String? discardPendingFor}) {
-    _generation++;
-    _owner = null;
-    _target = null;
-    _connectionKind = null;
-    _successPending = false;
-    _events.clear();
-    lastReportId = null;
-    status = null;
-    _inFlight = null;
-    final storage = vault;
-    if (discardPendingFor == null ||
-        discardPendingFor == 'anonymous' ||
-        storage is! SyncDiagnosticsVault) {
+  Future<Map<String, Object?>> _firstConnectionMetadata(
+    Session expected,
+  ) async {
+    final details = await metadata().timeout(const Duration(seconds: 3));
+    var version = 1;
+    final remote = api;
+    if (remote is SyncDiagnosticsVersionsApi) {
+      try {
+        if (await (remote as SyncDiagnosticsVersionsApi).syncDiagnosticSchema(
+              expected,
+            ) ==
+            2) {
+          version = 2;
+        }
+      } catch (_) {
+        // A failed optional capability lookup keeps the existing V1 payload.
+      }
+    }
+    return _boundedMetadata(
+      details,
+      version: version,
+      platform: '${_lastSnapshot['platform']}',
+      language: locale(),
+    );
+  }
+
+  Future<Map<String, Object?>?> guestConnection(String language) async {
+    if (_disposed ||
+        _owner != 'anonymous' ||
+        session() != null ||
+        _guestConnectionKind == null ||
+        !_events.any(
+          (event) =>
+              event.stage == SyncDiagnosticStage.connect &&
+              (event.state == SyncDiagnosticState.ok ||
+                  event.state == SyncDiagnosticState.failed),
+        )) {
+      return null;
+    }
+    final generation = _generation;
+    final captured = _capture();
+    try {
+      final details = await metadata().timeout(const Duration(seconds: 3));
+      if (_disposed || generation != _generation || session() != null) {
+        return null;
+      }
+      final report = {
+        ...captured,
+        ..._boundedMetadata(
+          details,
+          version: 2,
+          platform: '${captured['platform']}',
+          language: language,
+        ),
+        'mode': 'automatic',
+        'connectionKind': _guestConnectionKind,
+      };
+      return isBoundedDiagnosticReport(report) ? report : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _enqueue(Future<void> Function() task) {
+    _tasksPending++;
+    final result = _tasks
+        .then((_) => task())
+        .catchError((Object _) {
+          // Diagnostic errors have no UI, health-upload or authentication effect.
+        })
+        .whenComplete(() {
+          _tasksPending--;
+        });
+    _tasks = result;
+    return result;
+  }
+
+  void begin(
+    String owner,
+    String? target, {
+    bool connectionAttempt = false,
+    String? connectionKind,
+  }) {
+    if (_owner != owner) {
+      clear();
+      _owner = owner;
+    }
+    if (owner == 'anonymous' && session() == null) {
+      if (connectionKind != null) {
+        _generation++;
+        _target = target;
+        _guestConnectionKind = connectionKind;
+        _connectionId = const Uuid().v4();
+        _reportId = const Uuid().v4();
+        _elapsed = Stopwatch()..start();
+        _events.clear();
+      }
       return;
     }
-    final slot = storage as SyncDiagnosticsVault;
-    // Serialize after any previous writes to this slot. Only the unsent
-    // payload is removed; never delete health data or another owner's limits.
-    _writes = _writes
-        .catchError((Object _) {})
-        .then((_) async {
-          final state = await slot.readSyncDiagnostics(discardPendingFor);
-          if (state == null || !state.containsKey('pending')) return;
-          await slot.writeSyncDiagnostics(
-            discardPendingFor,
-            {...state}..remove('pending'),
-          );
-        })
-        .catchError((Object _) {});
+    if (!connectionAttempt ||
+        !allowed() ||
+        session() == null ||
+        api is! FirstConnectionDiagnosticsApi ||
+        api is! SyncDiagnosticsApi ||
+        vault is! SyncDiagnosticsVault) {
+      return;
+    }
+    if (_attemptStarted) {
+      if (!_closed && !_frozen && _target != target) {
+        // Freeze the first target's last observed state, never the new target.
+        _events.add(
+          SyncDiagnosticEvent(
+            SyncDiagnosticStage.connect,
+            SyncDiagnosticState.blocked,
+            SyncDiagnosticCode.cancelled,
+            _elapsed.elapsedMilliseconds,
+          ),
+        );
+        completeInitialSync(_generation, useLastSnapshot: true);
+      }
+      return;
+    }
+    _attemptStarted = true;
+    _target = target;
+    _connectionId = const Uuid().v4();
+    _reportId = const Uuid().v4();
+    _elapsed = Stopwatch()..start();
+    _events.clear();
+    _lastSnapshot = Map.of(snapshot());
+    final generation = _generation, expected = session()!;
+    _initialTimer = Timer(
+      const Duration(minutes: 3),
+      () => completeInitialSync(generation),
+    );
+    unawaited(
+      _enqueue(() async {
+        if (!_current(generation, expected)) return;
+        final store = vault as SyncDiagnosticsVault;
+        final state = await store.readSyncDiagnostics(owner) ?? {};
+        if (!_current(generation, expected)) return;
+        if (state['firstAttempt'] is Map) {
+          // A later connection may only retry the frozen first summary.
+          _closed = true;
+          _frozen = true;
+          _initialTimer?.cancel();
+          final first = Map<String, Object?>.from(state['firstAttempt'] as Map);
+          first['frozen'] = true;
+          state['firstAttempt'] = first;
+          await store.writeSyncDiagnostics(owner, state);
+          if (_current(generation, expected)) {
+            await _retryState(state, generation, expected, owner);
+          }
+          return;
+        }
+        final details = await _firstConnectionMetadata(expected);
+        if (!_current(generation, expected)) return;
+        _metadata = details;
+        state['firstAttempt'] = {
+          'connectionId': _connectionId,
+          'frozen': false,
+        };
+        state['draft'] = _capture();
+        await store.writeSyncDiagnostics(owner, state);
+        if (_current(generation, expected)) {
+          await _retryState(state, generation, expected, owner);
+        }
+      }),
+    );
   }
+
+  Map<String, Object?> _capture() => {
+    ..._lastSnapshot,
+    ...?_metadata,
+    'schemaVersion': _metadata?['schemaVersion'] ?? 1,
+    'product': 'say-ring',
+    'mode': 'first_connection',
+    'connectionId': _connectionId,
+    'reportId': _reportId,
+    'stages': _events.take(16).map((e) => e.toJson()).toList(),
+  };
 
   void record(
     SyncDiagnosticStage stage,
@@ -169,286 +334,343 @@ class SyncDiagnosticsService {
     int? uploaded,
     int? rejected,
   }) {
-    if (_disposed || _owner == null) return;
-    final event = SyncDiagnosticEvent(
-      stage,
-      state,
-      code,
-      _elapsed.elapsedMilliseconds,
-      received: received,
-      saved: saved,
-      uploaded: uploaded,
-      rejected: rejected,
-    );
-    // Coalesce consecutive progress updates, retaining stage transitions.
-    if (_events.isNotEmpty &&
-        _events.last.stage == stage &&
-        _events.last.state == state) {
-      _events.removeLast();
-    }
-    _events.add(event);
-    if (_events.length > 16) _events.removeAt(0);
-    if (state == SyncDiagnosticState.failed ||
-        state == SyncDiagnosticState.partial ||
-        state == SyncDiagnosticState.blocked ||
-        (state == SyncDiagnosticState.empty &&
-            code == SyncDiagnosticCode.noData)) {
-      unawaited(send(mode: 'automatic'));
-    }
-  }
-
-  void connectionCompleted() {
-    record(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
-    _successPending = true;
-  }
-
-  // Called at real connection boundaries, after application state has the
-  // correct capabilities, firmware and current owner. A native retry does not
-  // open a new reporting channel or bypass the normal debounce.
-  void flushConnection() {
-    if (!_successPending || _disposed || _owner == null) return;
-    _successPending = false;
-    unawaited(send(mode: 'automatic', connectionOnly: true));
-  }
-
-  Future<Map<String, Object?>?> guestConnection(String locale) async {
+    final guest =
+        _owner == 'anonymous' &&
+        session() == null &&
+        _guestConnectionKind != null;
     if (_disposed ||
-        _owner != 'anonymous' ||
-        session() != null ||
-        _connectionKind == null ||
-        !_events.any(
-          (e) =>
-              e.stage == SyncDiagnosticStage.connect &&
-              (e.state == SyncDiagnosticState.ok ||
-                  e.state == SyncDiagnosticState.failed),
-        )) {
-      return null;
+        (!guest && (!allowed() || !_attemptStarted || _closed || _frozen))) {
+      return;
     }
-    final generation = _generation;
-    final captured = _capture('automatic');
-    try {
-      final info = _metadata ??= await metadata().timeout(
-        const Duration(seconds: 3),
-      );
-      if (_disposed || _generation != generation || session() != null) {
-        return null;
-      }
-      final report = _withMetadata(captured, info, locale, version: 2);
-      return isBoundedDiagnosticReport(report) ? report : null;
-    } catch (_) {
-      return null;
+    _events.removeWhere((e) => e.stage == stage);
+    _events.add(
+      SyncDiagnosticEvent(
+        stage,
+        state,
+        code,
+        _elapsed.elapsedMilliseconds,
+        received: received,
+        saved: saved,
+        uploaded: uploaded,
+        rejected: rejected,
+      ),
+    );
+    _lastSnapshot = Map.of(snapshot());
+    if (guest) return;
+    if (stage == SyncDiagnosticStage.connect &&
+        state == SyncDiagnosticState.failed) {
+      completeInitialSync(_generation);
+      return;
     }
+    if (_draftScheduled) return;
+    _draftScheduled = true;
+    final generation = _generation, expected = session();
+    if (expected == null) {
+      _draftScheduled = false;
+      return;
+    }
+    unawaited(
+      _enqueue(() async {
+        try {
+          if (!_current(generation, expected) || _frozen || _closed) return;
+          final state =
+              await (vault as SyncDiagnosticsVault).readSyncDiagnostics(
+                _owner!,
+              ) ??
+              {};
+          if (!_current(generation, expected) || _frozen || _closed) return;
+          if ((state['firstAttempt'] as Map?)?['connectionId'] !=
+              _connectionId) {
+            return;
+          }
+          state['draft'] = _capture();
+          await (vault as SyncDiagnosticsVault).writeSyncDiagnostics(
+            _owner!,
+            state,
+          );
+        } finally {
+          if (generation == _generation) _draftScheduled = false;
+        }
+      }),
+    );
   }
 
-  bool _current(int generation, Session owner) =>
-      !_disposed &&
-      allowed() &&
-      generation == _generation &&
-      session()?.accountKey == owner.accountKey &&
-      session()?.memberId == owner.memberId;
-
-  Future<void> _write(
-    String owner,
-    Map<String, Object?> state,
-    int generation,
-    Session expected,
-  ) {
-    final next = _writes.catchError((Object _) {}).then((_) async {
-      if (_current(generation, expected)) {
+  void completeInitialSync(int generation, {bool useLastSnapshot = false}) {
+    if (_disposed ||
+        generation != _generation ||
+        !_attemptStarted ||
+        _frozen ||
+        _closed) {
+      return;
+    }
+    _frozen = true;
+    _initialTimer?.cancel();
+    if (!useLastSnapshot) _lastSnapshot = Map.of(snapshot());
+    final captured = jsonDecode(jsonEncode(_capture())) as Map<String, Object?>;
+    final expected = session(), owner = _owner;
+    if (expected == null || owner == null) return;
+    unawaited(
+      _enqueue(() async {
+        if (!_current(generation, expected)) return;
+        final state =
+            await (vault as SyncDiagnosticsVault).readSyncDiagnostics(owner) ??
+            {};
+        if (!_current(generation, expected)) return;
+        final first = Map<String, Object?>.from(
+          state['firstAttempt'] as Map? ?? {},
+        );
+        if (first['connectionId'] != captured['connectionId']) return;
+        first['frozen'] = true;
+        state['firstAttempt'] = first;
+        state['draft'] = {...captured, ...?_metadata};
         await (vault as SyncDiagnosticsVault).writeSyncDiagnostics(
           owner,
           state,
         );
-      }
-    });
-    _writes = next;
-    return next;
+        if (_current(generation, expected)) {
+          await _retryState(state, generation, expected, owner);
+        }
+      }),
+    );
   }
 
-  Map<String, Object?> _capture(String mode) => {
-    ...snapshot(),
-    'schemaVersion': 1,
-    'product': 'say-ring',
-    'reportId': const Uuid().v4(),
-    'connectionId': _connectionId,
-    'mode': const {'automatic', 'manual', 'recovery'}.contains(mode)
-        ? mode
-        : 'manual',
-    if (_connectionKind != null) 'connectionKind': _connectionKind,
-    'stages': _events.map((e) => e.toJson()).toList(),
-  };
-
-  Map<String, Object?> _withMetadata(
-    Map<String, Object?> captured,
-    Map<String, Object?> metadata,
-    String language, {
-    required int version,
-  }) {
-    final rawPhone = metadata['phone'];
-    final phone = boundedDiagnosticPhone({
-      if (rawPhone is Map) ...rawPhone,
-      if (language.isNotEmpty) 'locale': language,
-    }, captured['platform']);
-    return {
-      ...captured,
-      'schemaVersion': version,
-      for (final key in ['appVersion', 'buildNumber', 'osMajor'])
-        if (metadata[key] != null) key: metadata[key],
-      if (version == 2 && phone.isNotEmpty) 'phone': phone,
-    }..removeWhere((key, _) => version == 1 && key == 'connectionKind');
-  }
-
-  Future<String?> send({
-    String mode = 'manual',
-    bool pendingOnly = false,
-    bool connectionOnly = false,
-  }) {
-    final active = _inFlight;
-    if (active != null) return active;
-    if (_disposed || !allowed() || session() == null) {
-      return Future.value('登录并同意隐私政策后可提交诊断');
+  void authorizeFirstBinding(String target, String operationId) {
+    if (!_attemptStarted ||
+        _target != target ||
+        _disposed ||
+        session() == null ||
+        !RegExp(
+          r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        ).hasMatch(operationId)) {
+      return;
     }
-    if (api is! SyncDiagnosticsApi ||
-        vault is! SyncDiagnosticsVault ||
-        _owner == null) {
-      return Future.value('当前版本暂不支持提交诊断');
-    }
-    final captured = _capture(mode);
     final generation = _generation, expected = session()!, owner = _owner!;
-    final task = _send(
-      captured,
-      generation,
-      expected,
-      owner,
-      pendingOnly,
-      connectionOnly,
-    );
-    _inFlight = task;
-    onChanged();
     unawaited(
-      task
-          .then((message) {
-            if (_current(generation, expected)) {
-              status = message;
-              onChanged();
-            }
-          })
-          .whenComplete(() {
-            if (identical(_inFlight, task)) {
-              _inFlight = null;
-              if (!_disposed) onChanged();
-            }
-          }),
+      _enqueue(() async {
+        if (!_current(generation, expected)) return;
+        final state =
+            await (vault as SyncDiagnosticsVault).readSyncDiagnostics(owner) ??
+            {};
+        if (!_current(generation, expected)) return;
+        final first = Map<String, Object?>.from(
+          state['firstAttempt'] as Map? ?? {},
+        );
+        if (first['connectionId'] != _connectionId ||
+            first['completed'] == true) {
+          return;
+        }
+        // A genuine existing first-binding receipt repairs only the diagnostic
+        // reservation race; it never requests another initialization decision.
+        first['firstBindingOperationId'] = operationId;
+        if (first['reason'] == 'has_binding_history') first.remove('refused');
+        state['firstAttempt'] = first;
+        state.remove('retryAfter');
+        _closed = first['refused'] == true;
+        await (vault as SyncDiagnosticsVault).writeSyncDiagnostics(
+          owner,
+          state,
+        );
+        if (_current(generation, expected)) {
+          await _retryState(state, generation, expected, owner);
+        }
+      }),
     );
-    return task;
   }
 
-  Future<String?> _send(
-    Map<String, Object?> captured,
+  Future<void> _retryState(
+    Map<String, Object?> state,
     int generation,
     Session expected,
     String owner,
-    bool pendingOnly,
-    bool connectionOnly,
   ) async {
-    Map<String, Object?> state = {};
+    if (!_current(generation, expected)) return;
+    final first = Map<String, Object?>.from(
+      state['firstAttempt'] as Map? ?? {},
+    );
+    if (first['completed'] == true ||
+        first['refused'] == true ||
+        first['connectionId'] is! String) {
+      return;
+    }
+    final deadline = state['retryAfter'];
+    if (deadline is int && deadline > clock().millisecondsSinceEpoch) {
+      _scheduleRetry(deadline, generation, expected);
+      return;
+    }
+    final store = vault as SyncDiagnosticsVault;
     try {
-      await _writes.catchError((Object _) {});
-      if (!_current(generation, expected)) return null;
-      state =
-          await (vault as SyncDiagnosticsVault).readSyncDiagnostics(owner) ??
-          {};
-      if (!_current(generation, expected)) return null;
-      final now = clock().millisecondsSinceEpoch;
-      final pending = state['pending'];
-      final isAutomatic = captured['mode'] == 'automatic';
-      final deadlineKey = connectionOnly ? 'connectionAfter' : 'automaticAfter';
-      if (pendingOnly && pending is! Map) return null;
-      int deadline(String key) => state[key] is int ? state[key] as int : 0;
-      if (now < deadline('retryAfter') ||
-          (isAutomatic &&
-              (now < deadline(deadlineKey) ||
-                  now < deadline('unsupportedAfter')))) {
-        return isAutomatic ? null : '提交较频繁，请稍后再试';
-      }
-      _metadata ??= await metadata().timeout(const Duration(seconds: 3));
-      if (!_current(generation, expected)) return null;
-      final report = pending is Map && (pendingOnly || connectionOnly)
-          ? pending.map((k, v) => MapEntry('$k', v))
-          : _withMetadata(captured, _metadata!, locale(), version: 2);
-      if (!isBoundedDiagnosticReport(report)) return '诊断摘要无法提交，请稍后重试';
-      state['pending'] = jsonDecode(jsonEncode(report));
-      if (isAutomatic) {
-        state[deadlineKey] = now + const Duration(minutes: 15).inMilliseconds;
-      }
-      await _write(owner, state, generation, expected);
-      if (!_current(generation, expected)) return null;
-      final remote = api as SyncDiagnosticsApi;
-      final version = remote is SyncDiagnosticsVersionsApi
-          ? await (remote as SyncDiagnosticsVersionsApi).syncDiagnosticSchema(
+      if (first['accepted'] != true) {
+        final result = await (api as FirstConnectionDiagnosticsApi)
+            .beginFirstConnectionDiagnostics(
               expected,
-            )
-          : await remote.supportsSyncDiagnostics(expected)
-          ? 1
-          : 0;
-      if (version == 0) {
-        if (_current(generation, expected)) {
-          state['unsupportedAfter'] =
-              now + const Duration(hours: 24).inMilliseconds;
-          await _write(owner, state, generation, expected);
+              first['connectionId'] as String,
+              firstBindingOperationId:
+                  first['firstBindingOperationId'] as String?,
+            );
+        if (!_current(generation, expected)) return;
+        if (result['connectionId'] != first['connectionId'] ||
+            result['accepted'] is! bool) {
+          throw StateError('Unknown first-connection receipt');
         }
-        return '后台诊断服务尚未更新，请稍后重试';
+        if (result['accepted'] != true) {
+          first['refused'] = true;
+          first['reason'] = result['reason'] == 'has_binding_history'
+              ? 'has_binding_history'
+              : 'already_started';
+          state['firstAttempt'] = first;
+          _closed = true;
+          _initialTimer?.cancel();
+          await store.writeSyncDiagnostics(owner, state);
+          return;
+        }
+        first['accepted'] = true;
+        first.remove('refused');
+        state['firstAttempt'] = first;
+        if (first['connectionId'] == _connectionId && !_frozen) {
+          _closed = false;
+          if (_initialTimer?.isActive != true) {
+            _initialTimer = Timer(
+              const Duration(minutes: 3),
+              () => completeInitialSync(generation),
+            );
+          }
+        }
+        await store.writeSyncDiagnostics(owner, state);
       }
-      if (!_current(generation, expected)) return null;
-      if (version == 1 && connectionOnly && pending is! Map) {
-        // Successful connections are a V2 diagnostic; do not consume V1
-        // failure-report quotas when a deployment is still on the old server.
-        state.remove('pending');
-        await _write(owner, state, generation, expected);
-        return null;
+      if (!_current(generation, expected) || first['frozen'] != true) return;
+      final pending = state['pending'];
+      final draft =
+          pending is Map &&
+              pending['mode'] == 'first_connection' &&
+              pending['connectionId'] == first['connectionId']
+          ? pending
+          : state['draft'];
+      if (draft is! Map) return;
+      final report = draft.map((k, v) => MapEntry('$k', v));
+      if (report['mode'] != 'first_connection' ||
+          report['connectionId'] != first['connectionId'] ||
+          !isBoundedDiagnosticReport(report)) {
+        return;
       }
-      final request = version == 2 ? report : syncDiagnosticForV1(report);
-      final response = await remote.submitSyncDiagnostics(expected, request);
-      if (!_current(generation, expected)) return null;
+      state['pending'] = jsonDecode(jsonEncode(report));
+      await store.writeSyncDiagnostics(owner, state);
+      if (!_current(generation, expected)) return;
+      final response = await (api as SyncDiagnosticsApi).submitSyncDiagnostics(
+        expected,
+        report,
+      );
+      if (!_current(generation, expected)) return;
       if (response['reportId'] != report['reportId'] ||
           response['accepted'] is! bool) {
         throw StateError('Unconfirmed diagnostic receipt');
       }
       if (response['accepted'] == true) {
+        first['completed'] = true;
+        state['firstAttempt'] = first;
         state.remove('pending');
+        state.remove('draft');
         state.remove('retryAfter');
-        state.remove('unsupportedAfter');
         lastReportId = report['reportId'] as String;
-        await _write(owner, state, generation, expected);
-        return '诊断已提交，可将诊断编号提供给客服';
+        _closed = true;
+        _retryTimer?.cancel();
+      } else if (const {
+        'first_connection_only',
+        'already_reported',
+        'collection_not_active',
+        'report_conflict',
+      }.contains(response['reason'])) {
+        first['refused'] = true;
+        state['firstAttempt'] = first;
+        _closed = true;
+        _retryTimer?.cancel();
+      } else {
+        final retry = response['retryAfterSeconds'];
+        state['retryAfter'] =
+            clock().millisecondsSinceEpoch +
+            Duration(
+              seconds: retry is num ? retry.toInt().clamp(60, 86400) : 900,
+            ).inMilliseconds;
       }
-      final retry = response['retryAfterSeconds'];
-      state['retryAfter'] =
-          now +
-          Duration(
-            seconds: retry is num ? retry.toInt().clamp(60, 3600) : 900,
-          ).inMilliseconds;
-      await _write(owner, state, generation, expected);
-      return '提交较频繁，摘要已保留，可稍后重试';
+      await store.writeSyncDiagnostics(owner, state);
+      if (state['retryAfter'] is int) {
+        _scheduleRetry(state['retryAfter'] as int, generation, expected);
+      }
     } catch (_) {
-      // Retain a bounded outbox if dispatch failed. Never report a reporting
-      // failure back into the diagnostic collector or affect health operations.
-      if (_current(generation, expected)) {
-        state['retryAfter'] = clock()
-            .add(const Duration(minutes: 15))
-            .millisecondsSinceEpoch;
-        try {
-          await _write(owner, state, generation, expected);
-        } catch (_) {}
-      }
-      return '暂时无法提交诊断，已有摘要保留在本机';
+      if (!_current(generation, expected)) return;
+      state['retryAfter'] = clock()
+          .add(const Duration(minutes: 15))
+          .millisecondsSinceEpoch;
+      try {
+        await store.writeSyncDiagnostics(owner, state);
+        _scheduleRetry(state['retryAfter'] as int, generation, expected);
+      } catch (_) {}
     }
   }
 
+  void _scheduleRetry(int deadline, int generation, Session expected) {
+    _retryTimer?.cancel();
+    if (!_current(generation, expected)) return;
+    _retryTimer = Timer(
+      Duration(
+        milliseconds: (deadline - clock().millisecondsSinceEpoch).clamp(
+          1000,
+          86400000,
+        ),
+      ),
+      () {
+        if (_current(generation, expected)) flushPending();
+      },
+    );
+  }
+
   void flushPending() {
-    if (!_disposed && allowed() && session() != null) {
-      unawaited(send(mode: 'automatic', pendingOnly: true));
+    final expected = session(), owner = _owner, generation = _generation;
+    if (expected == null ||
+        owner == null ||
+        !allowed() ||
+        api is! FirstConnectionDiagnosticsApi ||
+        api is! SyncDiagnosticsApi ||
+        vault is! SyncDiagnosticsVault) {
+      return;
     }
+    unawaited(
+      _enqueue(() async {
+        if (!_current(generation, expected)) return;
+        final state =
+            await (vault as SyncDiagnosticsVault).readSyncDiagnostics(owner) ??
+            {};
+        if (_current(generation, expected)) {
+          await _retryState(state, generation, expected, owner);
+        }
+      }),
+    );
+  }
+
+  Future<String?> send({
+    String mode = 'manual',
+    bool pendingOnly = false,
+  }) async {
+    // Kept for the retired internal page/API ABI, with no manual data upload.
+    if (pendingOnly) flushPending();
+    return '首次连接摘要由系统自动提交，无需手动操作';
+  }
+
+  void clear({String? discardPendingFor}) {
+    _generation++;
+    _initialTimer?.cancel();
+    _retryTimer?.cancel();
+    _owner = null;
+    _target = null;
+    _guestConnectionKind = null;
+    _metadata = null;
+    _attemptStarted = false;
+    _closed = false;
+    _frozen = false;
+    _draftScheduled = false;
+    _events.clear();
+    _lastSnapshot = {};
+    lastReportId = null;
+    status = null;
   }
 
   void dispose() {

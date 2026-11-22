@@ -15,7 +15,7 @@ test('CoolWear refreshes scan callbacks per round and pairs only its current ges
   assert.match(source, /configureScanCallback\(scan\)/);
   assert.match(source, /generation == scanGeneration/);
   assert.match(source, /RingGestureBondPolicy.accepts\(target, epoch, changed.getAddress\(\)/);
-  assert.match(source, /if \(mode != 0 && prepareGestureBond\(mode\)\) return/);
+  assert.match(source, /if \(mode != 0\) \{\s*try \{\s*if \(prepareGestureBond\(mode\)\) return/);
   assert.match(source, /getBondState\(\) == BluetoothDevice.BOND_BONDED/);
   assert.match(source, /activity.unregisterReceiver\(gestureBondReceiver\)/);
   assert.match(source, /sendGestureConfig\(mode\)/);

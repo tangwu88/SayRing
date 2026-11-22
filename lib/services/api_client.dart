@@ -53,6 +53,14 @@ abstract interface class SyncDiagnosticsVersionsApi {
   Future<int> syncDiagnosticSchema(Session expectedSession);
 }
 
+abstract interface class FirstConnectionDiagnosticsApi {
+  Future<Map<String, Object?>> beginFirstConnectionDiagnostics(
+    Session expectedSession,
+    String connectionId, {
+    String? firstBindingOperationId,
+  });
+}
+
 class FeatureNotConfiguredException extends ApiException {
   const FeatureNotConfiguredException(super.message, {super.statusCode});
 }

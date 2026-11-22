@@ -35,6 +35,75 @@ Map<String, Object?> report() => {
   'stages': <Object?>[],
 };
 void main() {
+  test(
+    'first collection reservation keeps authenticated product, ID and optional existing proof isolated',
+    () async {
+      final vault = MemorySessionVault()..session = owner('a');
+      final api = GlobalSaydianApiClient(
+        vault,
+        client: MockClient((request) async {
+          expect(
+            request.url.toString(),
+            'https://app.saydian.cn/global/api/saydian-app/v2/support/sync-diagnostics/first-connection',
+          );
+          expect(request.headers['authorization'], 'Bearer synthetic-a');
+          final body = jsonDecode(request.body) as Map;
+          expect(body.keys.toSet(), {
+            'product',
+            'connectionId',
+            'firstBindingOperationId',
+          });
+          expect(body['product'], 'say-ring');
+          return http.Response(
+            jsonEncode({
+              'code': 200,
+              'data': {'accepted': true, 'connectionId': body['connectionId']},
+            }),
+            200,
+          );
+        }),
+      );
+      expect(
+        (await api.beginFirstConnectionDiagnostics(
+          owner('a'),
+          '22222222-2222-4222-8222-222222222222',
+          firstBindingOperationId: '11111111-1111-4111-8111-111111111111',
+        ))['accepted'],
+        true,
+      );
+    },
+  );
+  test(
+    'first collection fails closed for changed owner, invalid IDs and unconfirmed response without logout',
+    () async {
+      final vault = MemorySessionVault()..session = owner('b');
+      var requests = 0;
+      final api = GlobalSaydianApiClient(
+        vault,
+        client: MockClient((request) async {
+          requests++;
+          return http.Response('{"code":200,"data":{"accepted":true}}', 200);
+        }),
+      );
+      const id = '22222222-2222-4222-8222-222222222222';
+      await expectLater(
+        api.beginFirstConnectionDiagnostics(owner('a'), id),
+        throwsA(isA<ApiException>()),
+      );
+      await expectLater(
+        api.beginFirstConnectionDiagnostics(owner('b'), 'invalid'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(requests, 0);
+      await expectLater(
+        api.beginFirstConnectionDiagnostics(owner('b'), id),
+        throwsA(isA<ApiException>()),
+      );
+      expect(requests, 1);
+      expect(vault.session?.memberId, 'b');
+    },
+  );
+
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
     'uses only authenticated international Say Ring endpoints and safe JSON',

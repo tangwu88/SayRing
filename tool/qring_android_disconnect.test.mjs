@@ -36,7 +36,7 @@ test('ordinary Android reconnect preserves the bond and waits for actual native 
   try {
     const src = join(folder, 'QRingDisconnectHarness.java');
     const gate = join(folder, 'QRingCancellationGate.java');
-    const aar = fileURLToPath(new URL('../android/app/libs/qring_sdk_1.0.0.76.aar', import.meta.url));
+    const aar = fileURLToPath(new URL('../android/app/libs/qring_sdk_1.0.0.86.aar', import.meta.url));
     execFileSync(java('jar'), ['xf', aar, 'classes.jar'], {cwd: folder});
     writeFileSync(gate, read('android/app/src/main/java/cc/saidian/saydian_app/QRingCancellationGate.java'));
     const run = body => {
@@ -68,7 +68,7 @@ test('bundled SDK disconnect keeps the bond and retires response/task state', ()
   const folder = mkdtempSync(join(tmpdir(), 'sayring-disconnect-sdk-'));
   try {
     const jar = join(folder, 'classes.jar');
-    writeFileSync(jar, execFileSync('unzip', ['-p', fileURLToPath(new URL('../android/app/libs/qring_sdk_1.0.0.76.aar', import.meta.url)),
+    writeFileSync(jar, execFileSync('unzip', ['-p', fileURLToPath(new URL('../android/app/libs/qring_sdk_1.0.0.86.aar', import.meta.url)),
       'classes.jar'], {maxBuffer: 32 * 1024 * 1024}));
     const manager = execFileSync(java('javap'), ['-c', '-p', '-classpath', jar,
       'com.oudmon.ble.base.bluetooth.BleOperateManager'], {encoding: 'utf8', maxBuffer: 4 * 1024 * 1024});

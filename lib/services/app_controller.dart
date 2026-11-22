@@ -1424,9 +1424,10 @@ class AppController extends ChangeNotifier {
     required bool privacyConsentGranted,
     bool ageConfirmed = false,
     String? consentVersion,
+    GlobalAccountIdentity? registrationIdentity,
   }) async {
-    if (isBusy ||
-        (!resetPassword && !ageConfirmed) ||
+    if (isBusy || _disposed) return false;
+    if ((!resetPassword && !ageConfirmed) ||
         !privacyConsentGranted ||
         consentVersion == null ||
         consentVersion.trim().isEmpty) {
@@ -1436,24 +1437,80 @@ class AppController extends ChangeNotifier {
       _accountTransitioning = true;
       try {
         await _drainCloudSync();
-        session = await (_api as GlobalAccountApi).completeVerification(
-          challengeId: challenge.id,
-          code: code.trim(),
-          password: password,
-          resetPassword: resetPassword,
-          locale: locale,
-          consentVersion: consentVersion,
-          ageConfirmed: ageConfirmed,
-        );
-        await _prepareAuthenticatedNotificationSession(
-          privacyConsentGranted: privacyConsentGranted,
-        );
+        try {
+          session = await (_api as GlobalAccountApi).completeVerification(
+            challengeId: challenge.id,
+            code: code.trim(),
+            password: password,
+            resetPassword: resetPassword,
+            locale: locale,
+            consentVersion: consentVersion,
+            ageConfirmed: ageConfirmed,
+          );
+        } on ApiException catch (error) {
+          // A lost response can follow a committed account/code transaction.
+          // Never replay registration or a consumed code to recover it.
+          final uncertain =
+              !resetPassword &&
+              (error.code == 'NETWORK_TIMEOUT' ||
+                  error.code == 'NETWORK_UNAVAILABLE' ||
+                  error.code == 'AUTH_IDENTITY_MISSING' ||
+                  // An invalid success body can follow a committed request.
+                  ((error.statusCode ?? 0) >= 200 &&
+                      (error.statusCode ?? 0) < 300) ||
+                  (error.statusCode ?? 0) >= 500);
+          if (!uncertain) rethrow;
+          final api = _api;
+          if (registrationIdentity != null && api is GlobalCodeAuthApi) {
+            try {
+              session = await (api as GlobalCodeAuthApi).loginWithPassword(
+                identity: registrationIdentity,
+                password: password,
+                consentVersion: consentVersion,
+                locale: locale,
+              );
+            } catch (_) {
+              throw const ApiException(
+                '注册结果暂未确认，请使用密码登录，无需重复注册',
+                code: 'REGISTRATION_CONFIRMATION_REQUIRED',
+              );
+            }
+          } else {
+            throw const ApiException(
+              '注册结果暂未确认，请使用密码登录，无需重复注册',
+              code: 'REGISTRATION_CONFIRMATION_REQUIRED',
+            );
+          }
+        }
+        try {
+          await _prepareAuthenticatedNotificationSession(
+            privacyConsentGranted: privacyConsentGranted,
+          );
+        } catch (_) {
+          if (resetPassword) rethrow;
+          throw const ApiException(
+            '账号已创建，请使用密码登录',
+            code: 'ACCOUNT_CREATED_SIGN_IN_REQUIRED',
+          );
+        }
         isPreviewMode = false;
-        await refreshMemberProfile();
-        await refreshActivityGoals();
-        await refreshCare();
-        await refreshCareInvitations();
-        await _refreshRemoteNotificationUnreadCount();
+        final generation = _sessionGeneration;
+        for (final refresh in <Future<void> Function()>[
+          refreshMemberProfile,
+          () => refreshActivityGoals(reportGlobalError: resetPassword),
+          () => refreshCare(reportGlobalError: resetPassword),
+          refreshCareInvitations,
+          _refreshRemoteNotificationUnreadCount,
+        ]) {
+          if (!_isCurrentSessionGeneration(generation)) break;
+          try {
+            await refresh();
+          } catch (_) {
+            if (resetPassword) rethrow;
+            // Account creation and local owner preparation already succeeded.
+            // Optional page data must not turn success into a code failure.
+          }
+        }
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
@@ -2293,6 +2350,7 @@ class AppController extends ChangeNotifier {
       if (results.any((result) => result != ConnectivityResult.none) &&
           session != null) {
         unawaited(synchronizeCloud());
+        prepareSyncDiagnostics();
         syncDiagnostics.flushPending();
       }
     });
@@ -3306,7 +3364,7 @@ class AppController extends ChangeNotifier {
       if (identical(_wearableConnectInFlight, connecting)) {
         _wearableConnectInFlight = null;
         _flushDeviceDetailsRefresh();
-        syncDiagnostics.flushConnection();
+        prepareSyncDiagnostics();
         syncDiagnostics.flushPending();
       }
     }
@@ -3329,6 +3387,7 @@ class AppController extends ChangeNotifier {
     syncDiagnostics.begin(
       connectionOwner,
       device.id,
+      connectionAttempt: true,
       connectionKind: rememberedDevice == null ? 'first' : 'explicit',
     );
     _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
@@ -3407,7 +3466,7 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.ready);
       // Authentication is the connection boundary. Historical data is a
       // background follow-up and must not keep the add-device page spinning.
-      syncDiagnostics.connectionCompleted();
+      _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
       if (_ringInitializationStage ==
           RingInitializationStage.decisionRequired) {
         // Persist uncertainty before the request: a lost response cannot be
@@ -3425,6 +3484,10 @@ class AppController extends ChangeNotifier {
         );
         if (!isCurrent() || connectedDevice?.id != device.id) return;
         if (shouldClear == true) {
+          final operationId = _ringInitializationOperationId;
+          if (operationId != null) {
+            syncDiagnostics.authorizeFirstBinding(device.id, operationId);
+          }
           await _initializeFirstRingBinding(device, isCurrent);
           return;
         }
@@ -4046,11 +4109,15 @@ class AppController extends ChangeNotifier {
         (activeSport != null && _usesCoolWearAndroid)) {
       return;
     }
+    final diagnosticGeneration = syncDiagnostics.connectionGeneration;
     if (!_usesCoolWearAndroid) {
       final isCurrent = await _syncDeviceData(deviceId, initial: true);
-      if (!isCurrent) return;
+      if (!isCurrent) {
+        if (!isDeviceSyncing) _completeInitialDiagnostics(diagnosticGeneration);
+        return;
+      }
       unawaited(refreshSportRecords());
-      unawaited(synchronizeCloud());
+      _uploadInitialHealthAndReport(diagnosticGeneration);
       return;
     }
     if (_initialDeviceHistorySync?.$1 == _sessionGeneration &&
@@ -4068,19 +4135,52 @@ class AppController extends ChangeNotifier {
       final sportRead = isDeviceSyncing ? refreshSportRecords() : null;
       final isCurrent = await healthRead;
       await sportRead;
-      if (!isCurrent) return;
+      if (!isCurrent) {
+        if (!isDeviceSyncing) _completeInitialDiagnostics(diagnosticGeneration);
+        return;
+      }
       if (_initialDeviceHistorySync != scope ||
           !_isCurrentSessionGeneration(scope.$1) ||
           connectedDevice?.id != deviceId) {
         return;
       }
-      unawaited(synchronizeCloud());
+      _uploadInitialHealthAndReport(diagnosticGeneration);
     } finally {
       if (_initialDeviceHistorySync == scope) {
         _initialDeviceHistorySync = null;
         if (!_disposed) notifyListeners();
         _flushDeviceDetailsRefresh();
       }
+    }
+  }
+
+  void _uploadInitialHealthAndReport(int generation) {
+    unawaited(
+      synchronizeCloud().then<void>(
+        (_) => syncDiagnostics.completeInitialSync(generation),
+        onError: (Object _, StackTrace _) {
+          if (syncDiagnostics.connectionGeneration != generation) return;
+          _diagnose(
+            SyncDiagnosticStage.upload,
+            SyncDiagnosticState.failed,
+            code: SyncDiagnosticCode.unknown,
+          );
+          syncDiagnostics.completeInitialSync(generation);
+        },
+      ),
+    );
+  }
+
+  void _completeInitialDiagnostics(int generation) {
+    final pending = _activeCloudSync;
+    if (pending == null) {
+      syncDiagnostics.completeInitialSync(generation);
+    } else {
+      unawaited(
+        pending.then<void>(
+          (_) => syncDiagnostics.completeInitialSync(generation),
+        ),
+      );
     }
   }
 
@@ -4277,6 +4377,11 @@ class AppController extends ChangeNotifier {
       return false;
     }
     if (capabilities?.supportsHistorySync == false) {
+      _diagnose(
+        SyncDiagnosticStage.read,
+        SyncDiagnosticState.blocked,
+        code: SyncDiagnosticCode.unsupportedMetric,
+      );
       _clearDeviceSyncError();
       syncStatus = '';
       notifyListeners();
@@ -4673,6 +4778,21 @@ class AppController extends ChangeNotifier {
       errorMessage = _deviceSyncErrorMessage;
     } finally {
       if (!idle.isCompleted) idle.complete();
+      if (!succeeded &&
+          _isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+        final read = syncDiagnostics.events
+            .where((e) => e.stage == SyncDiagnosticStage.read)
+            .lastOrNull;
+        if (read?.state == SyncDiagnosticState.ok ||
+            read?.state == SyncDiagnosticState.empty) {
+          _diagnose(
+            SyncDiagnosticStage.read,
+            SyncDiagnosticState.partial,
+            code: SyncDiagnosticCode.readPartial,
+            received: read?.received,
+          );
+        }
+      }
       if (identical(_deviceSyncIdle, idle)) _deviceSyncIdle = null;
       if (_deviceSyncGeneration == generation) {
         isDeviceSyncing = false;
@@ -7056,7 +7176,7 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshCare() async {
+  Future<void> refreshCare({bool reportGlobalError = true}) async {
     final generation = _sessionGeneration;
     if (session == null) {
       careMembers = const [];
@@ -7083,7 +7203,7 @@ class AppController extends ChangeNotifier {
     } on ApiException catch (error) {
       if (!_isCurrentSessionGeneration(generation)) return;
       careErrorMessage = _apiErrorMessage(error, fallback: '关爱数据暂时无法读取');
-      errorMessage = careErrorMessage;
+      if (reportGlobalError) errorMessage = careErrorMessage;
       careStatus = error is FeatureNotConfiguredException ? '服务暂不可用' : '加载失败';
       if (kDebugMode) {
         debugPrint(
@@ -7398,7 +7518,7 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshActivityGoals() async {
+  Future<void> refreshActivityGoals({bool reportGlobalError = true}) async {
     final generation = _sessionGeneration;
     if (session == null) return;
     try {
@@ -7411,7 +7531,9 @@ class AppController extends ChangeNotifier {
           num.tryParse('${goals['reliang'] ?? ''}')?.toInt() ?? calorieGoal;
     } on ApiException catch (error) {
       if (!_isCurrentSessionGeneration(generation)) return;
-      errorMessage = _apiErrorMessage(error, fallback: '目标暂时无法读取');
+      if (reportGlobalError) {
+        errorMessage = _apiErrorMessage(error, fallback: '目标暂时无法读取');
+      }
     }
     if (_isCurrentSessionGeneration(generation)) notifyListeners();
   }
@@ -7576,6 +7698,7 @@ class AppController extends ChangeNotifier {
     }
     _scheduleCareInvitationPoll(const Duration(seconds: 30));
     _flushDeviceDetailsRefresh();
+    prepareSyncDiagnostics();
     syncDiagnostics.flushPending();
   }
 
@@ -10050,8 +10173,7 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '设备已自动重连';
       deviceMachine.transition(DeviceConnectionState.ready);
-      syncDiagnostics.connectionCompleted();
-      syncDiagnostics.flushConnection();
+      _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.ok);
       if (_firstRingBindingPending) {
         notifyListeners();
         unawaited(_recoverExistingMemberBindingDecision());

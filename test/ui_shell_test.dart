@@ -460,6 +460,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('device-sync-data')), findsNothing);
+      expect(find.byKey(const Key('device-sync-diagnostics')), findsNothing);
+      expect(find.text('同步诊断与恢复'), findsNothing);
       expect(find.text('此戒指历史同步暂未开放'), findsNothing);
       expect(
         find.byKey(const Key('device-connection-details')),

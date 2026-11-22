@@ -152,15 +152,22 @@ class QRingRecordMapperTest {
         startMinutes: Int? = null,
     ): HRVRsp {
         val response = HRVRsp()
-        val header = mutableListOf<Byte>(0, 2, intervalMinutes.toByte())
+        // 1.0.0.86 determines byte/word format from the declared packet count,
+        // not from whether every second data byte happens to be zero. Model a
+        // full daily grid over real 20-byte command packets (including dayIndex).
+        val samples = mutableListOf<Byte>()
+        repeat((1440 + intervalMinutes - 1) / intervalMinutes) { index ->
+            samples.add(if (index < sampleCount) (40 + index % 20).toByte() else 0)
+            if (wordEncoded) samples.add(0)
+        }
+        val packetCount = (samples.size + 1 + 19) / 20
+        val header = mutableListOf<Byte>(0, (packetCount + 1).toByte(), intervalMinutes.toByte())
         if (startMinutes != null) header.add(startMinutes.toByte())
         response.acceptData(header.toByteArray())
-        val payload = mutableListOf<Byte>(1, 1) // 首个数据包及昨天的 dayIndex。
-        repeat(sampleCount) { index ->
-            payload.add((40 + index % 20).toByte())
-            if (wordEncoded) payload.add(0)
+        val body = listOf<Byte>(1) + samples // First packet includes yesterday's dayIndex.
+        body.chunked(20).forEachIndexed { index, chunk ->
+            response.acceptData((listOf((index + 1).toByte()) + chunk).toByteArray())
         }
-        response.acceptData(payload.toByteArray())
         response.acceptData(byteArrayOf(0xff.toByte()))
         assertTrue(response.isEndFlag)
         assertEquals(1, response.offset)

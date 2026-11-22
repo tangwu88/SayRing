@@ -46,7 +46,7 @@ allprojects {
 }
 
 // The pinned Yucheng plugin publishes an unused Realtek bbpro 1.6.1 JAR via a
-// broad `fileTree("*.jar")` dependency. QRing 1.0.0.76 embeds bbpro 1.9.4 and
+// broad `fileTree("*.jar")` dependency. QRing 1.0.0.86 embeds bbpro 1.9.4 and
 // requires APIs that do not exist in 1.6.1, so keeping both makes D8 reject the
 // APK for duplicate classes. Replace only that broad dependency with the other
 // JAR it contains; Yucheng's AARs do not reference bbpro-core.
@@ -65,10 +65,25 @@ project(":yc_product_plugin").afterEvaluate {
     }
 }
 
-val newBuildDir: Directory =
+// Flutter records canonical AOT outputs in its depfile. Keep Gradle on the same
+// physical directory when Windows build storage is redirected through a junction;
+// mixed aliases can otherwise make incremental cleanup remove the new app.so.
+val requestedBuildDirFile =
     rootProject.layout.buildDirectory
         .dir("../../build")
         .get()
+        .asFile
+// File.canonicalFile does not resolve NTFS junctions on Windows. NIO does;
+// resolve the existing parent as well on a fresh checkout with no build folder.
+val newBuildDirFile =
+    if (requestedBuildDirFile.exists()) {
+        requestedBuildDirFile.toPath().toRealPath().toFile()
+    } else {
+        requestedBuildDirFile.parentFile.toPath().toRealPath()
+            .resolve(requestedBuildDirFile.name).toFile()
+    }
+val newBuildDir: Directory =
+    rootProject.layout.dir(providers.provider { newBuildDirFile }).get()
 rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {
