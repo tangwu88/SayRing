@@ -1,4 +1,4 @@
-# Say Ring 代码同步与 iOS 1315 内测
+# Say Ring 代码同步与 iOS 1316 内测
 
 ## 2026-11-22 源码合并
 
@@ -19,3 +19,10 @@
 - XR 测试前私下备份原应用数据容器。使用 `tool/drive_ios_preserving_data.mjs`、明确验签的 Profile 包和保留应用参数执行，结束后原位恢复普通 1315 并成功启动。
 - 使用隔离内存模拟已连接和未连接，检查中文/英文、正常/两倍字号，8 种组合均可打开和退出「连接说明」，消费者诊断入口缺席且没有界面异常。本轮为真机界面验收，不包含新的实体戒指测量或同步验收。
 - 自动检查、原生构建和真机原始证据保存在 Git 外 `/private/tmp/sayring-code-update-20261122.SupxrewA`。
+
+## 发行前兼容修正与最终候选 1316
+
+- 合并源码 `1e08cf61e5cf3f06e1d3fb44ad9ffb16921ab5ab` 已推送，并与本机合并树一致。1315 Release 归档完成，分发在签名阶段停止，最终修正版使用 1316。
+- 发行前发现 V1 的首次失败报告可能携带 V2 专用的 `bluetooth_off`、`bluetooth_permission`、`connection_timeout` 和 `handshake_failed`，导致有界校验拒绝这份报告。新增两版本共 8 个场景，修复前 4 个 V1 场景失败、4 个 V2 场景通过。复用 `syncDiagnosticForV1` 转换后再持久化不可变待发报告，V2 保留实际细分原因，V1 使用兼容原因。
+- 修正后服务 27 项通过，格式/静态分析通过，UTC 和 Asia/Shanghai 完整回归各 2,472 项通过。重新完成 Android Debug/Release QA 构建、运行库、验签及对齐检查，以及 iOS Debug/Profile 1316 构建和验签。原生桥接、SDK 与此前 257 项 Node/135 项 JVM 检查对应源码相同，本次 Dart 修正后没有重复运行原生用例。
+- XR 上重新验签安装 Profile 测试入口，8 种中英文/字号/模拟连接组合通过，报告 `deviceHelpCombinationsPassed=8`。结束后原位恢复普通 1316 并启动。完整真实戒指测量和同步不属于本次界面验收。

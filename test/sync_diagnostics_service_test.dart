@@ -166,6 +166,38 @@ void main() {
   });
 
   for (final version in [1, 2]) {
+    for (final code in [
+      SyncDiagnosticCode.bluetoothOff,
+      SyncDiagnosticCode.bluetoothPermission,
+      SyncDiagnosticCode.connectionTimeout,
+      SyncDiagnosticCode.handshakeFailed,
+    ]) {
+      test(
+        'first $code failure remains deliverable on schema $version',
+        () async {
+          service.dispose();
+          remote = version == 2 ? V2Remote() : Remote();
+          service = create();
+          start();
+          await settle();
+          service.record(
+            SyncDiagnosticStage.connect,
+            SyncDiagnosticState.failed,
+            code: code,
+          );
+          await settle();
+          expect(remote.reports, hasLength(1));
+          final report = remote.reports.single;
+          expect(report['schemaVersion'], version);
+          expect(report['mode'], 'first_connection');
+          expect(
+            (report['stages'] as List).single['code'],
+            version == 2 ? code.wireName : 'connect_failed',
+          );
+          expect(isBoundedDiagnosticReport(report), isTrue);
+        },
+      );
+    }
     test('first summary retains phone data only on schema $version', () async {
       service.dispose();
       remote = version == 2 ? V2Remote() : Remote();

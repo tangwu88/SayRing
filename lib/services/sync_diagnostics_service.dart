@@ -546,7 +546,10 @@ class SyncDiagnosticsService {
           ? pending
           : state['draft'];
       if (draft is! Map) return;
-      final report = draft.map((k, v) => MapEntry('$k', v));
+      final captured = draft.map((k, v) => MapEntry('$k', v));
+      final report = captured['schemaVersion'] == 1
+          ? syncDiagnosticForV1(captured)
+          : captured;
       if (report['mode'] != 'first_connection' ||
           report['connectionId'] != first['connectionId'] ||
           !isBoundedDiagnosticReport(report)) {
