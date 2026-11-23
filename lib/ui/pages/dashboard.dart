@@ -225,6 +225,51 @@ class DashboardPage extends StatelessWidget {
                     ],
                     if (controller.canOpenSleepOverview) ...[
                       _SleepQuickCard(controller: controller),
+                      if (controller.ringExperience)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                key: const Key(
+                                  'dashboard-cardiovascular-trends',
+                                ),
+                                onPressed: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => CardiovascularTrendsPage(
+                                      controller: controller,
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.monitor_heart_outlined),
+                                label: Text(
+                                  ringText(
+                                    context,
+                                    '心血管趋势',
+                                    'Cardiovascular trends',
+                                  ),
+                                ),
+                              ),
+                              OutlinedButton.icon(
+                                key: const Key('dashboard-my-week'),
+                                onPressed: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        RingWeekPage(controller: controller),
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.calendar_view_week_outlined,
+                                ),
+                                label: Text(
+                                  ringText(context, '我的这一周', 'My week'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       const SizedBox(height: 12),
                     ],
                     _FeatureEntryGrid(

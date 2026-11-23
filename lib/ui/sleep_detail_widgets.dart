@@ -1,3 +1,5 @@
+import '../domain/ring_experience.dart';
+import 'ring_share_page.dart';
 import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -416,6 +418,38 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
             else
               ..._range(range, rows),
           ],
+          if (record != null &&
+              _period == SleepReportPeriod.day &&
+              _duration(record) != null)
+            RingShareButton(
+              controller: widget.controller,
+              snapshot: RingSnapshot('sleep', _date, {
+                'sleepMinutes': _duration(record)!.round(),
+                if (record.sleepTimeline case final timeline?
+                    when timeline.hasSegments) ...{
+                  for (final (name, stage) in [
+                    ('deepMinutes', SleepStage.deep),
+                    ('lightMinutes', SleepStage.light),
+                    ('remMinutes', SleepStage.rem),
+                    ('awakeMinutes', SleepStage.awake),
+                  ])
+                    if (timeline.sessions
+                        .expand((session) => session.segments)
+                        .any((item) => item.stage == stage))
+                      name: timeline.sessions
+                          .expand((session) => session.segments)
+                          .where((item) => item.stage == stage)
+                          .fold<double>(
+                            0,
+                            (sum, item) =>
+                                sum +
+                                item.endAt.difference(item.startAt).inSeconds /
+                                    60,
+                          )
+                          .round(),
+                },
+              }),
+            ),
           const SizedBox(height: 10),
           Card(
             child: ExpansionTile(

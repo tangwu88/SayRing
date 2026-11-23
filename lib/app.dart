@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:app_links/app_links.dart';
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'services/user_message.dart';
 import 'package:flutter/gestures.dart';
@@ -24,6 +26,9 @@ import 'ui/review_demo_page.dart';
 import 'ui/health_reminder_center.dart';
 import 'ui/reading_reminder_widgets.dart';
 import 'domain/reading_reminder.dart';
+import 'domain/ring_experience.dart';
+import 'ui/ring_care_page.dart';
+import 'ui/ring_share_page.dart';
 
 class DismissKeyboardOnBackgroundTap extends StatefulWidget {
   const DismissKeyboardOnBackgroundTap({required this.child, super.key});
@@ -164,6 +169,15 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
   bool _requiredUpdateGateResolved = false;
   bool _updateCheckRunning = false;
   bool _notificationRouteRunning = false;
+  StreamSubscription<Uri>? _ringLinks;
+  RingLink? _pendingRingLink;
+  String? _ringIntentOwner;
+  bool _ringRouteOpen = false;
+  Timer? _ringGreetings;
+  String? _ringGreetingCursor;
+  String? _ringGreetingScope;
+  bool _ringGreetingBusy = false;
+  int _ringForegroundEpoch = 0;
   bool _permissionPromptRunning = false;
   late final GlobalLocaleController _localeController;
   late final bool _ownsLocaleController;
@@ -191,6 +205,12 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     _localeController.addListener(_handleLocaleChanged);
     WidgetsBinding.instance.addObserver(this);
     controller.addListener(_handleControllerState);
+    if (controller.isGlobalEdition && controller.isWellnessOnly) {
+      _ringLinks = AppLinks().uriLinkStream.listen(
+        _receiveRingLink,
+        onError: (Object _) {},
+      );
+    }
     _updateService =
         widget.updateService ??
         (controller.isGlobalEdition
@@ -207,6 +227,9 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_restoreRequiredUpdateGate());
       _handleControllerState();
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        _startRingGreetings();
+      }
     });
   }
 
@@ -226,11 +249,15 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
       _localeController.refreshSystemLocale();
       unawaited(controller.handleAppResumed());
       unawaited(_checkUpdateIfDue());
+      _startRingGreetings();
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       controller.setAppForeground(false);
+      _ringForegroundEpoch++;
+      _ringGreetings?.cancel();
+      _ringGreetingCursor = null;
     }
   }
 
@@ -245,10 +272,132 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     );
   }
 
+  void _receiveRingLink(Uri uri) {
+    final link = RingLink.parse(uri);
+    if (!mounted || link == null || !controller.ringExperience) return;
+    _pendingRingLink = link;
+    _ringIntentOwner = controller.isAuthenticated
+        ? controller.ringExperienceOwner
+        : null;
+    _handleControllerState();
+  }
+
+  Future<void> _openRingLink() async {
+    final link = _pendingRingLink;
+    final navigator = _navigatorKey.currentState;
+    if (link == null ||
+        navigator == null ||
+        !_requiredUpdateGateResolved ||
+        _requiredUpdate != null ||
+        controller.isBooting ||
+        _ringRouteOpen ||
+        !controller.isAuthenticated) {
+      return;
+    }
+    if (_ringIntentOwner != null &&
+        _ringIntentOwner != controller.ringExperienceOwner) {
+      _pendingRingLink = null;
+      return;
+    }
+    _ringIntentOwner = controller.ringExperienceOwner;
+    _pendingRingLink = null;
+    _ringRouteOpen = true;
+    try {
+      await navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => switch (link.type) {
+            RingLinkType.invite => RingAcceptInvitePage(
+              controller: controller,
+              code: link.token,
+            ),
+            RingLinkType.respond => RingNamedResponsePage(
+              controller: controller,
+              token: link.token,
+            ),
+          },
+        ),
+      );
+    } finally {
+      _ringRouteOpen = false;
+      if (mounted && _pendingRingLink != null) _handleControllerState();
+    }
+  }
+
+  void _startRingGreetings() {
+    if (!controller.ringExperience ||
+        const String.fromEnvironment(
+          'SAY_RING_VERIFIED_CARE_HAPTICS',
+        ).isEmpty) {
+      return;
+    }
+    _ringGreetingCursor = null;
+    _ringGreetings?.cancel();
+    _ringGreetings = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => unawaited(_pollRingGreetings()),
+    );
+  }
+
+  Future<void> _pollRingGreetings() async {
+    final device = controller.connectedDevice?.id;
+    final owner = controller.ringExperienceOwner;
+    final localHour = DateTime.now().hour;
+    if (_ringGreetingBusy ||
+        device == null ||
+        !controller.isAuthenticated ||
+        !controller.ringCanReceiveHaptic ||
+        localHour < 8 ||
+        localHour >= 22) {
+      if (!_ringGreetingBusy) _ringGreetingCursor = null;
+      return;
+    }
+    final scope = '$owner:$device';
+    if (scope != _ringGreetingScope) {
+      _ringGreetingScope = scope;
+      _ringGreetingCursor = null;
+    }
+    final epoch = _ringForegroundEpoch;
+    _ringGreetingBusy = true;
+    try {
+      if (!await controller.ringHapticPreference()) {
+        _ringGreetingCursor = null;
+        return;
+      }
+      if (!mounted ||
+          epoch != _ringForegroundEpoch ||
+          !controller.ringCanReceiveHaptic ||
+          owner != controller.ringExperienceOwner ||
+          device != controller.connectedDevice?.id) {
+        return;
+      }
+      final before = _ringGreetingCursor;
+      final response = await controller.ringRequest(
+        'GET',
+        'care/greetings',
+        query: {'after': ?before},
+      );
+      if (!mounted ||
+          epoch != _ringForegroundEpoch ||
+          owner != controller.ringExperienceOwner ||
+          device != controller.connectedDevice?.id) {
+        return;
+      }
+      _ringGreetingCursor = response['cursor'] as String?;
+      if (before != null && ringRows(response['entries']).isNotEmpty) {
+        await controller.tryRingGreetingHaptic(owner, device);
+      }
+    } catch (_) {
+      _ringGreetingCursor = null;
+    } finally {
+      _ringGreetingBusy = false;
+    }
+  }
+
   void _handleControllerState() {
     if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      unawaited(_openRingLink());
       unawaited(_openPendingNotificationRoute());
       unawaited(_showNotificationPermissionExplanation());
     });
@@ -300,6 +449,13 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         NotificationRouteTarget.supportConversation => OnlineSupportPage(
           controller: controller,
           initialConversation: intent.entityId,
+        ),
+        NotificationRouteTarget.ringCareInteraction => RingCareThreadPage(
+          controller: controller,
+          relationshipId: intent.entityId ?? '',
+        ),
+        NotificationRouteTarget.ringShares => RingMySharesPage(
+          controller: controller,
         ),
         NotificationRouteTarget.notificationInbox => NotificationsPage(
           controller: controller,
@@ -517,6 +673,9 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     controller.removeListener(_handleControllerState);
+    unawaited(_ringLinks?.cancel());
+    _ringGreetings?.cancel();
+    _ringForegroundEpoch++;
     // The controller is injected and may outlive this widget, but foreground
     // polling must not outlive the app shell that owns the lifecycle observer.
     controller.setAppForeground(false);

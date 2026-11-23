@@ -1,3 +1,5 @@
+import 'ring_care_page.dart';
+import 'ring_share_page.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
@@ -348,6 +350,26 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
       appBar: AppBar(
         title: Text(l.remoteCare),
         actions: [
+          if (widget.controller.ringCareEnabled && _sameOwner)
+            IconButton(
+              key: const Key('care-invite-link'),
+              tooltip: ringText(
+                context,
+                '分享邀请或输入邀请码',
+                'Share or enter invitation code',
+              ),
+              onPressed: () => Navigator.of(context)
+                  .push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          RingInvitationsPage(controller: widget.controller),
+                    ),
+                  )
+                  .then((_) {
+                    if (mounted) _load();
+                  }),
+              icon: const Icon(Icons.link_rounded),
+            ),
           IconButton(
             key: const Key('global-care-add'),
             tooltip: l.addCare,
@@ -527,6 +549,22 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
             ],
             if (row.active) ...[
               const SizedBox(height: 12),
+              if (widget.controller.ringCareEnabled)
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => RingCareThreadPage(
+                        controller: widget.controller,
+                        relationshipId: row.id,
+                        name: name,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.favorite_border),
+                  label: Text(
+                    ringText(context, '问候与近况', 'Greetings and check-ins'),
+                  ),
+                ),
               if (row.received)
                 OutlinedButton.icon(
                   onPressed: _working ? null : () => _permissions(row),

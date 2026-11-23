@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record a short voice greeting when you choose to send one.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Connect your ring or U19 watch and sync your health records.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

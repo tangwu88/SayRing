@@ -1929,6 +1929,122 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
   bool _refreshing = false;
   String? _refreshError;
   String? _refreshErrorDeviceId;
+  RingFirmwarePackage? _available;
+  String? _offeredTo;
+  RingFirmwarePhase? _phase;
+
+  Future<void> _checkOnline() async {
+    final target = widget.controller.connectedDevice?.id;
+    if (target == null || _refreshing || widget.controller.ringFirmwareBusy) {
+      return;
+    }
+    setState(() {
+      _refreshing = true;
+      _refreshError = null;
+      _available = null;
+      _phase = null;
+    });
+    try {
+      final package = await widget.controller.findRingFirmware();
+      if (!mounted || widget.controller.connectedDevice?.id != target) return;
+      setState(() {
+        _available = package;
+        _offeredTo = target;
+        if (package == null) {
+          _refreshError = ringText(
+            context,
+            '暂未找到适配的升级包',
+            'No matching firmware package was found',
+          );
+          _refreshErrorDeviceId = target;
+        }
+      });
+    } catch (_) {
+      if (mounted && widget.controller.connectedDevice?.id == target) {
+        setState(() {
+          _refreshError = ringText(
+            context,
+            '暂时无法确认适配版本，请稍后再试',
+            'Could not verify a compatible version. Try again later.',
+          );
+          _refreshErrorDeviceId = target;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _install(RingFirmwarePackage package) async {
+    final target = _offeredTo;
+    if (_refreshing || target != widget.controller.connectedDevice?.id) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(
+          ringText(
+            dialog,
+            '升级至 ${package.version}？',
+            'Update to ${package.version}?',
+          ),
+        ),
+        content: Text(
+          ringText(
+            dialog,
+            '升级时请将设备放在手机旁并保持 App 打开。设备将自动重启。',
+            'Keep the device nearby and leave Say Ring open. Your device will restart.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog),
+            child: Text(MaterialLocalizations.of(dialog).cancelButtonLabel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: Text(ringText(dialog, '开始升级', 'Start update')),
+          ),
+        ],
+      ),
+    );
+    if (!mounted ||
+        confirmed != true ||
+        target != widget.controller.connectedDevice?.id) {
+      return;
+    }
+    setState(() {
+      _refreshing = true;
+      _available = null;
+      _refreshError = null;
+    });
+    try {
+      await widget.controller.upgradeRingFirmware(package, (phase) {
+        if (mounted) setState(() => _phase = phase);
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _refreshError =
+              _phase == RingFirmwarePhase.transfer ||
+                  _phase == RingFirmwarePhase.verify
+              ? ringText(
+                  context,
+                  '升级结果待核对，请连接原设备读取版本',
+                  'The result is pending. Reconnect the same device to verify.',
+                )
+              : ringText(
+                  context,
+                  '升级前检查未通过，请核对连接和电量',
+                  'Check the connection and device battery before trying again.',
+                );
+          _phase = null;
+          _refreshErrorDeviceId = widget.controller.connectedDevice?.id;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
 
   Future<void> _refresh() async {
     final deviceId = widget.controller.connectedDevice?.id;
@@ -1980,12 +2096,57 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
                       Text(uiCopy(context, "未读到固件版本")),
                     if (connected == null)
                       Text(uiCopy(context, "连接戒指后可查看最新的固件信息。"))
-                    else
+                    else if (!widget.controller.ringFirmwareCandidate &&
+                        _phase == null)
                       Text(uiCopy(context, "暂不支持在线升级。")),
                   ],
                 ),
               ),
             ),
+            if (_phase case final phase?)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(switch (phase) {
+                  RingFirmwarePhase.download => ringText(
+                    context,
+                    '正在下载并校验固件',
+                    'Downloading and verifying firmware',
+                  ),
+                  RingFirmwarePhase.transfer => ringText(
+                    context,
+                    '正在发送到设备',
+                    'Transferring to device',
+                  ),
+                  RingFirmwarePhase.verify => ringText(
+                    context,
+                    '设备重启后将核对版本',
+                    'Checking the version after restart',
+                  ),
+                  RingFirmwarePhase.complete => ringText(
+                    context,
+                    '设备已读回目标版本，升级完成',
+                    'Device version confirmed. Update complete.',
+                  ),
+                }),
+              ),
+            if (widget.controller.ringFirmwareCandidate)
+              OutlinedButton(
+                onPressed: !_refreshing ? _checkOnline : null,
+                child: Text(
+                  ringText(context, '检查在线升级', 'Check for a firmware update'),
+                ),
+              ),
+            if (_available case final offer? when connected?.id == _offeredTo)
+              FilledButton(
+                onPressed: _refreshing ? null : () => _install(offer),
+                child: Text(
+                  ringText(
+                    context,
+                    '升级至 ${offer.version}',
+                    'Update to ${offer.version}',
+                  ),
+                ),
+              ),
             if (_refreshError != null && connected?.id == _refreshErrorDeviceId)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),

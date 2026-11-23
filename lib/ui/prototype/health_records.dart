@@ -296,6 +296,13 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
         title: Text(
           context.l10n.metricDetails(context.l10n.metricName(record.metric)),
         ),
+        actions: [
+          RingShareButton(
+            controller: controller,
+            compact: true,
+            snapshot: ringHealthSnapshot(record),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),

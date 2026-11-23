@@ -38,7 +38,6 @@ FORBIDDEN_ANDROID_PERMISSIONS = {
     "android.permission.QUERY_ALL_PACKAGES",
     "android.permission.READ_EXTERNAL_STORAGE",
     "android.permission.READ_PHONE_STATE",
-    "android.permission.RECORD_AUDIO",
 }
 OPTIONAL_ANDROID_FEATURES = {
     "android.hardware.camera",
@@ -501,7 +500,10 @@ def apk_manifest_command(args: argparse.Namespace) -> None:
     }
     if "android.bluetooth.le" in features:
         fail("Built APK manifest contains invalid Bluetooth feature android.bluetooth.le.")
-    for feature in sorted(OPTIONAL_ANDROID_FEATURES):
+    optional_features = OPTIONAL_ANDROID_FEATURES.copy()
+    if "android.permission.RECORD_AUDIO" in permissions or "android.hardware.microphone" in features:
+        optional_features.add("android.hardware.microphone")
+    for feature in sorted(optional_features):
         if features.get(feature) != "false":
             fail(f"Built APK manifest must keep {feature} optional.")
     for tag, component_name in INTERNAL_ANDROID_COMPONENTS:

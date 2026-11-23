@@ -8,6 +8,9 @@ import 'package:saydian_app/ui/global_care_page.dart';
 
 class _Controller extends Fake implements AppController {
   @override
+  bool get isWellnessOnly => false;
+
+  @override
   Session? session = Session(
     accessToken: 'synthetic',
     refreshToken: '',
