@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/global_care.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
+import 'package:saydian_app/services/api_client.dart' show ApiException;
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/global_care_page.dart';
 
@@ -21,6 +24,9 @@ class _Controller extends Fake implements AppController {
   );
   final listeners = <VoidCallback>[];
   final invitations = <CareInvitationTarget>[];
+  int relationshipReads = 0;
+  ApiException? loadError;
+  Completer<List<GlobalCareRelationship>>? pendingRead;
   List<GlobalCareRelationship> rows = const [
     GlobalCareRelationship(
       id: 'synthetic-following',
@@ -44,7 +50,13 @@ class _Controller extends Fake implements AppController {
   @override
   void removeListener(VoidCallback listener) => listeners.remove(listener);
   @override
-  Future<List<GlobalCareRelationship>> globalCareRelationships() async => rows;
+  Future<List<GlobalCareRelationship>> globalCareRelationships() async {
+    relationshipReads++;
+    if (loadError case final error?) throw error;
+    if (pendingRead case final pending?) return pending.future;
+    return rows;
+  }
+
   @override
   Future<void> globalInviteCareTarget(CareInvitationTarget target) async =>
       invitations.add(target);
@@ -72,6 +84,52 @@ Widget _app(_Controller controller, {double scale = 1}) => MaterialApp(
 );
 
 void main() {
+  testWidgets('an offline refresh keeps the list and retries once on return', (
+    tester,
+  ) async {
+    final controller = _Controller();
+    await tester.pumpWidget(_app(controller));
+    await tester.pumpAndSettle();
+    expect(controller.relationshipReads, 1);
+
+    controller.loadError = const ApiException(
+      'Synthetic DNS failure',
+      code: 'NETWORK_UNAVAILABLE',
+    );
+    final refresh = tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh;
+    await refresh();
+    await tester.pumpAndSettle();
+    expect(find.text('网络不可用，请检查后重试'), findsOneWidget);
+    expect(find.byKey(const Key('global-care-retry')), findsOneWidget);
+    expect(find.text('合成关爱成员'), findsOneWidget);
+    expect(controller.relationshipReads, 2);
+
+    controller.loadError = null;
+    final response = Completer<List<GlobalCareRelationship>>();
+    controller.pendingRead = response;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final concurrentPull = refresh();
+    expect(controller.relationshipReads, 3);
+    response.complete(const [
+      GlobalCareRelationship(
+        id: 'synthetic-recovered',
+        status: 'active',
+        received: false,
+        name: '恢复后返回的成员',
+        metrics: {},
+      ),
+    ]);
+    await concurrentPull;
+    await tester.pumpAndSettle();
+    expect(find.text('恢复后返回的成员'), findsOneWidget);
+    expect(find.text('合成关爱成员'), findsNothing);
+    expect(find.byKey(const Key('global-care-retry')), findsNothing);
+    expect(controller.relationshipReads, 3);
+  });
+
   testWidgets(
     'owner change closes an unsubmitted invitation without sending it',
     (tester) async {
