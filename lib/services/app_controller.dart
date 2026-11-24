@@ -21,6 +21,7 @@ import '../domain/health_source_policy.dart';
 import '../domain/models.dart';
 import '../domain/health_reminder.dart';
 import '../domain/reading_reminder.dart';
+import '../domain/ring_experience.dart';
 import '../domain/heart_rate_reminder_engine.dart';
 import 'health_reminder_notifications.dart';
 import 'cycle_tracking_service.dart';
@@ -48,6 +49,9 @@ import 'notification_inbox.dart';
 import 'notification_models.dart';
 import 'notification_route_service.dart';
 import 'secure_vault.dart';
+import 'safe_secure_storage.dart';
+import 'ring_firmware.dart';
+import 'global_storage_scope.dart';
 import 'sleep_health_projection.dart';
 import 'sleep_report_input.dart';
 import 'storekit_purchase_bridge.dart';
@@ -63,6 +67,7 @@ import 'read_only_health_service.dart';
 import 'module_visibility_service.dart';
 
 part 'app_controller_health_reminders.dart';
+part 'app_controller_ring_experience.dart';
 
 enum DeviceActionOutcome { succeeded, retryableCameraReadBusy, failed }
 
@@ -438,6 +443,33 @@ class AppController extends ChangeNotifier {
       api: api as SayRingModuleVisibilityApi,
     )..addListener(_handleModuleVisibilityChanged);
     await _moduleVisibilityService!.refresh();
+  }
+
+  Future<void> refreshRingCapabilities() async {
+    final api = _api;
+    if (_disposed ||
+        !ringExperience ||
+        _ringCapabilitiesPending ||
+        api is! RingExperienceApi) {
+      return;
+    }
+    _ringCapabilitiesPending = true;
+    try {
+      final result = await (api as RingExperienceApi).readRingCapabilities();
+      final next = (
+        sharing: result['sharing'] == true,
+        care: result['care'] == true,
+        firmware: result['firmware'] == true,
+      );
+      if (!_disposed && next != _ringCapabilities) {
+        _ringCapabilities = next;
+        notifyListeners();
+      }
+    } catch (_) {
+      // Old servers and temporary network failures do not interrupt startup.
+    } finally {
+      _ringCapabilitiesPending = false;
+    }
   }
 
   void _handleModuleVisibilityChanged() {
@@ -1701,6 +1733,16 @@ class AppController extends ChangeNotifier {
   bool isBooting = true;
   bool isBusy = false;
   bool isDeviceSyncing = false;
+  Future<void> _ringLocalWrites = Future<void>.value();
+  var _ringCapabilities = (sharing: false, care: false, firmware: false);
+  bool _ringCapabilitiesPending = false;
+  bool _ringFirmwareBusy = false;
+
+  void _setRingFirmwareBusy(bool value) {
+    _ringFirmwareBusy = value;
+    if (!_disposed) notifyListeners();
+  }
+
   // The connection read has two stages: health history, then sport history.
   // Keep the consumer busy state until both SDK reads and local imports settle.
   (int, String, Object)? _initialDeviceHistorySync;
@@ -2345,6 +2387,7 @@ class AppController extends ChangeNotifier {
   Future<void> initialize() async {
     unawaited(refreshAppDisplayConfig());
     unawaited(refreshModuleVisibility());
+    unawaited(refreshRingCapabilities());
     _deviceStates = deviceMachine.changes.listen((_) => notifyListeners());
     _connectivity = Connectivity().onConnectivityChanged.listen((results) {
       if (results.any((result) => result != ConnectivityResult.none) &&
@@ -3339,6 +3382,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectDevice(DeviceInfo device) async {
+    if (_ringFirmwareBusy &&
+        (connectedDevice != null || rememberedDevice?.id != device.id)) {
+      return;
+    }
     if (_disposed ||
         _accountTransitioning ||
         _wearableConnectInFlight != null) {
@@ -4351,6 +4398,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
+    if (_ringFirmwareBusy) return false;
     // 认证中的 SDK 也可能通知历史已就绪。此时启动同步会推进同一代次，
     // 让正在等待能力回包的连接失效；连接就绪后仍按该型号原有策略同步。
     if (deviceState == DeviceConnectionState.connecting ||
@@ -5218,6 +5266,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> refreshConnectedDeviceDetails({bool quiet = false}) async {
+    if (_ringFirmwareBusy) return false;
     final current = connectedDevice;
     final bridge = _wearable;
     if (current == null) return false;
@@ -5303,6 +5352,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> startMeasurement(HealthMetric metric) async {
+    if (_ringFirmwareBusy) return false;
     if (_disposed) return false;
     bool reject(String message) {
       errorMessage = message;
@@ -5938,6 +5988,7 @@ class AppController extends ChangeNotifier {
       markNotificationEventRead(healthWarningEventId(alert));
 
   Future<bool> startSport(SportMode mode) async {
+    if (_ringFirmwareBusy) return false;
     if (_startingSport != null) return false;
     if (_firstRingBindingPending) {
       errorMessage = '请重新连接戒指后重试';
@@ -6886,6 +6937,7 @@ class AppController extends ChangeNotifier {
     DeviceFeature feature,
     Map<String, Object?> values,
   ) async {
+    if (_ringFirmwareBusy) return false;
     if (feature == DeviceFeature.gestureControl &&
         _usesCoolWearAndroid &&
         isDeviceHistorySyncing) {
@@ -7144,6 +7196,14 @@ class AppController extends ChangeNotifier {
         return received;
       }
       final records = _releaseRecords(page.records).toList();
+      try {
+        await _confirmUrionTrendReadback(records, generation);
+      } catch (_) {
+        // A local trend proof is optional. Ordinary health sync can still finish.
+      }
+      if (!_isCurrentSessionGeneration(generation) || _accountTransitioning) {
+        return received;
+      }
       await _healthStore.upsertSynced(records);
       if (!_isCurrentSessionGeneration(generation)) return received;
       received += records.length;
@@ -7721,6 +7781,7 @@ class AppController extends ChangeNotifier {
     unawaited(_consumeHealthReminderOpen());
     unawaited(refreshAppDisplayConfig());
     unawaited(refreshModuleVisibility());
+    unawaited(refreshRingCapabilities());
     _readOnlyHealthFeatureService?.setForeground(true);
     _u19HealthFeatureService?.setForeground(true);
     unawaited(refreshReadOnlyHealthFeatures());

@@ -1,5 +1,10 @@
 PODS:
   - AlipaySDK-iOS (15.8.30)
+  - app_links (7.0.0):
+    - Flutter
+  - audioplayers_darwin (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - camera_avfoundation (0.0.1):
     - Flutter
   - connectivity_plus (0.0.1):
@@ -35,6 +40,9 @@ PODS:
     - Flutter
   - permission_handler_apple (9.4.8):
     - Flutter
+  - record_darwin (2.0.0):
+    - Flutter
+    - FlutterMacOS
   - share_plus (0.0.1):
     - Flutter
   - sqflite_sqlcipher (0.0.1):
@@ -56,6 +64,8 @@ PODS:
 
 DEPENDENCIES:
   - AlipaySDK-iOS (= 15.8.30)
+  - app_links (from `.symlinks/plugins/app_links/ios`)
+  - audioplayers_darwin (from `.symlinks/plugins/audioplayers_darwin/darwin`)
   - camera_avfoundation (from `.symlinks/plugins/camera_avfoundation/ios`)
   - connectivity_plus (from `.symlinks/plugins/connectivity_plus/ios`)
   - device_info_plus (from `.symlinks/plugins/device_info_plus/ios`)
@@ -68,6 +78,7 @@ DEPENDENCIES:
   - MJExtension (= 3.0.15.1)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - record_darwin (from `.symlinks/plugins/record_darwin/darwin`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
   - sqflite_sqlcipher (from `.symlinks/plugins/sqflite_sqlcipher/ios`)
   - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
@@ -87,6 +98,10 @@ SPEC REPOS:
     - ZIPFoundation
 
 EXTERNAL SOURCES:
+  app_links:
+    :path: ".symlinks/plugins/app_links/ios"
+  audioplayers_darwin:
+    :path: ".symlinks/plugins/audioplayers_darwin/darwin"
   camera_avfoundation:
     :path: ".symlinks/plugins/camera_avfoundation/ios"
   connectivity_plus:
@@ -109,6 +124,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/package_info_plus/ios"
   permission_handler_apple:
     :path: ".symlinks/plugins/permission_handler_apple/ios"
+  record_darwin:
+    :path: ".symlinks/plugins/record_darwin/darwin"
   share_plus:
     :path: ".symlinks/plugins/share_plus/ios"
   sqflite_sqlcipher:
@@ -120,6 +137,8 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   AlipaySDK-iOS: 913a1df564c64798903e71cf3d63141d9e1904d2
+  app_links: 6d01271b3907b0ee7325c5297c75d697c4226c4d
+  audioplayers_darwin: f15e209a3e856d1a7edcf98dc029f484fead2242
   camera_avfoundation: 281867ff09f1da66f031a184ecfbc6f2e625c9f5
   connectivity_plus: 2a701ffec2c0ae28a48cf7540e279787e77c447d
   device_info_plus: bf2e3232933866d73fe290f2942f2156cdd10342
@@ -136,6 +155,7 @@ SPEC CHECKSUMS:
   MJExtension: 19bc33ce2eee2d319760f5622562cf581a6ff756
   package_info_plus: c0502532a26c7662a62a356cebe2692ec5fe4ec4
   permission_handler_apple: ee2fe0fd04551b304eb002714ff067c371c822ed
+  record_darwin: 41fe82171e943cd04ae52e55663e620c5b16f193
   share_plus: 8b6f8b3447e494cca5317c8c3073de39b3600d1f
   sqflite_sqlcipher: 1c9c7ceb30cb65dab28712cb2110fdf39b37311c
   SQLCipher: eb79c64049cb002b4e9fcb30edb7979bf4706dfc

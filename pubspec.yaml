@@ -40,6 +40,10 @@ dependencies:
       url: https://gitee.com/yucheng_3/yc_product_plugin.git
       path: code
       ref: 5ca3050d7170509d386f548fcae7d5f8b457febf
+  app_links: ^7.0.0
+  cryptography: ^2.9.0
+  record: ^7.2.0
+  audioplayers: ^6.6.0
 
 dev_dependencies:
   flutter_secure_storage_platform_interface: ^2.0.2

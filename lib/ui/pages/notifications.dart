@@ -1,3 +1,5 @@
+import '../ring_share_page.dart';
+import '../ring_care_page.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -51,6 +53,25 @@ class _NotificationsPageState extends State<NotificationsPage> {
         ),
       );
       return;
+    }
+    if (widget.controller.ringExperience) {
+      final relationship = ringCareRelationshipFromLink(
+        item['deepLink'] ?? item['deep_link'],
+      );
+      if (isRingShareNotice(eventId) ||
+          (isRingCareNotice(eventId) && relationship != null)) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => isRingShareNotice(eventId)
+                ? RingMySharesPage(controller: widget.controller)
+                : RingCareThreadPage(
+                    controller: widget.controller,
+                    relationshipId: relationship!,
+                  ),
+          ),
+        );
+        return;
+      }
     }
     final eventType = '${item['_eventType'] ?? ''}';
     final reminderId = '${item['entity_id'] ?? ''}';

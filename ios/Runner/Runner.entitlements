@@ -6,6 +6,7 @@
 	<string>$(APS_ENVIRONMENT)</string>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
+		<string>applinks:app.saydian.cn</string>
 		<string>applinks:$(SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST)</string>
 	</array>
 </dict>

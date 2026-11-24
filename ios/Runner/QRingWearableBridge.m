@@ -65,6 +65,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, copy) NSString *connectedID;
 @property(nonatomic, copy) NSString *connectedName;
 @property(nonatomic, copy) NSString *firmware;
+@property(nonatomic, copy) NSString *firmwareHardware;
+@property(nonatomic, assign) BOOL firmwareTransferring;
 @property(nonatomic, strong, nullable) NSNumber *battery;
 @property(nonatomic, strong, nullable) NSNumber *charging;
 @property(nonatomic, strong, nullable) NSDate *batteryUpdatedAt;
@@ -303,6 +305,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     self.charging = nil;
     self.batteryUpdatedAt = nil;
     self.firmware = @"";
+    self.firmwareHardware = @"";
     self.profile = [arguments[@"profile"] isKindOfClass:NSDictionary.class] ? arguments[@"profile"] : @{};
     self.connectedID = identifier;
     self.connectedName = name;
@@ -340,6 +343,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     self.charging = nil;
     self.batteryUpdatedAt = nil;
     self.firmware = @"";
+    self.firmwareHardware = @"";
     self.connectionGeneration++;
     self.recoveryConnecting = YES;
     RingControlTrace(@"connection-requested", @{@"recovery": @YES});
@@ -766,10 +770,11 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         if (weakSelf.firmware.length > 0) { finish(); return; }
         // The bundled SDK invokes this callback as (hardware, software).
         RingControlTrace(@"firmware-start", @{@"generation": @(generation)});
-        [QCSDKCmdCreator getDeviceSoftAndHardVersionSuccess:^(__unused NSString *hardware, NSString *software) {
+        [QCSDKCmdCreator getDeviceSoftAndHardVersionSuccess:^(NSString *hardware, NSString *software) {
           QRingOnMain(^{
             if (!finished && [weakSelf isCurrentConnection:generation]) {
                 weakSelf.firmware = software ?: @"";
+                weakSelf.firmwareHardware = hardware ?: @"";
             }
             RingControlTrace(@"firmware-finished", @{@"generation": @(generation)});
             finish();
@@ -1973,8 +1978,127 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }];
 }
 
+- (NSString *)qualifiedFirmwareModel {
+    NSString *name = self.connectedName.uppercaseString ?: @"";
+    NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:
+        @"(?:^|[^A-Z0-9])(R8[ _-]?PRO|R21|R22|R7C|R8)(?:$|[^A-Z0-9])"
+        options:0 error:nil];
+    NSTextCheckingResult *match = [expression firstMatchInString:name options:0 range:NSMakeRange(0, name.length)];
+    if (!match || [match rangeAtIndex:1].location == NSNotFound) return @"";
+    NSString *model = [name substringWithRange:[match rangeAtIndex:1]];
+    return [[[model stringByReplacingOccurrencesOfString:@" " withString:@""]
+        stringByReplacingOccurrencesOfString:@"_" withString:@""] stringByReplacingOccurrencesOfString:@"-" withString:@""];
+}
+
+- (BOOL)firmwareTargetReady:(NSDictionary *)arguments {
+    NSString *expected = arguments[@"expectedDeviceId"];
+    return [expected isKindOfClass:NSString.class] && expected.length &&
+        [expected isEqualToString:self.connectedID] &&
+        [self isCurrentConnection:self.connectionGeneration] &&
+        self.central.connectedPeripheral.state == CBPeripheralStateConnected &&
+        [self.central.connectedPeripheral.identifier.UUIDString isEqualToString:expected] &&
+        !self.pendingSync && !self.activeMetric && !self.activeSportMode &&
+        !self.pendingCamera && !self.remoteCameraActive && !self.readingDetails &&
+        ![self.factoryResetGeneration isEqual:@(self.connectionGeneration)] &&
+        ![self.factoryInitializingGeneration isEqual:@(self.connectionGeneration)] &&
+        UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+}
+
+- (void)ringFirmwareIdentity:(NSDictionary *)arguments result:(FlutterResult)result {
+    if (self.firmwareTransferring || ![self firmwareTargetReady:arguments] || ![self qualifiedFirmwareModel].length) {
+        result(nil); return;
+    }
+    NSUInteger generation = self.connectionGeneration;
+    __block BOOL finished = NO;
+    self.readingDetails = YES;
+    void (^finish)(id) = ^(id value) {
+        if (finished) return;
+        finished = YES;
+        if (self.connectionGeneration == generation) self.readingDetails = NO;
+        result(value);
+    };
+    [QCSDKCmdCreator getDeviceSoftAndHardVersionSuccess:^(NSString *hardware, NSString *software) {
+        QRingOnMain(^{
+            if (finished || ![self isCurrentConnection:generation] || !hardware.length || !software.length) {
+                finish(nil); return;
+            }
+            self.firmwareHardware = hardware;
+            self.firmware = software;
+            [QCSDKCmdCreator readBatterySuccess:^(int battery, BOOL charging) {
+                QRingOnMain(^{
+                    if (finished || ![self isCurrentConnection:generation] || battery < 0 || battery > 100) {
+                        finish(nil); return;
+                    }
+                    self.battery = @(battery);
+                    self.charging = @(charging);
+                    self.batteryUpdatedAt = [NSDate date];
+                    finish(@{@"model": [self qualifiedFirmwareModel], @"hardware": hardware,
+                             @"fromVersion": software, @"battery": @(battery)});
+                });
+            } failed:^{ QRingOnMain(^{ finish(nil); }); }];
+        });
+    } fail:^{ QRingOnMain(^{ finish(nil); }); }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 12 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ finish(nil); });
+}
+
+- (void)ringFirmwareTransfer:(NSDictionary *)arguments result:(FlutterResult)result {
+    FlutterStandardTypedData *wire = arguments[@"data"];
+    NSData *data = [wire isKindOfClass:FlutterStandardTypedData.class] ? wire.data : nil;
+    NSDate *batteryAt = self.batteryUpdatedAt;
+    id threshold = arguments[@"minBattery"];
+    NSInteger minimum = [threshold isKindOfClass:NSNumber.class] ? [threshold integerValue] : 0;
+    if (self.firmwareTransferring || ![self firmwareTargetReady:arguments] ||
+        !data.length || data.length > 8 * 1024 * 1024 ||
+        ![self qualifiedFirmwareModel].length ||
+        ![[self qualifiedFirmwareModel] isEqual:arguments[@"model"]] ||
+        !self.firmwareHardware.length || ![self.firmwareHardware isEqual:arguments[@"hardware"]] ||
+        !self.firmware.length || ![self.firmware isEqual:arguments[@"fromVersion"]] ||
+        minimum < 1 || minimum > 100 || !batteryAt || -batteryAt.timeIntervalSinceNow > 20 ||
+        self.battery.integerValue < minimum) {
+        result([self error:@"FIRMWARE_TARGET_MISMATCH" message:@"请确认原设备、版本和电量"]); return;
+    }
+    unsigned char bytes[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(data.bytes, (CC_LONG)data.length, bytes);
+    NSMutableString *actual = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+    for (NSUInteger i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) [actual appendFormat:@"%02x", bytes[i]];
+    if (![actual isEqual:arguments[@"sha256"]]) {
+        result([self error:@"FIRMWARE_INVALID" message:@"固件校验未通过"]); return;
+    }
+
+    self.firmwareTransferring = YES;
+    __block BOOL replied = NO;
+    void (^finish)(id) = ^(id value) {
+        QRingOnMain(^{
+            self.firmwareTransferring = NO;
+            if (replied) return;
+            replied = YES;
+            result(value);
+        });
+    };
+    [QCSDKCmdCreator syncOtaBinData:data start:nil percentage:nil success:^(__unused int seconds) {
+        finish(nil);
+    } failed:^(__unused NSError *error) {
+        finish([self error:@"FIRMWARE_UNCONFIRMED" message:@"升级结果待核对"]);
+    }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 400 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (replied) return;
+        replied = YES;
+        // Keep the native lock until the SDK reports a terminal result.
+        result([self error:@"FIRMWARE_UNCONFIRMED" message:@"升级结果待核对"]);
+    });
+}
+
 - (void)handleCall:(FlutterMethodCall *)call result:(FlutterResult)result {
     NSDictionary *arguments = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
+    if ([call.method isEqualToString:@"ringFirmwareIdentity"]) {
+        [self ringFirmwareIdentity:arguments result:result]; return;
+    }
+    if ([call.method isEqualToString:@"ringFirmwareTransfer"]) {
+        [self ringFirmwareTransfer:arguments result:result]; return;
+    }
+    if (self.firmwareTransferring && ![@[@"getDeviceSnapshot", @"getBluetoothState"] containsObject:call.method]) {
+        result([self error:@"DEVICE_BUSY" message:@"设备正在升级"]); return;
+    }
     if ([call.method isEqualToString:@"configureManualHealthMetrics"]) {
         [self reconcileManualPolicy]; // Drain an expired operation before renewal.
         BOOL accepted = SRConfigureManualHealthLease(arguments);
@@ -2183,6 +2307,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         self.charging = nil;
         self.batteryUpdatedAt = nil;
         self.firmware = @"";
+    self.firmwareHardware = @"";
         NSString *retired = self.connectedID;
         self.connectedID = @"";
         self.connectedName = @"";

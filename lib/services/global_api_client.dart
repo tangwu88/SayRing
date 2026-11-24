@@ -241,7 +241,7 @@ abstract interface class GlobalCommerceApi {
 /// International transport. Only the deployed App V2 route family is accepted;
 /// no legacy endpoint or credential fallback exists.
 class GlobalSaydianApiClient extends SaydianApiClient
-    with GlobalHealthApi, OnlineSupportTransport
+    with GlobalHealthApi, OnlineSupportTransport, RingExperienceTransport
     implements
         CycleRemote,
         SyncDiagnosticsApi,
@@ -1433,7 +1433,9 @@ class GlobalSaydianApiClient extends SaydianApiClient
           ?(route?.group(1) ??
           (type == 'system' && eventId.startsWith('support-reply:')
               ? supportConversationFromLink(deepLink)
-              : null)),
+              : (type == 'system' && isRingCareNotice(eventId)
+                    ? ringCareRelationshipFromLink(deepLink)
+                    : null))),
       'content': row['body'],
       'created_at': createdAt,
       'is_read': row['readAt'] != null,

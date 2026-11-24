@@ -1373,6 +1373,13 @@ class SportRecordDetailPage extends StatelessWidget {
         : uiCopy(context, "公里");
     return Scaffold(
       appBar: AppBar(
+        actions: [
+          RingShareButton(
+            controller: controller,
+            compact: true,
+            snapshot: ringWorkoutSnapshot(context, record),
+          ),
+        ],
         title: Text(
           context.l10n.workoutDetails(context.l10n.sportModeName(record.mode)),
         ),

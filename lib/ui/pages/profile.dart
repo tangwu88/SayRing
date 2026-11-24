@@ -209,6 +209,20 @@ class SettingsPage extends StatelessWidget {
         const SizedBox(height: 14),
         HealthReminderShortcut(controller: controller),
         CycleShortcut(controller: controller),
+        if (controller.ringSharingEnabled && controller.isAuthenticated)
+          Card(
+            child: ListTile(
+              key: const Key('open-my-ring-shares'),
+              leading: const Icon(Icons.ios_share_rounded),
+              title: Text(ringText(context, '我的分享', 'My shares')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => RingMySharesPage(controller: controller),
+                ),
+              ),
+            ),
+          ),
         const SizedBox(height: 12),
         if (controller.commerceEnabled) ...[
           Card(

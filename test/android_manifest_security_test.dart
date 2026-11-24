@@ -81,7 +81,6 @@ void main() {
     for (final permission in const <String>[
       'android.permission.BLUETOOTH_ADVERTISE',
       'android.permission.READ_EXTERNAL_STORAGE',
-      'android.permission.RECORD_AUDIO',
     ]) {
       expect(
         RegExp(
@@ -92,6 +91,19 @@ void main() {
         reason: '$permission must not leak in from a vendor manifest',
       );
     }
+
+    expect(
+      manifest,
+      contains(
+        '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+      ),
+    );
+    expect(
+      manifest,
+      contains(
+        'android:name="android.hardware.microphone" android:required="false"',
+      ),
+    );
 
     for (final component in const <String>[
       'com.yucheng.ycbtsdk.upgrade.utils.DfuService',

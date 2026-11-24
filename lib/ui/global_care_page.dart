@@ -1,3 +1,5 @@
+import 'ring_care_page.dart';
+import 'ring_share_page.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
@@ -39,11 +41,15 @@ class GlobalCarePage extends StatefulWidget {
   State<GlobalCarePage> createState() => _GlobalCarePageState();
 }
 
-class _GlobalCarePageState extends State<GlobalCarePage> {
+enum _CareLoadError { network, service }
+
+class _GlobalCarePageState extends State<GlobalCarePage>
+    with WidgetsBindingObserver {
   List<GlobalCareRelationship> _relationships = const [];
   bool _loading = true;
   bool _working = false;
-  bool _failed = false;
+  _CareLoadError? _loadError;
+  Future<void>? _activeLoad;
   int _generation = 0;
   bool _received = false;
   BuildContext? _activeDialog;
@@ -55,13 +61,25 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
   void initState() {
     super.initState();
     _owner = widget.controller.session?.accountKey;
+    WidgetsBinding.instance.addObserver(this);
     widget.controller.addListener(_accountChanged);
     unawaited(_load());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _loadError == _CareLoadError.network &&
+        _sameOwner &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      unawaited(_load());
+    }
   }
 
   void _accountChanged() {
     if (_sameOwner || !mounted) return;
     _generation++;
+    _activeLoad = null;
     final dialog = _activeDialog;
     _activeDialog = null;
     if (dialog != null) {
@@ -74,35 +92,51 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
     setState(() {
       _relationships = const [];
       _loading = false;
-      _failed = false;
+      _loadError = null;
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.controller.removeListener(_accountChanged);
     _generation++;
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load() {
+    final active = _activeLoad;
+    if (active != null) return active;
+    if (!_sameOwner) return Future<void>.value();
+    final load = _fetchRelationships();
+    _activeLoad = load;
+    return load.whenComplete(() {
+      if (identical(_activeLoad, load)) _activeLoad = null;
+    });
+  }
+
+  Future<void> _fetchRelationships() async {
     final generation = ++_generation;
-    if (!_sameOwner) {
-      if (mounted) setState(() => _loading = false);
-      return;
-    }
     setState(() {
       _loading = true;
-      _failed = false;
+      _loadError = null;
     });
     try {
       final rows = await widget.controller.globalCareRelationships();
       if (mounted && generation == _generation && _sameOwner) {
         setState(() => _relationships = rows);
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted && generation == _generation && _sameOwner) {
-        setState(() => _failed = true);
+        final network =
+            error is ApiException &&
+            (error.code == 'NETWORK_UNAVAILABLE' ||
+                error.code == 'NETWORK_TIMEOUT');
+        setState(() {
+          _loadError = network
+              ? _CareLoadError.network
+              : _CareLoadError.service;
+        });
       }
     } finally {
       if (mounted && generation == _generation) {
@@ -348,6 +382,26 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
       appBar: AppBar(
         title: Text(l.remoteCare),
         actions: [
+          if (widget.controller.ringCareEnabled && _sameOwner)
+            IconButton(
+              key: const Key('care-invite-link'),
+              tooltip: ringText(
+                context,
+                '分享邀请或输入邀请码',
+                'Share or enter invitation code',
+              ),
+              onPressed: () => Navigator.of(context)
+                  .push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          RingInvitationsPage(controller: widget.controller),
+                    ),
+                  )
+                  .then((_) {
+                    if (mounted) _load();
+                  }),
+              icon: const Icon(Icons.link_rounded),
+            ),
           IconButton(
             key: const Key('global-care-add'),
             tooltip: l.addCare,
@@ -403,11 +457,19 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
                   ),
                   const SizedBox(height: 12),
                   if (_loading || _working) const LinearProgressIndicator(),
-                  if (_failed) ...[
-                    Text(l.serviceUnavailable),
-                    TextButton(onPressed: _load, child: Text(l.retry)),
+                  if (_loadError != null) ...[
+                    Text(
+                      _loadError == _CareLoadError.network
+                          ? l.networkUnavailable
+                          : l.serviceUnavailable,
+                    ),
+                    TextButton(
+                      key: const Key('global-care-retry'),
+                      onPressed: _loading ? null : _load,
+                      child: Text(l.retry),
+                    ),
                   ],
-                  if (!_loading && !_failed && visible.isEmpty)
+                  if (!_loading && _loadError == null && visible.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(32),
                       child: Column(
@@ -527,6 +589,22 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
             ],
             if (row.active) ...[
               const SizedBox(height: 12),
+              if (widget.controller.ringCareEnabled)
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => RingCareThreadPage(
+                        controller: widget.controller,
+                        relationshipId: row.id,
+                        name: name,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.favorite_border),
+                  label: Text(
+                    ringText(context, '问候与近况', 'Greetings and check-ins'),
+                  ),
+                ),
               if (row.received)
                 OutlinedButton.icon(
                   onPressed: _working ? null : () => _permissions(row),

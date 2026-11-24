@@ -127,7 +127,7 @@ class ReleaseGateTest(unittest.TestCase):
         self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central"])
         self.assertNotIn("NSLocationAlwaysUsageDescription", info)
         self.assertNotIn("NSLocationAlwaysAndWhenInUseUsageDescription", info)
-        self.assertNotIn("NSMicrophoneUsageDescription", info)
+        self.assertIn("voice greeting", info["NSMicrophoneUsageDescription"])
         self.assertIn("NSLocationWhenInUseUsageDescription", info)
 
     def test_ios_targets_iphone_only(self) -> None:
@@ -340,6 +340,17 @@ class ReleaseGateTest(unittest.TestCase):
             }
             with mock.patch.dict(os.environ, environment, clear=True):
                 gate.apk_manifest_command(args)
+                original = manifest.read_text(encoding="utf-8")
+                with_microphone = original.replace(
+                    "<application ",
+                    '<uses-permission android:name="android.permission.RECORD_AUDIO" />'
+                    '<application ',
+                    1,
+                )
+                manifest.write_text(with_microphone, encoding="utf-8")
+                with self.assertRaisesRegex(gate.GateError, "microphone optional"):
+                    gate.apk_manifest_command(args)
+                manifest.write_text(original, encoding="utf-8")
                 args.expected_build = 25
                 with self.assertRaises(gate.GateError):
                     gate.apk_manifest_command(args)
