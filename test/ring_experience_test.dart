@@ -16,79 +16,104 @@ import 'package:saydian_app/services/ring_firmware.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/cardiovascular_trends_page.dart';
+import 'package:saydian_app/ui/pages.dart';
 
 class _OfflineRingApi extends Fake implements SaydianApi, GlobalAccountApi {}
 
 class _DisconnectedRing extends Fake implements WearableBridge {}
 
 void main() {
-  for (final (language, saveLabel) in [
-    ('zh', '保存到本机'),
-    ('en', 'Save on this phone'),
+  for (final (platform, language, title, saveLabel) in [
+    (TargetPlatform.android, 'zh', '心血管趋势', '保存到本机'),
+    (
+      TargetPlatform.android,
+      'en',
+      'Cardiovascular trends',
+      'Save on this phone',
+    ),
+    (TargetPlatform.iOS, 'zh', '心血管趋势', '保存到本机'),
+    (TargetPlatform.iOS, 'en', 'Cardiovascular trends', 'Save on this phone'),
   ]) {
-    testWidgets('reference reading works offline at 2x text ($language)', (
-      tester,
-    ) async {
-      FlutterSecureStorage.setMockInitialValues({});
-      final controller = AppController(
-        MemorySessionVault(),
-        _OfflineRingApi(),
-        MemoryHealthStore(),
-        _DisconnectedRing(),
-        wellnessOnly: true,
-      );
-      addTearDown(controller.dispose);
-      await tester.binding.setSurfaceSize(const Size(320, 700));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(
-        MaterialApp(
-          locale: Locale(language),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: const TextScaler.linear(2)),
-            child: child!,
+    testWidgets(
+      'health opens the offline pressure trend at 2x text ($language)',
+      (tester) async {
+        FlutterSecureStorage.setMockInitialValues({});
+        final controller = AppController(
+          MemorySessionVault(),
+          _OfflineRingApi(),
+          MemoryHealthStore(),
+          _DisconnectedRing(),
+          wellnessOnly: platform == TargetPlatform.iOS,
+        );
+        addTearDown(controller.dispose);
+        await tester.binding.setSurfaceSize(const Size(320, 700));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: Locale(language),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(2)),
+              child: child!,
+            ),
+            home: Scaffold(body: DashboardPage(controller: controller)),
           ),
-          home: CardiovascularTrendsPage(controller: controller),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('record-pressure-reference')));
-      await tester.pumpAndSettle();
-      final fields = find.byType(TextField);
-      expect(fields, findsNWidgets(2));
-      expect(tester.widget<TextField>(fields.first).controller?.text, isEmpty);
-      expect(tester.widget<TextField>(fields.last).controller?.text, isEmpty);
-      await tester.enterText(fields.first, '121');
-      await tester.enterText(fields.last, '79');
-      await tester.tap(find.text(saveLabel));
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
-      final now = DateTime.now();
-      final local = await controller.loadPressureTrend(
-        now.subtract(const Duration(days: 1)),
-        now.add(const Duration(days: 1)),
-      );
-      expect(local.map((row) => (row.systolic, row.diastolic)), [(121, 79)]);
-      await tester.pumpAndSettle();
-      final chart = find.byType(LineChart);
-      if (chart.evaluate().isEmpty) {
-        final labels = tester
-            .widgetList<Text>(find.byType(Text))
-            .map((widget) => widget.data);
-        fail('Missing trend chart after saving a valid reading. $labels');
-      }
-      final graph = tester.widget<LineChart>(chart);
-      expect(graph.data.lineBarsData.map((line) => line.spots.length), [1, 1]);
-      expect(graph.data.lineBarsData.map((line) => line.spots.single.y), [
-        121,
-        79,
-      ]);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
+        );
+        await tester.pumpAndSettle();
+        final entry = find.byKey(const Key('dashboard-cardiovascular-trends'));
+        expect(entry.hitTestable(), findsOneWidget);
+        expect(
+          find.descendant(of: entry, matching: find.text(title)),
+          findsOneWidget,
+        );
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        expect(find.byType(CardiovascularTrendsPage), findsOneWidget);
+        await tester.tap(find.byKey(const Key('record-pressure-reference')));
+        await tester.pumpAndSettle();
+        final fields = find.byType(TextField);
+        expect(fields, findsNWidgets(2));
+        expect(
+          tester.widget<TextField>(fields.first).controller?.text,
+          isEmpty,
+        );
+        expect(tester.widget<TextField>(fields.last).controller?.text, isEmpty);
+        await tester.enterText(fields.first, '121');
+        await tester.enterText(fields.last, '79');
+        await tester.tap(find.text(saveLabel));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        final now = DateTime.now();
+        final local = await controller.loadPressureTrend(
+          now.subtract(const Duration(days: 1)),
+          now.add(const Duration(days: 1)),
+        );
+        expect(local.map((row) => (row.systolic, row.diastolic)), [(121, 79)]);
+        await tester.pumpAndSettle();
+        final chart = find.byType(LineChart);
+        if (chart.evaluate().isEmpty) {
+          final labels = tester
+              .widgetList<Text>(find.byType(Text))
+              .map((widget) => widget.data);
+          fail('Missing trend chart after saving a valid reading. $labels');
+        }
+        final graph = tester.widget<LineChart>(chart);
+        expect(graph.data.lineBarsData.map((line) => line.spots.length), [
+          1,
+          1,
+        ]);
+        expect(graph.data.lineBarsData.map((line) => line.spots.single.y), [
+          121,
+          79,
+        ]);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      variant: TargetPlatformVariant.only(platform),
+    );
   }
 
   test('the first-party host and exact routes are required for care links', () {

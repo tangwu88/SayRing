@@ -4,6 +4,15 @@ extension RingExperienceController on AppController {
   bool get ringExperience =>
       isWellnessOnly && isGlobalEdition && !isPreviewMode;
 
+  // Local pressure trends are available on both phone platforms. Wearable
+  // readings still follow the release policy for the individual metric.
+  bool get canOpenCardiovascularTrends =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android) &&
+      isGlobalEdition &&
+      !isPreviewMode;
+
   bool get ringSharingEnabled => ringExperience && _ringCapabilities.sharing;
   bool get ringCareEnabled => ringExperience && _ringCapabilities.care;
 
@@ -76,7 +85,7 @@ extension RingExperienceController on AppController {
       );
 
   Future<void> savePressureReference(PressureSample sample) async {
-    if (!ringExperience ||
+    if (!canOpenCardiovascularTrends ||
         _accountTransitioning ||
         sample.at.isAfter(DateTime.now()) ||
         !PressureSample.validPair(sample.systolic, sample.diastolic)) {
@@ -124,7 +133,7 @@ extension RingExperienceController on AppController {
     DateTime from,
     DateTime until,
   ) async {
-    if (!ringExperience || _accountTransitioning) return const [];
+    if (!canOpenCardiovascularTrends || _accountTransitioning) return const [];
     final owner = homeHealthCardOwner;
     final generation = _sessionGeneration;
     final references = await safeSecureStorage.read(
@@ -188,7 +197,7 @@ extension RingExperienceController on AppController {
     int generation,
   ) async {
     const verified = String.fromEnvironment('SAY_RING_VERIFIED_U19_PRESSURE');
-    if (!ringExperience ||
+    if (!canOpenCardiovascularTrends ||
         verified.isEmpty ||
         session == null ||
         _accountTransitioning) {
