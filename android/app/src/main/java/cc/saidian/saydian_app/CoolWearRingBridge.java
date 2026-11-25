@@ -405,8 +405,8 @@ public final class CoolWearRingBridge
                 (K6BleDataResult<ArrayList<K6_HeartStruct>>) values -> {
                     if (values != null) {
                         ArrayList<K6_HeartStruct> snapshot = new ArrayList<>(values);
-                        postHealthPacket(() -> CoolWearRecordMapper.heartRecords(
-                                connectedId, firmwareVersion, snapshot));
+                        postHealthPacket(() -> mappedHistory("heart_rate", snapshot.size(), CoolWearRecordMapper.heartRecords(
+                                connectedId, firmwareVersion, snapshot)));
                     }
                     return false;
                 });
@@ -415,8 +415,8 @@ public final class CoolWearRingBridge
                 (K6BleDataResult<ArrayList<K6_DATA_TYPE_REAL_O2>>) values -> {
                     if (values != null) {
                         ArrayList<K6_DATA_TYPE_REAL_O2> snapshot = new ArrayList<>(values);
-                        postHealthPacket(() -> CoolWearRecordMapper.oxygenRecords(
-                                connectedId, firmwareVersion, snapshot));
+                        postHealthPacket(() -> mappedHistory("blood_oxygen", snapshot.size(), CoolWearRecordMapper.oxygenRecords(
+                                connectedId, firmwareVersion, snapshot)));
                     }
                     return false;
                 });
@@ -483,8 +483,8 @@ public final class CoolWearRingBridge
                 (K6BleDataResult<ArrayList<K6_TempStruct>>) values -> {
                     if (values != null) {
                         ArrayList<K6_TempStruct> snapshot = new ArrayList<>(values);
-                        postHealthPacket(() -> CoolWearRecordMapper.temperatureRecords(
-                                connectedId, firmwareVersion, snapshot));
+                        postHealthPacket(() -> mappedHistory("body_temperature", snapshot.size(), CoolWearRecordMapper.temperatureRecords(
+                                connectedId, firmwareVersion, snapshot)));
                     }
                     return false;
                 });
@@ -708,6 +708,7 @@ public final class CoolWearRingBridge
     private void requestHistoryType(int type) {
         CEBluetoothProxyBase proxy = currentReadProxy();
         requestedHistoryTypes.add(type);
+        if (readEvidence != null) readEvidence.requested(type);
         // Same public read-command envelope as SDK getDevInfo(): cmd=3.
         // No mixed-settings, time, user, reminder, pair or clear writes.
         proxy.sendData(new CEDevData(3, type));
@@ -752,6 +753,7 @@ public final class CoolWearRingBridge
         // One read-only discovery per connection, independent from completion
         // of the already negotiated ranges. Silence remains unknown, not empty.
         try {
+            if (readEvidence != null) readEvidence.requested(61);
             proxy.sendData(new CEDevData(3, 61));
             Log.i(TAG, "RRI history protocol discovery requested");
         } catch (RuntimeException error) {
@@ -809,6 +811,7 @@ public final class CoolWearRingBridge
         }
         CoolWearHistoryBatch batch = historyBatches.get(type);
         if (batch == null || !requestedHistoryTypes.contains(type) || syncWindow == null) return;
+        if (readEvidence != null) readEvidence.packet(type, bytes);
         if (bytes != null && bytes.length == 0 ? batch.acceptEmptyReply() : batch.accept(bytes)) noteSyncPacket();
         Log.i(TAG, "history batch; type=" + type + "; bytes=" + (bytes == null ? -1 : bytes.length)
                 + "; remaining=" + (bytes == null || bytes.length < 3 ? -1 : ((bytes[0] & 255) | ((bytes[1] & 255) << 8)))
@@ -847,6 +850,8 @@ public final class CoolWearRingBridge
         response.put("statuses", statuses);
         response.put("receipts", new HashMap<>(connectionRecordReceipts));
         response.put("protocolChecks", pendingHistoryProtocols());
+        if (readEvidence != null) response.put("readEvidence", readEvidenceSnapshot(statuses));
+        readEvidence = null;
         MethodChannel.Result health = pendingHealthSync, sport = pendingSportSync;
         pendingHealthSync = null;
         pendingSportSync = null;
@@ -857,6 +862,18 @@ public final class CoolWearRingBridge
         if (sport != null) sport.success(new ArrayList<>(syncedSportRecords.values()));
         Log.i(TAG, "history ranges confirmed; health records=" + syncedHealthRecords.size()
                 + "; sport records=" + syncedSportRecords.size());
+    }
+
+    private boolean collectNextReadEvidence;
+    private CoolWearReadEvidence readEvidence;
+
+    private Map<String,Object> readEvidenceSnapshot(Map<String,String> statuses) {
+        return readEvidence.snapshot(statuses, clockSync.evidence(connectionEpoch, SystemClock.elapsedRealtime()), autoHeartEnabled, autoOxygenEnabled);
+    }
+
+    private List<Map<String,Object>> mappedHistory(String metric, int decoded, List<Map<String,Object>> records) {
+        if (readEvidence != null) readEvidence.mapped(metric, decoded, records);
+        return records;
     }
 
     private void startSync(MethodChannel.Result result, boolean sportOnly) {
@@ -886,6 +903,8 @@ public final class CoolWearRingBridge
         }
         if (syncDeadline != null) main.removeCallbacks(syncDeadline);
         final long request = ++historyRequestGeneration;
+        readEvidence = !sportOnly && collectNextReadEvidence ? new CoolWearReadEvidence() : null;
+        collectNextReadEvidence = false;
         historyBatches.clear();
         requestedHistoryTypes.clear();
         syncedHealthRecords.clear();
@@ -985,10 +1004,12 @@ public final class CoolWearRingBridge
             partial.put("statuses", statuses);
             partial.put("receipts", new HashMap<>(connectionRecordReceipts));
             partial.put("protocolChecks", pendingHistoryProtocols());
+            if (readEvidence != null) partial.put("readEvidence", readEvidenceSnapshot(statuses));
             // Method delivery succeeded; range statuses remain incomplete.
             // Flutter persists the partial records, then returns false.
             healthResult.success(partial);
         } else if (healthResult != null) healthResult.error(code, message, null);
+        readEvidence = null;
         if (sportResult != null) sportResult.error(code, message,
                 "COOLWEAR_SYNC_TIMEOUT".equals(code) ? partialSport : null);
     }
@@ -2430,6 +2451,7 @@ public final class CoolWearRingBridge
                     result.success(null);
                     break;
                 case "syncHealthData":
+                    collectNextReadEvidence = Boolean.TRUE.equals(call.argument("firstReadEvidence"));
                     startSync(result, false);
                     break;
                 case "readAutoMeasureSettings":

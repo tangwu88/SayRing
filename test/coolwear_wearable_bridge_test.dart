@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'fixtures/sync_read_evidence.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/feature_models.dart';
@@ -171,6 +172,38 @@ void main() {
   );
 
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+  test(
+    'only an explicit first collection requests bounded native evidence',
+    () async {
+      final evidence = firstReadEvidence();
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return {
+          'records': [],
+          'statuses': {'heart_rate': 'partial'},
+          'readEvidence': evidence,
+        };
+      });
+      final bridge = CoolWearAndroidWearableBridge(methods: channel);
+      final normal = await bridge.syncHealthData() as WearableSyncResult;
+      expect(
+        (calls.last.arguments as Map).containsKey('firstReadEvidence'),
+        isFalse,
+      );
+      expect(normal.readEvidence, isNull);
+      final first =
+          await bridge.syncHealthDataWithFirstEvidence() as WearableSyncResult;
+      expect(calls.last.arguments, {'firstReadEvidence': true});
+      expect(first.readEvidence, evidence);
+      evidence['privateAddress'] = 'private';
+      expect(
+        (await bridge.syncHealthDataWithFirstEvidence() as WearableSyncResult)
+            .readEvidence,
+        isNull,
+      );
+    },
+  );
 
   test(
     'sync map preserves partial and empty completion without changing legacy list API',

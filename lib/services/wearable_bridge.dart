@@ -7,6 +7,11 @@ import '../domain/models.dart';
 import '../domain/wellness_release_policy.dart';
 
 /// Optional Android QRing optimization. Other SDKs keep their full-sync contract.
+/// Requested only after server acceptance of a new account first collection.
+abstract interface class WearableFirstReadEvidenceBridge {
+  Future<List<HealthRecord>> syncHealthDataWithFirstEvidence();
+}
+
 abstract interface class WearableRecentHistoryBridge {
   bool get supportsRecentHistorySync;
   Future<List<HealthRecord>> syncRecentHealthData({required int days});

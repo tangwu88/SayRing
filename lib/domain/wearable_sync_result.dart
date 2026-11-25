@@ -8,6 +8,7 @@ class WearableSyncResult extends ListBase<HealthRecord> {
     List<HealthRecord> records,
     Map<String, String> statuses, {
     this.historyDays,
+    this.readEvidence,
     Map<String, String> receipts = const {},
     Set<String> protocolChecks = const {},
   }) : _records = List.of(records),
@@ -15,6 +16,7 @@ class WearableSyncResult extends ListBase<HealthRecord> {
        receipts = Map.unmodifiable(receipts),
        protocolChecks = Set.unmodifiable(protocolChecks);
 
+  final Map<String, Object?>? readEvidence;
   final List<HealthRecord> _records;
   final Map<String, String> statuses;
   final Map<String, String> receipts;

@@ -5,12 +5,14 @@ import 'package:flutter/services.dart';
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
 import '../domain/wearable_sync_result.dart';
+import '../domain/sync_read_evidence.dart';
 import '../domain/wellness_release_policy.dart';
 import 'wearable_bridge.dart';
 
 /// Android 恢复只查询原绑定的系统蓝牙标识，仍须正常连接并完成厂商握手。
 class CoolWearAndroidWearableBridge extends CoolWearWearableBridge
     implements
+        WearableFirstReadEvidenceBridge,
         WearableOwnedSystemTargetBridge,
         WearableBoundDeviceLookupBridge,
         WearableBoundTargetDiscoveryBridge,
@@ -20,6 +22,10 @@ class CoolWearAndroidWearableBridge extends CoolWearWearableBridge
     super.events,
     super.healthReleasePolicy,
   });
+
+  @override
+  Future<List<HealthRecord>> syncHealthDataWithFirstEvidence() =>
+      _syncHealthData(collectFirstEvidence: true);
 
   @override
   Future<void> acknowledgeHealthRecords(Map<String, String> receipts) =>
@@ -304,13 +310,18 @@ class CoolWearWearableBridge
   }
 
   @override
-  Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) =>
+      _syncHealthData(cursor: cursor);
+
+  Future<List<HealthRecord>> _syncHealthData({
+    String? cursor,
+    bool collectFirstEvidence = false,
+  }) async {
     final response =
-        await _invoke<Object?>(
-          'syncHealthData',
-          cursor == null ? null : {'cursor': cursor},
-          const Duration(seconds: 35),
-        ) ??
+        await _invoke<Object?>('syncHealthData', {
+          'cursor': ?cursor,
+          if (collectFirstEvidence) 'firstReadEvidence': true,
+        }, const Duration(seconds: 35)) ??
         const <Object?>[];
     final values = response is Map ? response['records'] : response;
     final records = parseWearableHealthRecords(
@@ -327,6 +338,11 @@ class CoolWearWearableBridge
                     .allowsWireMetric('${entry.key}'))
               '${entry.key}': '${entry.value}',
         },
+        readEvidence:
+            collectFirstEvidence &&
+                isBoundedSyncReadEvidence(response['readEvidence'])
+            ? Map<String, Object?>.from(response['readEvidence'] as Map)
+            : null,
         receipts: response['receipts'] is Map
             ? {
                 for (final entry in (response['receipts'] as Map).entries)

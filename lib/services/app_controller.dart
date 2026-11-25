@@ -4525,9 +4525,17 @@ class AppController extends ChangeNotifier {
       final receivedRecords = recentOnly
           ? await (windowBridge as WearableRecentHistoryBridge)
                 .syncRecentHealthData(days: 2)
+          : syncDiagnostics.canCollectReadEvidence &&
+                _wearable is WearableFirstReadEvidenceBridge
+          ? await (_wearable as WearableFirstReadEvidenceBridge)
+                .syncHealthDataWithFirstEvidence()
           : await _wearable.syncHealthData();
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
+      }
+      if (receivedRecords is WearableSyncResult &&
+          receivedRecords.readEvidence != null) {
+        syncDiagnostics.recordReadEvidence(receivedRecords.readEvidence!);
       }
       if (_usesCoolWearAndroid &&
           !_coolWearCapabilityHistoryRetryUsed &&

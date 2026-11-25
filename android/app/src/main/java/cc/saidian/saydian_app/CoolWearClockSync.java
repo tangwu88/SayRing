@@ -47,5 +47,15 @@ final class CoolWearClockSync {
         return true;
     }
 
+    java.util.Map<String,Object> evidence(long epoch, long now) {
+        java.util.Map<String,Object> value = new java.util.LinkedHashMap<>();
+        boolean offered = attemptedEpoch == epoch || (pending != null && pending.epoch == epoch);
+        value.put("format", offered ? "confirmed" : "not_confirmed");
+        value.put("submission", attemptedEpoch == epoch ? "attempted" :
+                pending != null && pending.epoch == epoch ? (now >= pending.expiresAt ? "expired" : "pending") : "not_requested");
+        value.put("verification", "not_observed"); // No clock readback or ACK is claimed.
+        return value;
+    }
+
     void cancel() { pending = null; }
 }

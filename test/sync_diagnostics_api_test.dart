@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'fixtures/sync_read_evidence.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -104,6 +105,90 @@ void main() {
     },
   );
 
+  for (final versions in [
+    <int>[1],
+    <int>[1, 2],
+    <int>[1, 2, 3],
+  ]) {
+    test(
+      'only negotiates explicitly advertised diagnostic versions $versions',
+      () async {
+        final vault = MemorySessionVault()..session = owner('a');
+        final api = GlobalSaydianApiClient(
+          vault,
+          client: MockClient(
+            (r) async => http.Response(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'schemaVersion': 1,
+                  'product': 'say-ring',
+                  'supported': true,
+                  'acceptedSchemaVersions': versions,
+                },
+              }),
+              200,
+            ),
+          ),
+        );
+        expect(await api.syncDiagnosticSchema(owner('a')), versions.last);
+      },
+    );
+  }
+  test(
+    'complete seven-metric first evidence fits the unchanged report budget',
+    () {
+      final evidence = firstReadEvidence();
+      final row = (evidence['metrics'] as List).single as Map;
+      evidence['metrics'] = [
+        for (final metric in [
+          'steps',
+          'sleep',
+          'heart_rate',
+          'blood_oxygen',
+          'hrv',
+          'stress',
+          'body_temperature',
+        ])
+          {...row, 'metric': metric},
+      ];
+      final full = <String, Object?>{
+        ...report(),
+        'schemaVersion': 3,
+        'mode': 'first_connection',
+        'firmware': '819.0.1.0.0',
+        'osVersion': '16',
+        'osMajor': 16,
+        'phone': {
+          'brand': 'HUAWEI',
+          'modelId': 'VYG-AL00',
+          'osVersion': '16',
+          'osBuild': '123.4',
+          'apiLevel': 36,
+          'locale': 'zh-CN',
+        },
+        'connectionKind': 'first',
+        'readEvidence': evidence,
+        'stages': [
+          for (final stage in SyncDiagnosticStage.values)
+            SyncDiagnosticEvent(
+              stage,
+              SyncDiagnosticState.ok,
+              SyncDiagnosticCode.none,
+              180000,
+              received: 1000000,
+              saved: 1000000,
+              uploaded: 1000000,
+              rejected: 1000000,
+            ).toJson(),
+        ],
+      };
+      expect(isBoundedDiagnosticReport(full), isTrue);
+      expect(utf8.encode(jsonEncode(full)).length, lessThanOrEqualTo(4096));
+      expect(isBoundedDiagnosticReport(syncDiagnosticForV1(full)), isTrue);
+      expect(syncDiagnosticForV1(full).containsKey('readEvidence'), isFalse);
+    },
+  );
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
     'uses only authenticated international Say Ring endpoints and safe JSON',

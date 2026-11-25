@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'sync_read_evidence.dart';
 
 enum SyncDiagnosticStage {
   connect,
@@ -81,7 +82,8 @@ Map<String, Object?> syncDiagnosticForV1(Map<String, Object?> report) =>
           ],
       }
       ..remove('phone')
-      ..remove('connectionKind');
+      ..remove('connectionKind')
+      ..remove('readEvidence');
 
 const syncDiagnosticModelNames = {
   'R7Pro',
@@ -254,12 +256,19 @@ bool isBoundedDiagnosticReport(Map<String, Object?> report) {
     'metrics',
     'stages',
   };
-  if (version != 1 && version != 2) return false;
+  if (version != 1 && version != 2 && version != 3) return false;
   if (report.keys.any(
     (k) =>
         !keys.contains(k) &&
-        !(version == 2 && (k == 'phone' || k == 'connectionKind')),
+        !((version == 2 || version == 3) &&
+            (k == 'phone' || k == 'connectionKind')) &&
+        !(version == 3 && k == 'readEvidence'),
   )) {
+    return false;
+  }
+  if (report.containsKey('readEvidence') &&
+      (report['mode'] != 'first_connection' ||
+          !isBoundedSyncReadEvidence(report['readEvidence']))) {
     return false;
   }
   if (report.containsKey('phone')) {
@@ -365,7 +374,7 @@ bool isBoundedDiagnosticReport(Map<String, Object?> report) {
             SyncDiagnosticStage.values.any((v) => v.name == s['stage']) &&
             SyncDiagnosticState.values.any((v) => v.name == s['state']) &&
             SyncDiagnosticCode.values.any((v) => v.wireName == s['code']) &&
-            (version == 2 || !_connectionV2Codes.contains(s['code'])) &&
+            (version != 1 || !_connectionV2Codes.contains(s['code'])) &&
             count(s['elapsedMs'], 3600000) &&
             const [
               'received',

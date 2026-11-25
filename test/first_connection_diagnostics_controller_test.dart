@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'fixtures/sync_read_evidence.dart';
+import 'package:saydian_app/services/wearable_bridge.dart';
+import 'package:saydian_app/domain/wearable_sync_result.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:saydian_app/services/api_client.dart';
@@ -36,8 +39,76 @@ class Remote extends fixture.Remote
   }
 }
 
+class EvidenceRemote extends Remote implements SyncDiagnosticsVersionsApi {
+  @override
+  Future<int> syncDiagnosticSchema(Session session) async => 3;
+}
+
+class EvidenceRing extends fixture.Ring
+    implements WearableFirstReadEvidenceBridge {
+  final connectGate = Completer<void>();
+  int evidenceReads = 0;
+  @override
+  Future<void> connect(String id, {WearableUserProfile? profile}) async {
+    connects++;
+    await connectGate.future;
+  }
+
+  @override
+  Future<List<HealthRecord>> syncHealthDataWithFirstEvidence() async {
+    reads++;
+    evidenceReads++;
+    return WearableSyncResult([], {
+      'heart_rate': 'partial',
+    }, readEvidence: firstReadEvidence());
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'controller requests evidence only during the server-approved first read',
+    () async {
+      PackageInfo.setMockInitialValues(
+        appName: 'Say Ring',
+        packageName: 'cn.saydian.ring',
+        version: '1.0.15',
+        buildNumber: '1321',
+        buildSignature: 'synthetic',
+      );
+      final api = EvidenceRemote(), ring = EvidenceRing();
+      final app = AppController(
+        MemorySessionVault()..privacyConsentGranted = true,
+        api,
+        MemoryHealthStore(),
+        ring,
+      );
+      addTearDown(app.dispose);
+      addTearDown(ring.source.close);
+      await app.initialize();
+      app.session = Session(
+        accessToken: 'synthetic',
+        refreshToken: '',
+        expiresAt: DateTime.utc(2099),
+        memberId: 'fresh',
+        displayName: 'Synthetic',
+        accountKey: 'global:fresh',
+      );
+      final connecting = app.connectDevice(fixture.device);
+      await fixture.settle();
+      ring.connectGate.complete();
+      await connecting;
+      await fixture.settle();
+      await fixture.settle();
+      expect(ring.evidenceReads, 1);
+      expect(api.reports.single['readEvidence'], firstReadEvidence());
+      await app.syncDeviceData();
+      await fixture.settle();
+      expect(ring.evidenceReads, 1);
+      expect(api.reports, hasLength(1));
+      expect(ring.clears, 0);
+    },
+  );
   test(
     'first connection reports genuine empty read/save/upload outcomes; diagnostic slowness never blocks BLE or another sync',
     () async {

@@ -359,7 +359,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
         return 0;
       }
       final versions = data['acceptedSchemaVersions'];
-      return versions is List && versions.contains(2) ? 2 : 1;
+      return versions is List && versions.contains(3)
+          ? 3
+          : versions is List && versions.contains(2)
+          ? 2
+          : 1;
     } on ApiException catch (error) {
       if (error.statusCode == 404 || error.statusCode == 405) return 0;
       rethrow;

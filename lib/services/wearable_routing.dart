@@ -202,6 +202,7 @@ class RoutedWearableBridge
         WearableBridge,
         WearableRecentHistoryBridge,
         WearableHealthReceiptBridge,
+        WearableFirstReadEvidenceBridge,
         WearableDeviceDetailsBridge,
         WearableWatchFaceProfileBridge,
         WearableNativeWatchFaceBridge,
@@ -1374,6 +1375,10 @@ class RoutedWearableBridge
       _syncHistory(cursor: cursor);
 
   @override
+  Future<List<HealthRecord>> syncHealthDataWithFirstEvidence() =>
+      _syncHistory(collectFirstEvidence: true);
+
+  @override
   Future<void> acknowledgeHealthRecords(Map<String, String> receipts) async {
     if (_activeTransport == null) return;
     final source = _activeBridge;
@@ -1398,7 +1403,11 @@ class RoutedWearableBridge
   Future<List<HealthRecord>> syncRecentHealthData({required int days}) =>
       _syncHistory(days: days);
 
-  Future<List<HealthRecord>> _syncHistory({String? cursor, int? days}) async {
+  Future<List<HealthRecord>> _syncHistory({
+    String? cursor,
+    int? days,
+    bool collectFirstEvidence = false,
+  }) async {
     final transport = _activeTransport;
     if (transport == null) {
       throw PlatformException(code: 'NOT_CONNECTED', message: '请先连接戒指');
@@ -1409,7 +1418,10 @@ class RoutedWearableBridge
       throw StateError('Recent history unavailable');
     }
     final records = days == null
-        ? await source.syncHealthData(cursor: cursor)
+        ? collectFirstEvidence && source is WearableFirstReadEvidenceBridge
+              ? await (source as WearableFirstReadEvidenceBridge)
+                    .syncHealthDataWithFirstEvidence()
+              : await source.syncHealthData(cursor: cursor)
         : await (source as WearableRecentHistoryBridge).syncRecentHealthData(
             days: days,
           );
@@ -1458,6 +1470,7 @@ class RoutedWearableBridge
             scoped,
             records.statuses,
             historyDays: records.historyDays,
+            readEvidence: collectFirstEvidence ? records.readEvidence : null,
             receipts: records.receipts,
             protocolChecks: records.protocolChecks,
           )

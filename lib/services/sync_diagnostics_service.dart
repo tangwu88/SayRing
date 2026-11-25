@@ -7,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
 import '../domain/sync_diagnostics.dart';
+import '../domain/sync_read_evidence.dart';
 import 'api_client.dart';
 import 'secure_vault.dart';
 
@@ -52,6 +53,24 @@ class SyncDiagnosticsService {
       _closed = false,
       _draftScheduled = false;
   String? lastReportId, status;
+  bool _reservationAccepted = false;
+  String? _collectionMember, _collectionAccount;
+  Map<String, Object?>? _readEvidence;
+  bool get canCollectReadEvidence =>
+      _reservationAccepted &&
+      session()?.memberId == _collectionMember &&
+      session()?.accountKey == _collectionAccount &&
+      !_disposed &&
+      allowed() &&
+      _attemptStarted &&
+      !_closed &&
+      !_frozen &&
+      _metadata?['schemaVersion'] == 3;
+  void recordReadEvidence(Map<String, Object?> evidence) {
+    if (!canCollectReadEvidence || !isBoundedSyncReadEvidence(evidence)) return;
+    _readEvidence = jsonDecode(jsonEncode(evidence)) as Map<String, Object?>;
+  }
+
   bool get busy => _tasksPending > 0;
   bool get hasContext => _owner != null;
   int get connectionGeneration => _generation;
@@ -140,7 +159,7 @@ class SyncDiagnosticsService {
       'schemaVersion': version,
       for (final key in ['appVersion', 'buildNumber', 'osMajor', 'osVersion'])
         if (details[key] != null) key: details[key],
-      if (version == 2 && phone.isNotEmpty) 'phone': phone,
+      if (version >= 2 && phone.isNotEmpty) 'phone': phone,
     };
   }
 
@@ -152,12 +171,9 @@ class SyncDiagnosticsService {
     final remote = api;
     if (remote is SyncDiagnosticsVersionsApi) {
       try {
-        if (await (remote as SyncDiagnosticsVersionsApi).syncDiagnosticSchema(
-              expected,
-            ) ==
-            2) {
-          version = 2;
-        }
+        final negotiated = await (remote as SyncDiagnosticsVersionsApi)
+            .syncDiagnosticSchema(expected);
+        if (negotiated == 2 || negotiated == 3) version = negotiated;
       } catch (_) {
         // A failed optional capability lookup keeps the existing V1 payload.
       }
@@ -323,6 +339,8 @@ class SyncDiagnosticsService {
     'connectionId': _connectionId,
     'reportId': _reportId,
     'stages': _events.take(16).map((e) => e.toJson()).toList(),
+    if (_metadata?['schemaVersion'] == 3 && _readEvidence != null)
+      'readEvidence': _readEvidence,
   };
 
   void record(
@@ -523,6 +541,9 @@ class SyncDiagnosticsService {
           await store.writeSyncDiagnostics(owner, state);
           return;
         }
+        _reservationAccepted = true;
+        _collectionMember = expected.memberId;
+        _collectionAccount = expected.accountKey;
         first['accepted'] = true;
         first.remove('refused');
         state['firstAttempt'] = first;
@@ -666,6 +687,9 @@ class SyncDiagnosticsService {
     _target = null;
     _guestConnectionKind = null;
     _metadata = null;
+    _reservationAccepted = false;
+    _collectionMember = _collectionAccount = null;
+    _readEvidence = null;
     _attemptStarted = false;
     _closed = false;
     _frozen = false;

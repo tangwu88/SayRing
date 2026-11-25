@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'fixtures/sync_read_evidence.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/sync_diagnostics.dart';
@@ -78,6 +79,11 @@ class V2Remote extends Remote implements SyncDiagnosticsVersionsApi {
   Future<int> syncDiagnosticSchema(Session expectedSession) async => 2;
 }
 
+class V3Remote extends Remote implements SyncDiagnosticsVersionsApi {
+  @override
+  Future<int> syncDiagnosticSchema(Session expectedSession) async => 3;
+}
+
 Future<void> settle() async {
   for (var i = 0; i < 160; i++) {
     await Future<void>.delayed(Duration.zero);
@@ -147,6 +153,78 @@ void main() {
     service = create();
   });
   tearDown(() => service.dispose());
+
+  test(
+    'V3 counts only collect after server acceptance and freeze with first report',
+    () async {
+      service.dispose();
+      final gate = Completer<void>();
+      remote = V3Remote()..beginGate = gate;
+      service = create();
+      start();
+      await settle();
+      expect(service.canCollectReadEvidence, isFalse);
+      service.recordReadEvidence(firstReadEvidence());
+      gate.complete();
+      await settle();
+      expect(service.canCollectReadEvidence, isTrue);
+      final evidence = firstReadEvidence();
+      service.recordReadEvidence(evidence);
+      ((evidence['metrics'] as List).single as Map)['packets'] = 99;
+      healthy();
+      await settle();
+      expect(service.canCollectReadEvidence, isFalse);
+      expect(remote.reports.single['schemaVersion'], 3);
+      final frozen = remote.reports.single['readEvidence'] as Map;
+      expect(((frozen['metrics'] as List).single as Map)['packets'], 2);
+      start('ANOTHER-TARGET');
+      service.recordReadEvidence(firstReadEvidence());
+      await settle();
+      expect(remote.reports, hasLength(1));
+    },
+  );
+  test(
+    'V3 refuses fresh evidence for old accounts and another logged-in owner',
+    () async {
+      service.dispose();
+      remote = V3Remote()..eligible = false;
+      service = create();
+      start();
+      await settle();
+      expect(service.canCollectReadEvidence, isFalse);
+      service.recordReadEvidence(firstReadEvidence());
+      healthy();
+      await settle();
+      expect(remote.reports, isEmpty);
+      service.dispose();
+      remote = V3Remote();
+      current = owner('fresh');
+      service = create();
+      start();
+      await settle();
+      expect(service.canCollectReadEvidence, isTrue);
+      current = owner('other');
+      expect(service.canCollectReadEvidence, isFalse);
+    },
+  );
+  test(
+    'older negotiated versions never request or send read evidence',
+    () async {
+      for (final api in [Remote(), V2Remote()]) {
+        service.dispose();
+        remote = api;
+        service = create();
+        start();
+        await settle();
+        expect(service.canCollectReadEvidence, isFalse);
+        service.recordReadEvidence(firstReadEvidence());
+        healthy();
+        await settle();
+        expect(remote.reports.single.containsKey('readEvidence'), isFalse);
+        vault = MemorySessionVault();
+      }
+    },
+  );
 
   test('Bluetooth off remains a V2 reason with a compatible V1 payload', () {
     final stage = SyncDiagnosticEvent(
