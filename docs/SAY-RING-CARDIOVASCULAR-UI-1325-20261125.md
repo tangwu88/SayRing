@@ -22,10 +22,11 @@
 | 全量 Flutter 回归 | `TZ=UTC flutter test` 和 `TZ=Asia/Shanghai flutter test` 各通过 2,500 项。 |
 | Android 模拟器 | `integration_test/cardio_trends_device_test.dart` 的三个场景通过。中英文分别核对曲线、选日联动和展开解读，另从「全部健康数据」验证正常入口。截图为实际渲染的页面，采用隔离的合成记录和模拟模型响应。 |
 | iPhone XR | 原位安装普通入口 Profile 包，系统读回 `cn.saydian.ring`、1.0.15（1325）。XCUITest 从健康页进入趋势页，完成 30 天和 7 天切换，打开上臂血压表单，核对收缩压与舒张压并取消。1 项通过，0 失败。 |
+| iPhone 15 Pro Max | 2026-11-25 从 1.0.15（1323）原位覆盖安装，系统读回 1.0.15（1325）。两项 XCUITest 通过。核对正常入口、7 天／30 天切换、日期选择器、上臂血压表单与取消。使用本机已有记录从 7 天曲线进入逐日查看，确认当日平均血压和同日记录卡显示，返回最近一次。复测完成后已启动 App。 |
 | 双端测试包 | Android Debug、QA Release 与 iOS Profile、Debug 均构建成功。华为覆盖 APK 的签名证书与已安装版本相同。iOS 真机测试 IPA 已验签。 |
 
 相关自动检查位于 `test/cardiovascular_model_test.dart`、`test/ring_experience_test.dart`、`test/support/cardio_chart_scenario.dart` 和上述集成测试。首次检查发现曲线的读屏增减操作缺少相邻日期描述、英文大字标签溢出，已分别补齐读屏值并允许标签换行。测试夹具修正了重复的首页路由、旧版页面选择器、屏幕外按钮点击，以及与当前 Flutter 版本不匹配的截图清理调用。静态检查提示的字符串插值已修正。iOS 构建第一次因 Xcode 正在读取工程而延后，随后串行完成两个配置。
 
-本轮 XR 实测覆盖浏览、切换周期与取消录入。带完整数据的曲线和模型展示由上述隔离测试验证。线上模型本轮未重新请求，华为及 15 Pro Max 未实测本次界面。
+完整数据组合及模型结果展示由上述隔离测试验证。15 Pro Max 真机复测使用已有记录浏览并取消录入。华为真机界面及线上模型独立联调未在本轮复测。
 
-本机产物位于 `build/say-ring-cardio-ui-1325-20261125.TCLO2I/`。`overview-zh.png`、`overview-en.png` 是中英文概览，`details-zh.png`、`details-en.png` 是展开后的页面。`final/` 下保存双端包及验签记录，`xr-ui/xr-test.log` 保存真机结果。
+本机产物位于 `build/say-ring-cardio-ui-1325-20261125.TCLO2I/`。`overview-zh.png`、`overview-en.png` 是中英文概览，`details-zh.png`、`details-en.png` 是展开后的页面。`final/` 下保存双端包及验签记录。XR 结果见 `xr-ui/xr-test.log`，15 Pro Max 的安装和两项测试结果在 `15pm-1325.iMa02L/`。
