@@ -24,4 +24,6 @@
 
 ## 苹果审核
 
-App Store Connect 当前显示 1.0.14 可分发，1.0.15（1317）已获批并等待手动发布。后续提交需按用户明确选择处理这一已通过审核的构建。
+- 真机和回归通过后，以源码提交 `10ad5a52a6bb95c25e79a6ebba1f24b900fc173b` 构建正常入口的 1.0.15（1332）发行归档。Xcode 于北京时间 03:35:48 保存保护归档，之后成功导出 App Store 签名的 IPA。
+- IPA 为 40,370,408 字节，SHA-256 为 `6cf3eb6c944d92aa9273dbe590b55929dcd7eb1c6e5d8f424199f8c6155f35a0`。Bundle ID、团队、版本、原归档 UUID、生产推送和关闭调试权限均已核对。留样位于 `build/say-ring-15pm-r21-home-20261126.r3iXI5aK/appstore/distribution-local/Say Ring.ipa`。
+- App Store Connect 显示 1.0.14 可分发，1.0.15（1317）已获批并等待手动发布。1332 当前为本地导出，上传及送审取决于用户对 1317 待发布状态的选择。
