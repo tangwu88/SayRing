@@ -379,7 +379,8 @@ class AccountSettingsPage extends StatelessWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          userFacingMessage(
+          uiErrorCopy(
+            context,
             controller.errorMessage,
             fallback: uiCopy(context, "注销失败，请稍后重试"),
           ),

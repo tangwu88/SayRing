@@ -475,7 +475,11 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                     isNew
                         ? '${_healthDisplayValue(record, widget.controller)} ${_healthDisplayUnit(widget.metric, record, widget.controller)}'
                         : failed
-                        ? (isU19 ? uiCopy(context, failure) : failure)
+                        ? appStatusCopy(
+                            failure,
+                            context: context,
+                            genericDevice: isU19,
+                          )
                         : waitingMessage,
                     textAlign: TextAlign.center,
                     style: TextStyle(

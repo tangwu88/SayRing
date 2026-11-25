@@ -1829,7 +1829,8 @@ Future<void> _showAddCareDialog(
       content: Text(
         success
             ? uiCopy(context, "关爱请求已发送")
-            : userFacingMessage(
+            : uiErrorCopy(
+                context,
                 controller.errorMessage,
                 fallback: uiCopy(context, "请求未发送，请重试"),
               ),

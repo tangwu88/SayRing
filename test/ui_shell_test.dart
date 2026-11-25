@@ -554,6 +554,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('U19 history read failure follows the English UI locale', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _DeviceReadFailureWearable(),
+    )..connectedDevice = const DeviceInfo(id: 'urion:synthetic', name: 'U19M');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: Scaffold(body: DevicePage(controller: controller)),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('device-sync-data')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Device connected. Could not read data. Try again shortly.'),
+      findsOneWidget,
+    );
+    expect(find.text('设备已连接，但数据读取失败，请稍后重试'), findsNothing);
+    expect(controller.isDeviceHistorySyncing, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('connected pending initialization retains safe sync recovery', (
     tester,
   ) async {
@@ -6495,6 +6525,12 @@ class _U19ActivityWithoutPressure extends _NoopWearable {
         ],
         const {'steps': 'complete', 'blood_pressure': 'no_data'},
       );
+}
+
+class _DeviceReadFailureWearable extends _NoopWearable {
+  @override
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async =>
+      throw const FormatException('Synthetic unreadable history');
 }
 
 class _FindTrackingWearable extends _NoopWearable {

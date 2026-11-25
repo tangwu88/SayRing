@@ -119,7 +119,7 @@ class _SupportFaqPageState extends State<SupportFaqPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     key: const Key('support-faq'),
-    appBar: AppBar(title: Text(tr('常见问题', 'Frequently asked questions'))),
+    appBar: AppBar(title: Text(tr('常见问题', 'FAQ'))),
     body: RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -159,7 +159,7 @@ class _SupportFaqPageState extends State<SupportFaqPage> {
                 child: ListTile(
                   title: Text('${row['title'] ?? ''}'),
                   subtitle: _language == 'en' && row['locale'] == 'zh-Hans'
-                      ? const Text('中文')
+                      ? const Text('Chinese')
                       : null,
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => Navigator.of(context).push(
@@ -243,7 +243,7 @@ class _SupportArticlePageState extends State<SupportArticlePage> {
               ),
               if (Localizations.localeOf(context).languageCode != 'zh' &&
                   data['locale'] == 'zh-Hans')
-                const Text('中文'),
+                const Text('Chinese'),
               const SizedBox(height: 14),
               ArticleBody(
                 htmlContent: '${data['contentHtml'] ?? ''}',

@@ -33,9 +33,11 @@ class _AppShellState extends State<AppShell> {
         ..showSnackBar(
           SnackBar(
             content: Text(
-              userFacingMessage(
+              uiErrorCopy(
+                context,
                 message,
                 fallback: uiCopy(context, "操作未完成，请重试"),
+                genericDevice: controller.usesDevicePrompts,
               ),
             ),
           ),

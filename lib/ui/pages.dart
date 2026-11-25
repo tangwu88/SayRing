@@ -30,7 +30,6 @@ import '../services/health_analysis.dart';
 import '../services/health_view_data_source.dart';
 import '../services/device_watch_face_market_service.dart';
 import '../services/sleep_health_projection.dart';
-import '../services/user_message.dart';
 import 'health_ui_owner.dart';
 import 'app_theme.dart';
 import 'ai_content_gate.dart';

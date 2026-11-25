@@ -1326,7 +1326,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              userFacingMessage(
+              uiErrorCopy(
+                context,
                 error.message,
                 fallback: uiCopy(context, "暂时无法打开样式，请重试"),
               ),
@@ -1784,7 +1785,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          userFacingMessage(
+          uiErrorCopy(
+            context,
             widget.controller.errorMessage,
             fallback: uiCopy(context, "无法打开系统设置"),
           ),
@@ -1935,7 +1937,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       }
     } on DeviceWeatherException catch (error) {
       if (!mounted) return;
-      final message = userFacingMessage(
+      final message = uiErrorCopy(
+        context,
         error.message,
         fallback: uiCopy(context, "暂时无法更新天气"),
       );

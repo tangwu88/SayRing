@@ -99,6 +99,66 @@ void main() {
       );
     }
   });
+  testWidgets('runtime errors use the active UI locale and device terms', (
+    tester,
+  ) async {
+    BuildContext? current;
+    Future<void> show(Locale locale) => tester.pumpWidget(
+      MaterialApp(
+        locale: locale,
+        supportedLocales: GlobalLocaleController.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: Builder(
+          builder: (context) {
+            current = context;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    await show(const Locale('en'));
+    expect(
+      uiErrorCopy(
+        current!,
+        'SocketException: unavailable',
+        fallback: 'Please try again.',
+      ),
+      'Network unavailable. Check your connection and try again.',
+    );
+    expect(
+      appStatusCopy('设备已连接，但历史数据同步失败', context: current),
+      'Device connected. Could not sync device history.',
+    );
+    expect(
+      appStatusCopy('已保存 3 条，可稍后再次同步', context: current),
+      'Records saved: 3. You can sync again later.',
+    );
+    expect(
+      appStatusCopy('设备已连接，但戒指数据读取超时', context: current, genericDevice: true),
+      'Device connected. Reading device data timed out.',
+    );
+    expect(
+      appStatusCopy('戒指数据读取超时', context: current),
+      'Reading ring data timed out.',
+    );
+    expect(
+      uiErrorCopy(current!, '请重新扫描后再连接设备', fallback: 'Please try again.'),
+      'Search again before connecting to the device.',
+    );
+
+    await show(
+      const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+    );
+    expect(
+      uiErrorCopy(current!, 'SocketException: unavailable', fallback: '请重试'),
+      '网络不可用，请检查后重试',
+    );
+    expect(
+      appStatusCopy('已保存 3 条，可稍后再次同步', context: current),
+      '已保存 3 条，可稍后再次同步',
+    );
+  });
+
   for (final scale in [1.0, 2.0]) {
     testWidgets(
       'English scope renders app copy and keeps parameter text at scale $scale',

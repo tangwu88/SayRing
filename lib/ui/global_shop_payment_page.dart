@@ -2,7 +2,6 @@ import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import '../services/user_message.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/global_commerce.dart';
@@ -184,7 +183,8 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
           _launchedProvider = null;
           _message = error.statusCode != null && error.statusCode! >= 500
               ? uiCopy(context, "支付暂时无法使用，请稍后重试")
-              : userFacingMessage(
+              : uiErrorCopy(
+                  context,
                   error.message,
                   fallback: uiCopy(context, "支付暂时无法使用，请稍后重试"),
                 );

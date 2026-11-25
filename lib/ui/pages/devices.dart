@@ -167,23 +167,23 @@ class DevicePage extends StatelessWidget {
                                       WearableSdkSource.urion;
                                   final feedback = succeeded
                                       ? watch
-                                            ? controller.syncStatus
+                                            ? appStatusCopy(
+                                                controller.syncStatus,
+                                                context: context,
+                                                genericDevice: true,
+                                              )
                                             : context.l10n.syncComplete
-                                      : userFacingMessage(
+                                      : uiErrorCopy(
+                                          context,
                                           controller.errorMessage,
                                           fallback: devicePromptLabel(
                                             context,
                                             context.l10n.syncFailedTryAgain,
                                           ),
+                                          genericDevice: watch,
                                         );
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        watch
-                                            ? uiCopy(context, feedback)
-                                            : feedback,
-                                      ),
-                                    ),
+                                    SnackBar(content: Text(feedback)),
                                   );
                                 },
                           style: FilledButton.styleFrom(
