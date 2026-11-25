@@ -38,6 +38,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @property(nonatomic) NSTimeInterval recoveryRetryNotBefore;
 @property(nonatomic) NSUInteger recoveryCalls;
 @property(nonatomic, copy) NSString *firmware;
+@property(nonatomic, copy) NSString *firmwareHardware;
 @property(nonatomic, strong) NSNumber *battery;
 @property(nonatomic, strong) NSNumber *charging;
 @property(nonatomic, strong) NSDate *batteryUpdatedAt;
