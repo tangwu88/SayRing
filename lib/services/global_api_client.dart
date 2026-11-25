@@ -1480,6 +1480,15 @@ class GlobalSaydianApiClient extends SaydianApiClient
     final route = RegExp(
       r'^/(?:care/invitations|health/(?:alerts|warnings))/([A-Za-z0-9._:-]+)$',
     ).firstMatch(deepLink);
+    final systemEntity = type != 'system'
+        ? null
+        : ringShareForNotice(eventId, link: deepLink) ??
+              (eventId.startsWith('support-reply:')
+                  ? supportConversationFromLink(deepLink)
+                  : null) ??
+              (isRingCareNotice(eventId)
+                  ? ringCareRelationshipFromLink(deepLink)
+                  : null);
     return <String, Object?>{
       ...row,
       // The imported detail API accepts only numeric legacy IDs. Keep the V2
@@ -1493,13 +1502,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       },
       'event_id': eventId,
       'remote_event_id': eventId,
-      'entity_id':
-          ?(route?.group(1) ??
-          (type == 'system' && eventId.startsWith('support-reply:')
-              ? supportConversationFromLink(deepLink)
-              : (type == 'system' && isRingCareNotice(eventId)
-                    ? ringCareRelationshipFromLink(deepLink)
-                    : null))),
+      'entity_id': ?(route?.group(1) ?? systemEntity),
       'content': row['body'],
       'created_at': createdAt,
       'is_read': row['readAt'] != null,

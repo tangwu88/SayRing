@@ -497,9 +497,13 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
           controller: controller,
           relationshipId: intent.entityId ?? '',
         ),
-        NotificationRouteTarget.ringShares => RingMySharesPage(
-          controller: controller,
-        ),
+        NotificationRouteTarget.ringShares =>
+          intent.entityId == null
+              ? RingMySharesPage(controller: controller)
+              : RingShareRepliesPage(
+                  controller: controller,
+                  shareId: intent.entityId!,
+                ),
         NotificationRouteTarget.notificationInbox => NotificationsPage(
           controller: controller,
         ),

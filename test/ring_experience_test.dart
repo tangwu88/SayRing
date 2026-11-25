@@ -15,6 +15,7 @@ import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/notification_models.dart';
+import 'package:saydian_app/services/notification_payload.dart';
 import 'package:saydian_app/services/notification_route_service.dart';
 import 'package:saydian_app/services/ring_firmware.dart';
 import 'package:saydian_app/services/secure_vault.dart';
@@ -32,12 +33,20 @@ class _ConnectedRingApi extends _OfflineRingApi
   final availability = Completer<Map<String, Object?>>();
   final sharePosts = <Map<String, Object?>>[];
   Future<Map<String, Object?>> Function()? shareResponse;
+  List<Map<String, Object?>> inbox = const [];
+  Map<String, Object?> share = const {};
+  List<Map<String, Object?>> olderReplies = const [];
+  final readShareIds = <String>[];
 
   @override
   Future<Map<String, Object?>> readRingCapabilities() => availability.future;
 
   @override
   Future<List<GlobalCareRelationship>> globalCareRelationships() async => [];
+
+  @override
+  Future<List<Map<String, Object?>>> getNotifications({int page = 1}) async =>
+      inbox;
 
   @override
   Future<Map<String, Object?>> requestRing(
@@ -50,6 +59,21 @@ class _ConnectedRingApi extends _OfflineRingApi
     if (method == 'POST' && path == 'shares') {
       sharePosts.add(data!);
       return await (shareResponse?.call() ?? Future.value({'id': 'fixture'}));
+    }
+    if (method == 'GET' && path == 'shares') {
+      return {
+        'entries': [share],
+      };
+    }
+    if (method == 'GET' && path.startsWith('shares/')) {
+      readShareIds.add(path.substring('shares/'.length));
+      return {
+        'share': share,
+        'reactions': query?['before'] == null
+            ? share['reactions']
+            : olderReplies,
+        'nextBefore': query?['before'] == null ? 'older' : null,
+      };
     }
     expect(method, 'GET');
     expect(path, 'care/invitations');
@@ -700,7 +724,118 @@ void main() {
       ),
       isNull,
     );
+    const eventId = 'ring-share:908fea23-2a97-452c-842c-b97733caf001';
+    final push = normalizeNotificationBusinessPayload({
+      'eventId': eventId,
+      'type': 'system',
+      'deepLink': '/ring/shares',
+      'entityId': id,
+    }, receivedAt: now)!;
+    final reply = router.resolve(NotificationEvent.tryParse(push)!);
+    expect(reply.target, NotificationRouteTarget.ringShares);
+    expect(reply.entityId, id);
+    expect(ringShareForNotice('ring-share:$id', link: '/ring/shares'), id);
+    expect(ringShareForNotice(eventId, link: '/ring/shares/$id'), id);
+    expect(
+      normalizeNotificationBusinessPayload({
+        'eventId': eventId,
+        'type': 'system',
+        'deepLink': '/ring/shares/invalid',
+      }, receivedAt: now),
+      isNull,
+    );
   });
+
+  testWidgets(
+    'share notifications open the right report with reply contents and local time',
+    (tester) async {
+      const shareId = 'bbdd9988-abcd-abcd-abcd-123456789012';
+      final time = DateTime(2026, 11, 25, 19, 12);
+      final api = _ConnectedRingApi()
+        ..inbox = [
+          {
+            'event_id': 'ring-share:908fea23-2a97-452c-842c-b97733caf001',
+            'deepLink': '/ring/shares/$shareId',
+            'created_at': time.toUtc().toIso8601String(),
+            'is_read': false,
+          },
+        ]
+        ..share = {
+          'id': shareId,
+          'snapshot': RingSnapshot('sleep', time, {
+            'sleepMinutes': 420,
+          }).toJson(),
+          'reactions': [
+            {
+              'kind': 'hug',
+              'name': null,
+              'createdAt': time.toUtc().toIso8601String(),
+            },
+          ],
+        }
+        ..olderReplies = [
+          {
+            'kind': 'walk',
+            'name': 'Fixture friend',
+            'createdAt': time.toUtc().toIso8601String(),
+          },
+        ];
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              api,
+              MemoryHealthStore(),
+              _DisconnectedRing(),
+              wellnessOnly: true,
+            )
+            ..session = Session(
+              accessToken: 'fixture',
+              refreshToken: '',
+              expiresAt: DateTime.utc(2099),
+              memberId: 'fixture',
+              accountKey: 'global:fixture',
+              displayName: 'Fixture',
+            );
+      addTearDown(controller.dispose);
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      Widget shell(Widget home) => MaterialApp(
+        key: ValueKey(home.runtimeType),
+        home: home,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+      );
+      await tester.pumpWidget(shell(NotificationsPage(controller: controller)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Someone replied to your share'));
+      await tester.pumpAndSettle();
+      expect(api.readShareIds, [shareId]);
+      expect(find.text('Share replies'), findsOneWidget);
+      expect(find.text('Sending a hug'), findsOneWidget);
+      final replyContext = tester.element(find.text('Sending a hug'));
+      final date = MaterialLocalizations.of(
+        replyContext,
+      ).formatMediumDate(time);
+      final clock = TimeOfDay.fromDateTime(time).format(replyContext);
+      expect(find.text('A friend · $date $clock'), findsOneWidget);
+      await tester.tap(find.text('See older replies'));
+      await tester.pumpAndSettle();
+      expect(find.text('Let’s walk together'), findsOneWidget);
+      expect(find.text('Fixture friend · $date $clock'), findsOneWidget);
+
+      await tester.pumpWidget(shell(RingMySharesPage(controller: controller)));
+      await tester.pumpAndSettle();
+      expect(find.text('View replies'), findsOneWidget);
+      expect(find.text('Sending a hug'), findsOneWidget);
+      expect(find.text('Revoke link'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 
   test('firmware package families are limited to the six product models', () {
     const expected = {

@@ -28,7 +28,8 @@ import 'notification_route_service.dart'
     show
         supportConversationFromLink,
         ringCareRelationshipFromLink,
-        isRingCareNotice;
+        isRingCareNotice,
+        ringShareForNotice;
 import 'wearable_routing.dart';
 
 part 'global_api_client.dart';

@@ -8242,6 +8242,15 @@ class AppController extends ChangeNotifier {
         eventId: eventId,
       );
       if (marked && _isCurrentSessionGeneration(generation)) {
+        if (isRingShareNotice(eventId)) {
+          notifications = [
+            for (final item in notifications)
+              if (item['event_id'] == eventId)
+                {...item, 'is_read': true}
+              else
+                item,
+          ];
+        }
         await _refreshRemoteNotificationUnreadCount();
       }
     } on ApiException {
@@ -8251,7 +8260,9 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> _refreshRemoteNotificationUnreadCount() async {
+  Future<void> _refreshRemoteNotificationUnreadCount({
+    bool refreshShareHistory = true,
+  }) async {
     final generation = _sessionGeneration;
     final repository = _notificationInboxRepository;
     final notificationApi = _api is SaydianNotificationApi
@@ -8268,7 +8279,19 @@ class AppController extends ChangeNotifier {
           !identical(repository, _notificationInboxRepository)) {
         return;
       }
+      final changed = unreadCount != remoteNotificationUnreadCount;
       remoteNotificationUnreadCount = unreadCount;
+      if (refreshShareHistory &&
+          unreadCount != null &&
+          (changed || (unreadCount > 0 && !notificationPermissionEnabled)) &&
+          _appIsForeground &&
+          ringSharingEnabled) {
+        await refreshNotificationHistory();
+        if (!_isCurrentSessionGeneration(generation) ||
+            !identical(repository, _notificationInboxRepository)) {
+          return;
+        }
+      }
       if (remoteNotificationUnreadCount == 0 && _notificationStorageReady) {
         final readAt = DateTime.now().toUtc();
         for (final event in await repository.list()) {
@@ -8351,13 +8374,24 @@ class AppController extends ChangeNotifier {
     final remoteUnread = healthAlertsAvailable
         ? remoteNotificationUnreadCount
         : null;
+    // Restricted builds use the known share rows instead of the aggregate
+    // count, which also includes cloud health warnings.
+    final shareUnread = !healthAlertsAvailable && ringExperience
+        ? notifications.where((item) {
+            final id = '${item['event_id'] ?? ''}';
+            return item['is_read'] == false &&
+                isRingShareNotice(id) &&
+                !notificationInboxEvents.any((event) => event.eventId == id);
+          }).length
+        : 0;
     // Aggregate counts have no IDs with which to calculate an exact union.
     // Keep known unread events as a floor, without summing duplicate mirrors.
     final serverUnread =
         remoteUnread == null || remoteUnread < localServerMirrorUnread
         ? localServerMirrorUnread
         : remoteUnread;
-    notificationUnreadCount = localDeviceHealthUnread + serverUnread;
+    notificationUnreadCount =
+        localDeviceHealthUnread + serverUnread + shareUnread;
     unawaited(_notificationService.setBadge(notificationUnreadCount));
     if (!_disposed) notifyListeners();
   }
@@ -8597,7 +8631,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> refreshNotifications() async {
     await refreshNotificationHistory();
-    await _refreshRemoteNotificationUnreadCount();
+    await _refreshRemoteNotificationUnreadCount(refreshShareHistory: false);
     await _refreshNotificationInboxState();
   }
 

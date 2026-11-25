@@ -1,5 +1,8 @@
 import 'notification_route_service.dart'
-    show supportConversationFromLink, ringCareRelationshipFromLink;
+    show
+        supportConversationFromLink,
+        ringCareRelationshipFromLink,
+        ringShareFromLink;
 
 /// Converts both deployed notification contracts to the existing inbox format.
 /// Only routing identifiers survive; notification text is fetched after login.
@@ -43,6 +46,7 @@ Map<String, Object?>? normalizeNotificationBusinessPayload(
       final route = routeValue.trim();
       final supportTarget = supportConversationFromLink(route);
       final careTarget = ringCareRelationshipFromLink(route);
+      final shareTarget = ringShareFromLink(route);
       final match = RegExp(
         r'^/(care/invitations|health/alerts|health/warnings)(?:/([A-Za-z0-9._:-]{1,160}))?$',
       ).firstMatch(route);
@@ -53,7 +57,11 @@ Map<String, Object?>? normalizeNotificationBusinessPayload(
         '/notifications' ||
         '/messages' ||
         '/ring/shares' => 'system',
-        _ when supportTarget != null || careTarget != null => 'system',
+        _
+            when supportTarget != null ||
+                careTarget != null ||
+                shareTarget != null =>
+          'system',
         _ when match != null =>
           match.group(1) == 'care/invitations'
               ? 'care_invitation'
@@ -64,7 +72,8 @@ Map<String, Object?>? normalizeNotificationBusinessPayload(
         return null;
       }
       type = routeType;
-      final routeEntity = supportTarget ?? careTarget ?? match?.group(2);
+      final routeEntity =
+          supportTarget ?? careTarget ?? shareTarget ?? match?.group(2);
       if (entityId != null && routeEntity != null && entityId != routeEntity) {
         return null;
       }
