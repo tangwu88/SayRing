@@ -13,6 +13,29 @@ extension RingExperienceController on AppController {
       isGlobalEdition &&
       !isPreviewMode;
 
+  bool get canAnalyzeCardiovascularTrends =>
+      canOpenCardiovascularTrends &&
+      isAuthenticated &&
+      !_accountTransitioning &&
+      _api is CardiovascularModelApi;
+
+  Future<CardiovascularModelReply> analyzeCardiovascularTrends(
+    CardiovascularModelInput input,
+    String language,
+  ) async {
+    final member = session, generation = _sessionGeneration;
+    if (!canAnalyzeCardiovascularTrends || member == null) {
+      throw const ApiException('登录后可查看趋势解读');
+    }
+    final reply = await (_api as CardiovascularModelApi)
+        .analyzeCardiovascularTrends(member, input, language);
+    if (!_isCurrentAccountRequest(generation, member) ||
+        !canAnalyzeCardiovascularTrends) {
+      throw const ApiException('账号已变化，请重新打开');
+    }
+    return reply;
+  }
+
   bool get ringSharingEnabled => ringExperience && _ringCapabilities.sharing;
   bool get ringCareEnabled => ringExperience && _ringCapabilities.care;
 

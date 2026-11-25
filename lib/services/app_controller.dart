@@ -41,6 +41,7 @@ import '../domain/global_care.dart';
 import '../l10n/global_locale_controller.dart';
 import 'api_client.dart';
 import 'ai_chat_failure.dart';
+import 'cardiovascular_model.dart';
 import '../domain/home_health_cards.dart';
 import 'app_payment_bridge.dart';
 import 'app_notification_service.dart';

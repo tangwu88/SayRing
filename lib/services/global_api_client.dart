@@ -1,5 +1,13 @@
 part of 'api_client.dart';
 
+abstract interface class CardiovascularModelApi {
+  Future<CardiovascularModelReply> analyzeCardiovascularTrends(
+    Session expected,
+    CardiovascularModelInput input,
+    String locale,
+  );
+}
+
 abstract interface class GlobalAccountApi {
   Future<GlobalAuthCapabilities> getAuthCapabilities();
   Future<Map<String, Object?>> getGlobalLegalDocument(String path);
@@ -254,6 +262,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCareMemberInviteApi,
         GlobalCareRangeApi,
         GlobalContentApi,
+        CardiovascularModelApi,
         GlobalSupportApi,
         SaydianAvatarProfileApi,
         SaydianDeviceBindingApi,
@@ -948,6 +957,60 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'my': 0,
       'session_id': conversationId,
     };
+  }
+
+  // Reuse the deployed configured model, in a dedicated session separate from chat.
+  // The only permitted question is built from the bounded trend evidence above.
+  @override
+  Future<CardiovascularModelReply> analyzeCardiovascularTrends(
+    Session expected,
+    CardiovascularModelInput input,
+    String locale,
+  ) async {
+    final owner = _stableSessionAccountKey(expected);
+    final response = await _withAuthorizationRetry((session) async {
+      if (_stableSessionAccountKey(session) != owner) {
+        throw const ApiException('账号已变化，请重新打开');
+      }
+      final request =
+          http.Request('POST', _uri('/api/saydian-app/v2/ai/messages'))
+            ..followRedirects = false
+            ..headers.addAll({
+              ..._authorizationHeaders(session),
+              'Content-Type': 'application/json',
+            })
+            ..body = jsonEncode({
+              'content': input.prompt(locale),
+              'sessionId': 'say-ring-cardio-trends-v1',
+              'locale': locale,
+            });
+      return _performRequest(
+        () async => http.Response.fromStream(await _client.send(request)),
+        timeout: SaydianApiClient._aiReplyTimeout,
+      );
+    });
+    await _checkCareRequestOwner(owner);
+    final reply = _data(_decode(response));
+    if (reply['role'] != 'assistant' ||
+        reply['id'] is! String ||
+        (reply['id'] as String).trim().isEmpty ||
+        reply['content'] is! String) {
+      throw const ApiException(
+        '趋势解读暂未返回',
+        code: 'AI_PROVIDER_INVALID_RESPONSE',
+      );
+    }
+    try {
+      return CardiovascularModelReply.parse(
+        reply['content'] as String,
+        input.expectedMetrics,
+      );
+    } on FormatException {
+      throw const ApiException(
+        '趋势解读暂未返回',
+        code: 'AI_PROVIDER_INVALID_RESPONSE',
+      );
+    }
   }
 
   @override

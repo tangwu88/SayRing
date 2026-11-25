@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
@@ -5,7 +7,9 @@ import '../domain/models.dart';
 import '../domain/ring_experience.dart';
 import '../services/app_controller.dart';
 import '../services/cardiovascular_trend_summary.dart';
+import '../services/cardiovascular_model.dart';
 import 'cardiovascular_insights.dart';
+import 'cardiovascular_model_panel.dart';
 import 'ring_share_page.dart';
 
 class CardiovascularTrendsPage extends StatefulWidget {
@@ -72,6 +76,27 @@ class _TrendBodyState extends State<_TrendBody> {
   String? chosenSource;
   late Future<_Report> result = load();
 
+  // Scoped to the current page, member and device. No model output is persisted locally.
+  final modelResults = <String, Future<CardiovascularModelReply>>{};
+
+  Future<CardiovascularModelReply> analyze(
+    String key,
+    CardiovascularModelInput input,
+    String locale,
+  ) {
+    final existing = modelResults[key];
+    if (existing != null) return existing;
+    if (modelResults.length >= 8) modelResults.remove(modelResults.keys.first);
+    late final Future<CardiovascularModelReply> future;
+    future = widget.controller
+        .analyzeCardiovascularTrends(input, locale)
+        .catchError((Object error, StackTrace stack) {
+          if (identical(modelResults[key], future)) modelResults.remove(key);
+          Error.throwWithStackTrace(error, stack);
+        });
+    return modelResults[key] = future;
+  }
+
   Future<_Report> load() async {
     final c = widget.controller,
         from = start,
@@ -119,7 +144,9 @@ class _TrendBodyState extends State<_TrendBody> {
   }
 
   Future<void> refresh() async {
-    setState(() => result = load());
+    setState(() {
+      result = load();
+    });
     await result;
   }
 
@@ -222,6 +249,22 @@ class _TrendBodyState extends State<_TrendBody> {
                   contextSeries,
                   pressureReadFailed: pressureFailed,
                 );
+          final language = Localizations.localeOf(c).languageCode == 'zh'
+              ? 'zh-Hans'
+              : 'en';
+          final input = report == null || pressureFailed
+              ? null
+              : CardiovascularModelInput.from(report, source);
+          final modelKey = input == null
+              ? ''
+              : jsonEncode([
+                  source,
+                  start.toIso8601String(),
+                  end.toIso8601String(),
+                  language,
+                  widget.controller.canAnalyzeCardiovascularTrends,
+                  input.encodedEvidence,
+                ]);
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
@@ -335,6 +378,13 @@ class _TrendBodyState extends State<_TrendBody> {
                     ],
                   ),
                 ),
+                if (input != null)
+                  CardiovascularModelPanel(
+                    key: ValueKey(modelKey),
+                    analyze: widget.controller.canAnalyzeCardiovascularTrends
+                        ? () => analyze(modelKey, input, language)
+                        : null,
+                  ),
                 if (data!.copy == null &&
                     (daily.isNotEmpty || contextSeries.isNotEmpty))
                   TextButton(
@@ -342,8 +392,8 @@ class _TrendBodyState extends State<_TrendBody> {
                     child: Text(
                       ringText(
                         c,
-                        '趋势解读暂时无法加载，重试',
-                        'Trend insights could not load. Retry',
+                        '数据摘要暂时无法加载，重试',
+                        'Reading summary could not load. Retry',
                       ),
                     ),
                   ),
@@ -354,11 +404,7 @@ class _TrendBodyState extends State<_TrendBody> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          ringText(
-                            c,
-                            'AI 辅助趋势解读',
-                            'AI-assisted trend insights',
-                          ),
+                          ringText(c, '数据摘要', 'Reading summary'),
                           style: Theme.of(c).textTheme.titleMedium,
                         ),
                         for (final note in insights.take(2))
@@ -704,8 +750,8 @@ class _Evidence extends StatelessWidget {
           Text(
             ringText(
               c,
-              '解读采用 AI 辅助撰写的文案，数值按本机记录日计算。',
-              'The wording is AI-assisted. Figures are calculated on this phone using recorded days.',
+              '同一天有两项记录才放在一起比较。两期各有至少 3 个记录日时，才比较两期变化。',
+              'Readings are paired by day. Period comparisons need at least three recorded days in each period.',
             ),
           ),
           if (pressureName.isNotEmpty)
