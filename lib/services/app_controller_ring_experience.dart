@@ -129,6 +129,38 @@ extension RingExperienceController on AppController {
     }
   }
 
+  /// Preserve device identities until the trend page selects its pressure source.
+  Future<List<HealthRecord>> loadCardioContext(
+    HealthMetric metric,
+    DateTime firstDay,
+    DateTime lastDay,
+  ) async {
+    if (!canOpenCardiovascularTrends ||
+        _accountTransitioning ||
+        !isMetricAvailableInRelease(metric)) {
+      return const [];
+    }
+    if (metric == HealthMetric.sleep) {
+      return _readSleepDays(start: firstDay, end: lastDay, allDevices: true);
+    }
+    if (metric != HealthMetric.heartRate && metric != HealthMetric.steps) {
+      return const [];
+    }
+    final generation = _sessionGeneration;
+    // The stored display day can differ from the phone day after travel.
+    final records = await _healthStore.range(
+      metric: metric,
+      start: ringAddDays(firstDay, -1),
+      end: ringAddDays(lastDay, 2),
+    );
+    if (!_isCurrentSessionGeneration(generation) ||
+        _accountTransitioning ||
+        !isMetricAvailableInRelease(metric)) {
+      return const [];
+    }
+    return _releaseRecords(records).toList(growable: false);
+  }
+
   Future<List<PressureSample>> loadPressureTrend(
     DateTime from,
     DateTime until,

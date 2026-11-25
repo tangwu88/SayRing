@@ -153,6 +153,7 @@ class PressureSample {
     final lower = record.values['diastolic'];
     if (record.metric != HealthMetric.bloodPressure ||
         record.source != MeasurementSource.wearable ||
+        record.quality.trim().toLowerCase() == 'invalid' ||
         record.deviceId.isEmpty ||
         !hasSaneWearableTransportValues(record) ||
         !validPair(upper, lower) ||

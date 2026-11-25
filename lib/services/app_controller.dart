@@ -5540,6 +5540,12 @@ class AppController extends ChangeNotifier {
   Future<List<HealthRecord>> loadSleepDays({
     required DateTime start,
     required DateTime end,
+  }) => _readSleepDays(start: start, end: end, allDevices: false);
+
+  Future<List<HealthRecord>> _readSleepDays({
+    required DateTime start,
+    required DateTime end,
+    required bool allDevices,
   }) async {
     final generation = _sessionGeneration;
     final preferred = connectedDevice?.id ?? rememberedDevice?.id;
@@ -5574,7 +5580,7 @@ class AppController extends ChangeNotifier {
     final store = _healthStore;
     final timelines = store is SleepDetailStore
         ? await (store as SleepDetailStore).loadDays(
-            deviceId: preferred,
+            deviceId: allDevices ? null : preferred,
             startSdkDate: first,
             endSdkDate: last,
           )
@@ -5594,7 +5600,9 @@ class AppController extends ChangeNotifier {
           record,
         ) {
           final day = sleepRecordSdkDate(record);
-          return (preferred == null || record.deviceId == preferred) &&
+          return (allDevices ||
+                  preferred == null ||
+                  record.deviceId == preferred) &&
               day.compareTo(first) >= 0 &&
               day.compareTo(last) <= 0;
         }),

@@ -5,6 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/ring_experience.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
@@ -21,6 +22,20 @@ import 'package:saydian_app/ui/pages.dart';
 class _OfflineRingApi extends Fake implements SaydianApi, GlobalAccountApi {}
 
 class _DisconnectedRing extends Fake implements WearableBridge {}
+
+class _MissingStepsStore extends MemoryHealthStore {
+  @override
+  Future<List<HealthRecord>> range({
+    required HealthMetric metric,
+    required DateTime start,
+    required DateTime end,
+  }) {
+    if (metric == HealthMetric.steps) {
+      return Future.error(StateError('Fixture: activity read unavailable'));
+    }
+    return super.range(metric: metric, start: start, end: end);
+  }
+}
 
 void main() {
   for (final (platform, language, title, saveLabel) in [
@@ -63,7 +78,16 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final entry = find.byKey(const Key('dashboard-cardiovascular-trends'));
+        expect(find.text(title), findsNothing);
+        final catalog = find.text(language == 'zh' ? '全部数据' : 'All data');
+        await tester.scrollUntilVisible(catalog.hitTestable(), 230);
+        await tester.pumpAndSettle();
+        await tester.tap(catalog);
+        await tester.pumpAndSettle();
+        expect(find.byType(AllHealthDataPage), findsOneWidget);
+        final entry = find.byKey(const Key('all-health-cardiovascular-trends'));
+        await tester.scrollUntilVisible(entry.hitTestable(), 230);
+        await tester.pumpAndSettle();
         expect(entry.hitTestable(), findsOneWidget);
         expect(
           find.descendant(of: entry, matching: find.text(title)),
@@ -72,7 +96,10 @@ void main() {
         await tester.tap(entry);
         await tester.pumpAndSettle();
         expect(find.byType(CardiovascularTrendsPage), findsOneWidget);
-        await tester.tap(find.byKey(const Key('record-pressure-reference')));
+        final add = find.byKey(const Key('record-pressure-reference'));
+        await tester.scrollUntilVisible(add.hitTestable(), 160);
+        await tester.pumpAndSettle();
+        await tester.tap(add);
         await tester.pumpAndSettle();
         final fields = find.byType(TextField);
         expect(fields, findsNWidgets(2));
@@ -94,6 +121,7 @@ void main() {
         expect(local.map((row) => (row.systolic, row.diastolic)), [(121, 79)]);
         await tester.pumpAndSettle();
         final chart = find.byType(LineChart);
+        await tester.scrollUntilVisible(chart, 200);
         if (chart.evaluate().isEmpty) {
           final labels = tester
               .widgetList<Text>(find.byType(Text))
@@ -115,6 +143,79 @@ void main() {
       variant: TargetPlatformVariant.only(platform),
     );
   }
+
+  testWidgets(
+    'health trends render matched readings and evidence when one optional metric fails',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final store = _MissingStepsStore();
+      final c = AppController(
+        MemorySessionVault(),
+        _OfflineRingApi(),
+        store,
+        _DisconnectedRing(),
+      );
+      addTearDown(c.dispose);
+      final now = DateTime.now();
+      DateTime at(int daysAgo) =>
+          DateTime(now.year, now.month, now.day - daysAgo, 12);
+      await store.upsert([
+        HealthRecord(
+          id: 'sample-hr',
+          metric: HealthMetric.heartRate,
+          values: const {'value': 64},
+          measuredAt: at(1),
+          timezone: '+00:00',
+          unit: 'bpm',
+          deviceId: 'test-wearable',
+          sourceModel: 'Fixture watch',
+          firmwareVersion: '',
+          quality: 'valid',
+          source: MeasurementSource.wearable,
+          rawVersion: 2,
+        ),
+      ]);
+      for (final (n, upper) in [(4, 115), (1, 123)]) {
+        await c.savePressureReference(
+          PressureSample(
+            at: at(n),
+            systolic: upper,
+            diastolic: 79,
+            source: 'reference',
+          ),
+        );
+      }
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: CardiovascularTrendsPage(controller: c),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('AI 辅助趋势解读'), findsOneWidget);
+      expect(find.textContaining('123/79 mmHg，心率为64 bpm'), findsOneWidget);
+      final evidence = find.byKey(const Key('cardio-evidence'));
+      await tester.scrollUntilVisible(evidence.hitTestable(), 180);
+      await tester.tap(evidence);
+      await tester.pumpAndSettle();
+      expect(find.text('血压来源 · 上臂血压计'), findsOneWidget);
+      expect(find.text('心率 · Fixture watch'), findsOneWidget);
+      expect(find.textContaining('123/79 mmHg · 1 次'), findsOneWidget);
+      final chart = find.byType(LineChart);
+      await tester.scrollUntilVisible(chart, 160);
+      expect(
+        tester.widget<LineChart>(chart).data.lineBarsData.first.spots[1],
+        FlSpot.nullSpot,
+      );
+      final retry = find.text('部分记录读取失败，重试');
+      await tester.scrollUntilVisible(retry.hitTestable(), 180);
+      expect(retry.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
 
   test('the first-party host and exact routes are required for care links', () {
     final invite = RingLink.parse(
