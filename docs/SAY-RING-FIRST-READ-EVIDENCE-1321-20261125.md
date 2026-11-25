@@ -39,3 +39,8 @@
 - apksigner verify --verbose --print-certs成功，原正式证书SHA-256 81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de；zipalign -c -P 16 4、production manifest/JPush/ABI门禁成功。临时android/key.properties已移除。
 - 43个ELF库检查，既有armeabi-v7a libDspConfig.so及libEcgAnaly.so仍为4KiB对齐，不宣称全库16KiB或所有应用市场审核通过；既有受控JPush arm64单库例外保留。
 - 后补4项测试的单文件dart analyze亦通过。没有新增手机安装或实体故障验收。
+## 后台上线回执（2026-11-25）
+
+- 后台源码62bf80e通过CI，已用同版原始镜像完成恢复发布；[正式发布45562491212](https://github.com/tangwu88/saydianserver/actions/runs/45562491212)成功。14:44两个公开readiness均ready/database ok且revision=62bf80e，14:48真实API/Worker/Admin容器均为同版；后台实际JS资源包含V3分项显示字段。
+- 原镜像下载超时、HTTPS恢复因临时分片占用预留空间失败，随后仅清理本轮已校验的重复临时文件并逐片续接；保留原5GiB与全部摘要/OCI门禁，不改客户健康数据或绑定。完整操作与失败回执见服务端docs/implementation-log/2026-11-25-first-connection-read-evidence.md。
+- 仅合资格新账号首次摘要增强，旧账号不补采；未进行新的真实首绑或客户实体故障验收。App功能源码仍为895519c，正式APK及其签名/摘要未变；本补记不产生新APK或手机安装。
