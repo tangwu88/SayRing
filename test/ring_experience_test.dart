@@ -18,6 +18,7 @@ import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/cardiovascular_trends_page.dart';
 import 'package:saydian_app/ui/pages.dart';
+import 'package:saydian_app/ui/ring_share_page.dart';
 
 class _OfflineRingApi extends Fake implements SaydianApi, GlobalAccountApi {}
 
@@ -195,7 +196,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('数据摘要'), findsOneWidget);
-      expect(find.text('AI 趋势解读'), findsOneWidget);
+      expect(find.text('多记录几天血压，再看趋势解读。'), findsOneWidget);
       expect(find.textContaining('123/79 mmHg，心率为64 bpm'), findsOneWidget);
       final evidence = find.byKey(const Key('cardio-evidence'));
       await tester.scrollUntilVisible(evidence.hitTestable(), 180);
@@ -216,6 +217,154 @@ void main() {
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'a local reference reading can be edited and deleted in the trends page',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final controller = AppController(
+        MemorySessionVault(),
+        _OfflineRingApi(),
+        MemoryHealthStore(),
+        _DisconnectedRing(),
+      );
+      addTearDown(controller.dispose);
+      final at = DateTime.now().subtract(const Duration(hours: 2));
+      await controller.savePressureReference(
+        PressureSample(
+          at: at,
+          systolic: 121,
+          diastolic: 79,
+          source: 'reference',
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: CardiovascularTrendsPage(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      Future<void> openRecord() async {
+        final evidence = find.byKey(const Key('cardio-evidence'));
+        final showRows = find.text('View individual readings');
+        if (showRows.evaluate().isEmpty) {
+          await tester.scrollUntilVisible(evidence.hitTestable(), 150);
+          await tester.tap(evidence);
+          await tester.pumpAndSettle();
+        }
+        await tester.scrollUntilVisible(showRows.hitTestable(), 150);
+        await tester.tap(showRows);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Manage reference reading'));
+        await tester.pumpAndSettle();
+      }
+
+      await openRecord();
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        '121',
+      );
+      await tester.enterText(find.byType(TextField).first, '124');
+      await tester.tap(find.text('Save on this phone'));
+      await tester.pumpAndSettle();
+      expect(
+        (await controller.loadPressureTrend(
+          at.subtract(const Duration(days: 1)),
+          DateTime.now(),
+        )).single.systolic,
+        124,
+      );
+      await openRecord();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete').last);
+      await tester.pumpAndSettle();
+      expect(
+        await controller.loadPressureTrend(
+          at.subtract(const Duration(days: 1)),
+          DateTime.now(),
+        ),
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  test(
+    'a stored invitation is same-account scoped and expires even across app restarts',
+    () {
+      final now = DateTime.utc(2026, 11, 25, 11, 55);
+      final link = RingLink.parse(
+        Uri.parse(
+          'https://links.saydian.cn/global/say-ring/invite#ABCDEFGHJKLMNPQRSTUV',
+        ),
+      )!;
+      final consumed = PendingRingLink(
+        link,
+        now,
+        null,
+      ).withOwner('member-test');
+      final restored = PendingRingLink.fromJson(
+        jsonDecode(jsonEncode(consumed.toJson())),
+      )!;
+      expect(restored.owner, 'member-test');
+      expect(restored.link.token, link.token);
+      expect(restored.isRecent(now.add(const Duration(hours: 47))), isTrue);
+      expect(restored.isRecent(now.add(const Duration(hours: 48))), isFalse);
+      expect(
+        restored.isRecent(now.subtract(const Duration(seconds: 1))),
+        isFalse,
+      );
+    },
+  );
+
+  testWidgets(
+    'changing a share date clears the previous snapshot when the selected day is empty',
+    (tester) async {
+      final controller = AppController(
+        MemorySessionVault(),
+        _OfflineRingApi(),
+        MemoryHealthStore(),
+        _DisconnectedRing(),
+      );
+      addTearDown(controller.dispose);
+      final today = ringDate(DateTime.now());
+      final yesterday = ringAddDays(today, -1);
+      DateTime? requested;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RingComposeSharePage(
+            controller: controller,
+            snapshot: RingSnapshot('sleep', today, {'sleepMinutes': 371}),
+            loadDate: (date) async {
+              requested = date;
+              return [];
+            },
+          ),
+        ),
+      );
+      expect(find.textContaining('371 min'), findsWidgets);
+      await tester.tap(find.byKey(const Key('ring-share-date')));
+      await tester.pumpAndSettle();
+      tester
+          .widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
+          .onDateChanged(yesterday);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(requested, yesterday);
+      expect(find.textContaining('371 min'), findsNothing);
+      expect(find.text('Nothing to share for this date.'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Create and share link'),
+            )
+            .onPressed,
+        isNull,
+      );
+    },
   );
 
   test('the first-party host and exact routes are required for care links', () {

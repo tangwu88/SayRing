@@ -1932,6 +1932,7 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
   RingFirmwarePackage? _available;
   String? _offeredTo;
   RingFirmwarePhase? _phase;
+  int? _transferPercent;
 
   Future<void> _checkOnline() async {
     final target = widget.controller.connectedDevice?.id;
@@ -1943,6 +1944,7 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
       _refreshError = null;
       _available = null;
       _phase = null;
+      _transferPercent = null;
     });
     try {
       final package = await widget.controller.findRingFirmware();
@@ -2016,16 +2018,24 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
       _refreshing = true;
       _available = null;
       _refreshError = null;
+      _transferPercent = null;
     });
     try {
-      await widget.controller.upgradeRingFirmware(package, (phase) {
-        if (mounted) setState(() => _phase = phase);
-      });
+      await widget.controller.upgradeRingFirmware(
+        package,
+        (phase) {
+          if (mounted) setState(() => _phase = phase);
+        },
+        onProgress: (percent) {
+          if (mounted) setState(() => _transferPercent = percent);
+        },
+      );
     } catch (_) {
       if (mounted) {
         setState(() {
           _refreshError =
               _phase == RingFirmwarePhase.transfer ||
+                  _phase == RingFirmwarePhase.reboot ||
                   _phase == RingFirmwarePhase.verify
               ? ringText(
                   context,
@@ -2117,6 +2127,11 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
                     '正在发送到设备',
                     'Transferring to device',
                   ),
+                  RingFirmwarePhase.reboot => ringText(
+                    context,
+                    '等待设备重启并重新连接',
+                    'Waiting for the device to restart and reconnect',
+                  ),
                   RingFirmwarePhase.verify => ringText(
                     context,
                     '设备重启后将核对版本',
@@ -2128,6 +2143,20 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
                     'Device version confirmed. Update complete.',
                   ),
                 }),
+              ),
+            if (_phase == RingFirmwarePhase.transfer)
+              LinearProgressIndicator(
+                value: _transferPercent == null
+                    ? null
+                    : _transferPercent! / 100,
+                semanticsLabel: ringText(
+                  context,
+                  '固件传输进度',
+                  'Firmware transfer progress',
+                ),
+                semanticsValue: _transferPercent == null
+                    ? null
+                    : '$_transferPercent%',
               ),
             if (widget.controller.ringFirmwareCandidate)
               OutlinedButton(

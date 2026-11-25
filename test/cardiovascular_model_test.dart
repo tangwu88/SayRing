@@ -29,7 +29,10 @@ Session member(String id) => Session(
 );
 
 const sampleReply =
-    '{"summary":"Measured days varied.","observations":{"heartRate":"Heart rate moved similarly.","sleep":"Sleep moved differently.","steps":"Steps were mixed."}}';
+    '{"focus":"sleep","observations":{"heartRate":"both","sleep":"movement","steps":"period"}}';
+const testDays = [1, 2, 3, 8, 9, 10, 31, 32, 33];
+DateTime readingTime(int days) =>
+    ringAddDays(ringDate(DateTime.now()), -days).add(const Duration(hours: 12));
 http.Response gateway(String text, {String role = 'assistant'}) =>
     http.Response(
       jsonEncode({
@@ -180,22 +183,33 @@ void main() {
         }),
       );
       final result = await api.analyzeCardiovascularTrends(owner, input, 'en');
-      expect(result.summary, 'Measured days varied.');
-      expect(result.observations.keys.toList(), input.expectedMetrics);
+      expect(result.summary, contains('systolic pressure rose'));
+      expect(result.observations.keys.toList(), [
+        'sleep',
+        'heartRate',
+        'steps',
+      ]);
+      expect(result.observations['sleep'], contains('3 opposite direction'));
+      expect(result.observations['heartRate'], contains('3 same direction'));
       for (final bad in [
         '{}',
-        '{"summary":"ok","observations":{}}',
-        sampleReply.replaceFirst('varied.', 'were 160 mmHg.'),
+        '{"focus":"pressure","observations":{}}',
+        sampleReply.replaceFirst('"movement"', '"all readings are high"'),
+        sampleReply.replaceFirst(
+          '"sleep","observations"',
+          '"oxygen","observations"',
+        ),
       ]) {
         expect(
-          () => CardiovascularModelReply.parse(bad, input.expectedMetrics),
+          () => CardiovascularModelReply.parse(bad, input, 'en'),
           throwsFormatException,
         );
       }
       expect(
         CardiovascularModelReply.parse(
           '```json\n$sampleReply\n```',
-          input.expectedMetrics,
+          input,
+          'en',
         ).summary,
         result.summary,
       );
@@ -250,31 +264,33 @@ void main() {
         _Device(),
       )..session = owner;
       addTearDown(ctl.dispose);
-      final at = DateTime.now().subtract(const Duration(hours: 2));
       await store.upsert([
-        HealthRecord(
-          id: 'bp-fixture',
-          metric: HealthMetric.bloodPressure,
-          values: const {'systolic': 121, 'diastolic': 80},
-          unit: 'mmHg',
-          measuredAt: at,
-          timezone: '+00:00',
-          deviceId: 'qring:qa',
-          sourceModel: 'Test wearable',
-          firmwareVersion: '',
-          quality: 'valid',
-          source: MeasurementSource.wearable,
-          rawVersion: 3,
-        ),
+        for (final day in testDays)
+          HealthRecord(
+            id: 'bp-fixture-$day',
+            metric: HealthMetric.bloodPressure,
+            values: const {'systolic': 121, 'diastolic': 80},
+            unit: 'mmHg',
+            measuredAt: readingTime(day),
+            timezone: '+00:00',
+            deviceId: 'qring:qa',
+            sourceModel: 'Test wearable',
+            firmwareVersion: '',
+            quality: 'valid',
+            source: MeasurementSource.wearable,
+            rawVersion: 3,
+          ),
       ]);
-      await ctl.savePressureReference(
-        PressureSample(
-          at: at.subtract(const Duration(minutes: 1)),
-          systolic: 125,
-          diastolic: 82,
-          source: 'reference',
-        ),
-      );
+      for (final day in testDays) {
+        await ctl.savePressureReference(
+          PressureSample(
+            at: readingTime(day).subtract(const Duration(minutes: 1)),
+            systolic: 125,
+            diastolic: 82,
+            source: 'reference',
+          ),
+        );
+      }
       Widget screen(String language) => MaterialApp(
         locale: Locale(language),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -318,14 +334,16 @@ void main() {
         _Device(),
       )..session = owner;
       addTearDown(ctl.dispose);
-      await ctl.savePressureReference(
-        PressureSample(
-          at: DateTime.now().subtract(const Duration(hours: 2)),
-          systolic: 120,
-          diastolic: 77,
-          source: 'reference',
-        ),
-      );
+      for (final day in testDays) {
+        await ctl.savePressureReference(
+          PressureSample(
+            at: readingTime(day),
+            systolic: 120,
+            diastolic: 77,
+            source: 'reference',
+          ),
+        );
+      }
       await tester.pumpWidget(
         MaterialApp(
           locale: const Locale('en'),

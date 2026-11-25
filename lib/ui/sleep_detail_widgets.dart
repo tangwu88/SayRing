@@ -249,6 +249,75 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
     return minutes > 0 && minutes.isFinite && minutes <= 1440 ? minutes : null;
   }
 
+  RingSnapshot? _shareSnapshot(
+    DateTime date,
+    SleepReportPeriod period,
+    List<HealthRecord> records,
+  ) {
+    if (period != SleepReportPeriod.day) {
+      final range = sleepPeriodRange(date, period);
+      final minutes = records.map(_duration).nonNulls.toList();
+      if (minutes.isEmpty) return null;
+      final today = ringDate(DateTime.now());
+      return RingSnapshot('sleep', range.start, {
+        'rangeEnd': ringDateText(range.end.isAfter(today) ? today : range.end),
+        'sleepAverageMinutes':
+            (minutes.reduce((sum, value) => sum + value) / minutes.length)
+                .round(),
+        'recordDays': minutes.length,
+      });
+    }
+    final row = records
+        .where((record) => sleepRecordSdkDate(record) == ringDateText(date))
+        .firstOrNull;
+    final duration = row == null ? null : _duration(row);
+    if (row == null || duration == null) return null;
+    final segments = row.sleepTimeline?.sessions
+        .expand((session) => session.segments)
+        .toList();
+    return RingSnapshot('sleep', date, {
+      'sleepMinutes': duration.round(),
+      for (final (key, stage) in [
+        ('deepMinutes', SleepStage.deep),
+        ('lightMinutes', SleepStage.light),
+        ('remMinutes', SleepStage.rem),
+        ('awakeMinutes', SleepStage.awake),
+      ])
+        if (segments?.any((segment) => segment.stage == stage) == true)
+          key:
+              (segments!
+                          .where((segment) => segment.stage == stage)
+                          .fold<int>(
+                            0,
+                            (sum, segment) =>
+                                sum +
+                                segment.endAt
+                                    .difference(segment.startAt)
+                                    .inSeconds,
+                          ) /
+                      60)
+                  .round(),
+    });
+  }
+
+  Widget _shareSleepReport() {
+    final controller = widget.controller;
+    final period = _period;
+    return RingShareButton(
+      controller: controller,
+      snapshot: _shareSnapshot(_date, period, _records),
+      canRead: () => controller.isMetricAvailableInRelease(HealthMetric.sleep),
+      loadDate: (date) async {
+        final range = sleepPeriodRange(date, period);
+        final rows = await controller.loadSleepDays(
+          start: range.start,
+          end: range.end,
+        );
+        return [?_shareSnapshot(date, period, rows)];
+      },
+    );
+  }
+
   num? _deviceScore(HealthRecord r) {
     if (widget.controller.isWellnessOnly ||
         r.deviceId.trim().isEmpty ||
@@ -418,38 +487,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
             else
               ..._range(range, rows),
           ],
-          if (record != null &&
-              _period == SleepReportPeriod.day &&
-              _duration(record) != null)
-            RingShareButton(
-              controller: widget.controller,
-              snapshot: RingSnapshot('sleep', _date, {
-                'sleepMinutes': _duration(record)!.round(),
-                if (record.sleepTimeline case final timeline?
-                    when timeline.hasSegments) ...{
-                  for (final (name, stage) in [
-                    ('deepMinutes', SleepStage.deep),
-                    ('lightMinutes', SleepStage.light),
-                    ('remMinutes', SleepStage.rem),
-                    ('awakeMinutes', SleepStage.awake),
-                  ])
-                    if (timeline.sessions
-                        .expand((session) => session.segments)
-                        .any((item) => item.stage == stage))
-                      name: timeline.sessions
-                          .expand((session) => session.segments)
-                          .where((item) => item.stage == stage)
-                          .fold<double>(
-                            0,
-                            (sum, item) =>
-                                sum +
-                                item.endAt.difference(item.startAt).inSeconds /
-                                    60,
-                          )
-                          .round(),
-                },
-              }),
-            ),
+          if (!_loading && _records.isNotEmpty) _shareSleepReport(),
           const SizedBox(height: 10),
           Card(
             child: ExpansionTile(

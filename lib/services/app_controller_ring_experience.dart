@@ -44,6 +44,32 @@ extension RingExperienceController on AppController {
   String _ringLocalKey(String owner, String section) =>
       'say-ring.v1.${sha256.convert(utf8.encode('${globalStorageNamespace(null)}:$owner'))}.$section';
 
+  String get _ringLinkKey => _ringLocalKey('installation', 'pending-link');
+
+  Future<PendingRingLink?> readPendingRingLink() async {
+    await _ringLocalWrites;
+    final raw = await safeSecureStorage.read(key: _ringLinkKey);
+    if (raw == null) return null;
+    final value = PendingRingLink.fromJson(jsonDecode(raw));
+    return value?.isRecent(DateTime.now()) == true ? value : null;
+  }
+
+  Future<void> writePendingRingLink(
+    PendingRingLink value, {
+    bool consume = false,
+  }) {
+    final encoded = jsonEncode(value.toJson());
+    final result = _ringLocalWrites.then((_) async {
+      if (!consume) {
+        await safeSecureStorage.write(key: _ringLinkKey, value: encoded);
+      } else if (await safeSecureStorage.read(key: _ringLinkKey) == encoded) {
+        await safeSecureStorage.delete(key: _ringLinkKey);
+      }
+    });
+    _ringLocalWrites = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
+  }
+
   Future<Map<String, Object?>> ringRequest(
     String method,
     String path, {
@@ -107,11 +133,28 @@ extension RingExperienceController on AppController {
         value: note,
       );
 
-  Future<void> savePressureReference(PressureSample sample) async {
+  Future<void> savePressureReference(PressureSample sample) =>
+      _writePressureReference(null, sample);
+
+  Future<void> replacePressureReference(
+    PressureSample original,
+    PressureSample? replacement,
+  ) => _writePressureReference(original, replacement);
+
+  Future<void> _writePressureReference(
+    PressureSample? original,
+    PressureSample? replacement,
+  ) async {
     if (!canOpenCardiovascularTrends ||
         _accountTransitioning ||
-        sample.at.isAfter(DateTime.now()) ||
-        !PressureSample.validPair(sample.systolic, sample.diastolic)) {
+        (original != null && original.source != 'reference') ||
+        (replacement != null &&
+            (replacement.source != 'reference' ||
+                replacement.at.isAfter(DateTime.now()) ||
+                !PressureSample.validPair(
+                  replacement.systolic,
+                  replacement.diastolic,
+                )))) {
       throw const ApiException('请检查参考值和测量时间');
     }
     final owner = homeHealthCardOwner;
@@ -130,18 +173,29 @@ extension RingExperienceController on AppController {
       if (!_isCurrentSessionGeneration(generation) || _accountTransitioning) {
         return;
       }
-      final saved = sample.toJson();
-      if (!rows
-          .map(ringMap)
-          .any(
-            (row) =>
-                row['at'] == saved['at'] &&
-                row['systolic'] == saved['systolic'] &&
-                row['diastolic'] == saved['diastolic'],
-          )) {
+      bool matches(Object? raw, PressureSample entry) {
+        final stored = PressureSample.fromReference(raw);
+        return stored != null &&
+            stored.at.isAtSameMomentAs(entry.at) &&
+            stored.systolic == entry.systolic &&
+            stored.diastolic == entry.diastolic;
+      }
+
+      if (original != null) {
+        final length = rows.length;
+        rows.removeWhere((row) => matches(row, original));
+        if (length == rows.length) {
+          throw const ApiException('这条血压参考值已变化，请刷新');
+        }
+      }
+      final add =
+          replacement != null && !rows.any((row) => matches(row, replacement));
+      if (add || original != null) {
         await safeSecureStorage.write(
           key: key,
-          value: jsonEncode([saved, ...rows].take(1500).toList()),
+          value: jsonEncode(
+            [if (add) replacement.toJson(), ...rows].take(1500).toList(),
+          ),
         );
       }
     });
@@ -451,8 +505,9 @@ extension RingFirmwareController on AppController {
 
   Future<void> upgradeRingFirmware(
     RingFirmwarePackage release,
-    void Function(RingFirmwarePhase) phase,
-  ) async {
+    void Function(RingFirmwarePhase) phase, {
+    void Function(int)? onProgress,
+  }) async {
     final device = connectedDevice;
     final owner = ringExperienceOwner;
     if (device == null ||
@@ -495,14 +550,27 @@ extension RingFirmwareController on AppController {
         throw const ApiException('设备状态已变化，请重试');
       }
       phase(RingFirmwarePhase.transfer);
-      await adapter.send(device.nativeId, release, bytes);
-      phase(RingFirmwarePhase.verify);
+      await adapter.send(
+        device.nativeId,
+        release,
+        bytes,
+        onProgress: (value) {
+          if (_ringFirmwareSameTarget(owner, device)) onProgress?.call(value);
+        },
+      );
+      phase(RingFirmwarePhase.reboot);
       final deadline = DateTime.now().add(const Duration(seconds: 85));
+      var verifying = false;
       while (DateTime.now().isBefore(deadline) &&
           owner == ringExperienceOwner &&
           !_disposed) {
-        if (_ringFirmwareSameTarget(owner, device)) {
+        if (_ringFirmwareSameTarget(owner, device) &&
+            deviceState == DeviceConnectionState.ready) {
           try {
+            if (!verifying) {
+              phase(RingFirmwarePhase.verify);
+              verifying = true;
+            }
             final actual = await adapter.identify(device.nativeId, fresh: true);
             if (_ringFirmwareSameTarget(owner, device) &&
                 actual?.version == release.version &&

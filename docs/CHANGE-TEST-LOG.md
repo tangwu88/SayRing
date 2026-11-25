@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-11-25 Say Ring 1323 四项功能续验](SAY-RING-CONNECTED-COMPLETION-1323-20261125.md) — 血压参考值可更正，分享补日期和回应历史，邀请支持恢复，固件传输显示 SDK 进度。
+
 - [2026-11-25 Say Ring 1322 心血管趋势模型联调](SAY-RING-CARDIOVASCULAR-MODEL-1322-20261125.md) — 华为真机核对现网模型按血压及同日心率、睡眠、步数返回中英文分析。
 
 - [2026-11-25 Say Ring 1321 心血管趋势](SAY-RING-CARDIOVASCULAR-INSIGHTS-1321-20261125.md) — 健康数据内页末尾入口、同日多指标解读与双端验证。

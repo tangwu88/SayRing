@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart' as hashes;
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/services.dart';
+import 'package:uuid/uuid.dart';
 
 import '../domain/ring_experience.dart';
 
@@ -134,7 +136,7 @@ class RingFirmwarePackage {
       data.length == bytes && hashes.sha256.convert(data).toString() == sha256;
 }
 
-enum RingFirmwarePhase { download, transfer, verify, complete }
+enum RingFirmwarePhase { download, transfer, reboot, verify, complete }
 
 class QringIosFirmwareTransport {
   const QringIosFirmwareTransport();
@@ -172,16 +174,44 @@ class QringIosFirmwareTransport {
   Future<void> send(
     String nativeId,
     RingFirmwarePackage release,
-    Uint8List data,
-  ) async {
-    await _channel
-        .invokeMethod<void>('ringFirmwareTransfer', {
-          ...release.target.query(0),
-          'expectedDeviceId': nativeId,
-          'data': data,
-          'sha256': release.sha256,
-          'minBattery': release.minBattery,
-        })
-        .timeout(const Duration(minutes: 7));
+    Uint8List data, {
+    void Function(int)? onProgress,
+  }) async {
+    final operation = const Uuid().v4();
+    final scope = {'expectedDeviceId': nativeId, 'operationId': operation};
+    var reading = false, finished = false, last = -1;
+    final timer = onProgress == null
+        ? null
+        : Timer.periodic(const Duration(milliseconds: 400), (_) async {
+            if (reading || finished) return;
+            reading = true;
+            try {
+              final value = await _channel
+                  .invokeMethod<int>('ringFirmwareProgress', scope)
+                  .timeout(const Duration(seconds: 2));
+              if (!finished && value != null && value > last && value <= 100) {
+                last = value;
+                onProgress(value);
+              }
+            } catch (_) {
+              // Progress is informational. Only the SDK terminal result completes transfer.
+            } finally {
+              reading = false;
+            }
+          });
+    try {
+      await _channel
+          .invokeMethod<void>('ringFirmwareTransfer', {
+            ...release.target.query(0),
+            ...scope,
+            'data': data,
+            'sha256': release.sha256,
+            'minBattery': release.minBattery,
+          })
+          .timeout(const Duration(minutes: 7));
+    } finally {
+      finished = true;
+      timer?.cancel();
+    }
   }
 }

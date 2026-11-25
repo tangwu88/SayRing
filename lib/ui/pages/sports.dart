@@ -1378,6 +1378,8 @@ class SportRecordDetailPage extends StatelessWidget {
             controller: controller,
             compact: true,
             snapshot: ringWorkoutSnapshot(context, record),
+            loadDate: (day) async =>
+                ringWorkoutSnapshotsOn(context, controller.sportRecords, day),
           ),
         ],
         title: Text(

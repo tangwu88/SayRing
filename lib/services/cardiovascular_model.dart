@@ -7,11 +7,34 @@ import 'cardiovascular_trend_summary.dart';
 /// Evidence for the configured wellness model. Only relative levels and recorded-day
 /// counts leave the phone. Dates, absolute readings, free text and identifiers stay local.
 class CardiovascularModelInput {
-  CardiovascularModelInput._(Map<String, Object?> fields, List<String> metrics)
-    : encodedEvidence = jsonEncode(fields),
+  CardiovascularModelInput._(this._evidence, List<String> metrics)
+    : encodedEvidence = jsonEncode(_evidence),
       expectedMetrics = List.unmodifiable(metrics);
+  final Map<String, Object?> _evidence;
   final String encodedEvidence;
   final List<String> expectedMetrics;
+
+  Map<String, Object?> get _pressure =>
+      (_evidence['bp'] as Map).cast<String, Object?>();
+
+  Map<String, Object?> _metric(String name) =>
+      ((_evidence['paired'] as Map)[name] as Map).cast<String, Object?>();
+
+  List<String> _available(String name) {
+    final metric = _metric(name);
+    final period = metric.containsKey('change');
+    final movement = metric.containsKey('pairedMoves');
+    return [
+      if (period) 'period',
+      if (movement) 'movement',
+      if (period && movement) 'both',
+      if (!period && !movement) 'limited',
+    ];
+  }
+
+  bool get hasTrend =>
+      _pressure.containsKey('change') ||
+      expectedMetrics.any((name) => !_available(name).contains('limited'));
 
   static const names = {
     HealthMetric.heartRate: 'heartRate',
@@ -139,10 +162,10 @@ class CardiovascularModelInput {
 
   String prompt(String locale) =>
       '''
-Write a brief Say Ring trend analysis in ${locale == 'en' ? 'English' : 'Simplified Chinese'}. Use only this anonymous evidence. No diagnosis, risk labels, causes, treatment, precise readings or generic advice. Always name the comparison (e.g. 较上一周期升高, higher than the previous average); never give an absolute high/low label like 偏高/偏低.
-bp and paired counts are previous/current recorded days. change compares means on those SAME dates: + higher, - lower, = unchanged. bp order is systolic,diastolic; paired order is systolic,diastolic,metric. No change field means insufficient days for a period comparison.
-pairedMoves gives EXACT counts between successive current paired observations, for each pressure component: same direction, opposite direction or either flat. Use these counts to describe co-movement. Never describe mixed directions unless both same and opposite are positive. Do not infer a link when there are fewer than three paired days. days are offsets with ranks in order systolic,diastolic,heart rate,sleep duration,steps. L/M/H are relative ranks, X is sparse, - is missing; these ranks never override pairedMoves.
-Return only JSON {"summary":"one short BP observation","observations":{...}}. Use exactly these observation keys: ${jsonEncode(expectedMetrics)}. One short sentence per metric about its relationship with BP. Distinguish within-period observations from period averages.
+Analyze the anonymous Say Ring trend evidence below. Select which synchronized metric to highlight, by coverage and consistency. Prefer a repeated same/opposite movement over sparse or mixed observations. If no metric offers a strong observation, prioritize pressure. The app will show the selected comparisons in ${locale == 'en' ? 'English' : 'Simplified Chinese'}.
+change compares current with previous recorded days: + higher, - lower, = unchanged. bp order is systolic,diastolic; paired order adds the metric. pairedMoves counts same/opposite/flat between successive current matched days. L/M/H are within-period ranks, X is sparse, - is missing.
+Return only JSON with "focus" and "observations". "focus" is "pressure" or one of the eligible metric keys. For every metric copy exactly one of its allowed observation types (choose both only if both comparisons add clarity). Never choose a "limited" metric as focus. Use no free text, extra keys or invented values.
+Allowed observation types by key: ${jsonEncode({for (final name in expectedMetrics) name: _available(name)})}
 $encodedEvidence''';
 }
 
@@ -170,7 +193,11 @@ class CardiovascularModelReply {
   final String summary;
   final Map<String, String> observations;
 
-  factory CardiovascularModelReply.parse(String reply, List<String> metrics) {
+  factory CardiovascularModelReply.parse(
+    String reply,
+    CardiovascularModelInput evidence,
+    String locale,
+  ) {
     String content = reply.trim();
     if (content.startsWith('```') && content.endsWith('```')) {
       final firstLine = content.indexOf('\n');
@@ -178,32 +205,117 @@ class CardiovascularModelReply {
         content = content.substring(firstLine + 1, content.length - 3).trim();
       }
     }
-    if (content.length > 4500) {
+    if (content.length > 1024) {
       throw const FormatException('Oversized model response');
     }
     final value = jsonDecode(content);
-    if (value is! Map || value['observations'] is! Map) {
+    if (value is! Map ||
+        value.length != 2 ||
+        value['focus'] is! String ||
+        value['observations'] is! Map) {
       throw const FormatException('Invalid model response');
     }
-    final items = value['observations'] as Map;
-    String sentence(Object? text) {
-      if (text is! String ||
-          text.trim().isEmpty ||
-          text.length > 650 ||
-          RegExp(
-            r'\d\s*(?:/\s*\d|mm\s*hg|bpm|分钟|小时|毫秒|步|beats|hours|minutes|steps|%)',
-            caseSensitive: false,
-          ).hasMatch(text)) {
-        throw const FormatException('Invalid trend observation');
-      }
-      return text.trim();
-    }
-
-    if (items.length != metrics.length || !metrics.every(items.containsKey)) {
+    final items = value['observations'] as Map,
+        focus = value['focus'] as String;
+    final metrics = evidence.expectedMetrics;
+    if (items.length != metrics.length ||
+        metrics.any(
+          (name) => !evidence._available(name).contains(items[name]),
+        ) ||
+        (focus != 'pressure' &&
+            (!metrics.contains(focus) || items[focus] == 'limited'))) {
       throw const FormatException('Mismatched trend observations');
     }
-    return CardiovascularModelReply(sentence(value['summary']), {
-      for (final key in metrics) key: sentence(items[key]),
-    });
+    return _TrendWording(evidence, locale == 'en').reply(focus, items);
+  }
+}
+
+// The live model selects and orders comparisons. Every claim displayed to the
+// member is rendered from the corresponding verified input field.
+class _TrendWording {
+  _TrendWording(this.evidence, this.english);
+  final CardiovascularModelInput evidence;
+  final bool english;
+
+  String t(String zh, String en) => english ? en : zh;
+  String direction(String sign) => switch (sign) {
+    '+' => t('上升', 'rose'),
+    '-' => t('下降', 'fell'),
+    _ => t('持平', 'stayed level'),
+  };
+
+  String period(String codes, {String? metric}) {
+    final systolic = direction(codes[0]), diastolic = direction(codes[1]);
+    final label = metric == null ? null : _name(metric);
+    final extra = label == null
+        ? ''
+        : t(
+            '，$label${direction(codes[2])}',
+            ', and $label ${direction(codes[2])}',
+          );
+    return t(
+      '与上期相比，平均收缩压$systolic、平均舒张压$diastolic$extra。',
+      'Compared with the previous period, average systolic pressure $systolic and average diastolic pressure $diastolic$extra.',
+    );
+  }
+
+  String _name(String metric) => switch (metric) {
+    'heartRate' => t('心率', 'heart rate'),
+    'sleep' => t('睡眠时长', 'sleep duration'),
+    _ => t('步数', 'steps'),
+  };
+
+  String movements(Map data) {
+    String counts(Map row) => [
+      if ((row['same'] as int) > 0)
+        t('同向 ${row['same']} 次', '${row['same']} same direction'),
+      if ((row['opposite'] as int) > 0)
+        t('反向 ${row['opposite']} 次', '${row['opposite']} opposite direction'),
+      if ((row['flat'] as int) > 0)
+        t('一项持平 ${row['flat']} 次', '${row['flat']} with an unchanged reading'),
+    ].join(t('、', ', '));
+    final systolic = counts(data['systolic'] as Map);
+    final diastolic = counts(data['diastolic'] as Map);
+    return systolic == diastolic
+        ? t(
+            '与高低压的相邻记录中，$systolic。',
+            'Across paired readings for both pressures: $systolic.',
+          )
+        : t(
+            '收缩压 $systolic。舒张压 $diastolic。',
+            'Systolic: $systolic. Diastolic: $diastolic.',
+          );
+  }
+
+  String observation(String name, String choice) {
+    final row = evidence._metric(name);
+    if (choice == 'limited') {
+      return t(
+        '同日记录 ${row['now']} 天，暂不足以比较变化。',
+        '${row['now']} days of paired readings. More are needed to compare changes.',
+      );
+    }
+    return [
+      if (choice != 'movement') period(row['change']! as String, metric: name),
+      if (choice != 'period') movements(row['pairedMoves']! as Map),
+    ].join(t('', ' '));
+  }
+
+  CardiovascularModelReply reply(String focus, Map items) {
+    final pressure = evidence._pressure;
+    final change = pressure['change'];
+    final order = {if (focus != 'pressure') focus, ...evidence.expectedMetrics};
+    return CardiovascularModelReply(
+      change is String
+          ? period(change)
+          : t(
+              '这段时间有 ${pressure['now']} 天血压记录，暂不足以比较两期均值。',
+              '${pressure['now']} days of blood pressure readings in this period. More are needed to compare periods.',
+            ),
+      {
+        for (final name in order)
+          name: observation(name, items[name] as String),
+      },
+    );
   }
 }

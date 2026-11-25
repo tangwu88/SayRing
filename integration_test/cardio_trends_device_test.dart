@@ -108,7 +108,6 @@ void main() {
         isTrue,
       );
       expect(find.text('数据摘要'), findsOneWidget);
-      expect(find.text('AI 趋势解读'), findsOneWidget);
       expect(find.textContaining('123/79 mmHg，心率为64 bpm'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('pressure-period-30')));
       await tester.pumpAndSettle();

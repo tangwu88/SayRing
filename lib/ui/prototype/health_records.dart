@@ -297,11 +297,15 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
           context.l10n.metricDetails(context.l10n.metricName(record.metric)),
         ),
         actions: [
-          RingShareButton(
-            controller: controller,
-            compact: true,
-            snapshot: ringHealthSnapshot(record),
-          ),
+          if (!readOnly)
+            RingShareButton(
+              controller: controller,
+              compact: true,
+              snapshot: ringHealthSnapshot(record),
+              canRead: () =>
+                  controller.isMetricAvailableInRelease(record.metric),
+              loadDate: (day) => ringHealthSnapshotsOn(controller, record, day),
+            ),
         ],
       ),
       body: ListView(

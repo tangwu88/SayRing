@@ -1003,7 +1003,8 @@ class GlobalSaydianApiClient extends SaydianApiClient
     try {
       return CardiovascularModelReply.parse(
         reply['content'] as String,
-        input.expectedMetrics,
+        input,
+        locale,
       );
     } on FormatException {
       throw const ApiException(

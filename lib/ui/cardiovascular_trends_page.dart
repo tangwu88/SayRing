@@ -150,22 +150,58 @@ class _TrendBodyState extends State<_TrendBody> {
     await result;
   }
 
-  Future<void> addReference() async {
+  Future<void> addReference() => changeReference(null);
+
+  Future<void> changeReference(
+    PressureSample? original, {
+    bool remove = false,
+  }) async {
     final owner = widget.controller.ringExperienceOwner;
-    final row = await showDialog<PressureSample>(
-      context: context,
-      builder: (_) => _ReferenceEntry(end),
-    );
-    if (!mounted ||
-        row == null ||
-        owner != widget.controller.ringExperienceOwner) {
-      return;
+    PressureSample? row;
+    if (remove) {
+      if (original == null) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: Text(
+            ringText(dialog, '删除这条上臂血压？', 'Delete this cuff reading?'),
+          ),
+          content: Text(
+            '${original.systolic}/${original.diastolic} mmHg · '
+            '${MaterialLocalizations.of(dialog).formatCompactDate(original.at)} ${ringClockText(original.at)}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog),
+              child: Text(MaterialLocalizations.of(dialog).cancelButtonLabel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(ringText(dialog, '删除', 'Delete')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    } else {
+      row = await showDialog<PressureSample>(
+        context: context,
+        builder: (_) => _ReferenceEntry(end, existing: original),
+      );
+      if (row == null) return;
     }
+    if (!mounted || owner != widget.controller.ringExperienceOwner) return;
     try {
-      await widget.controller.savePressureReference(row);
-      if (mounted) {
+      if (original != null) {
+        await widget.controller.replacePressureReference(original, row);
+      } else if (row != null) {
+        await widget.controller.savePressureReference(row);
+      }
+      if (mounted && owner == widget.controller.ringExperienceOwner) {
         setState(() {
-          if (row.at.isBefore(start) || !row.at.isBefore(ringAddDays(end, 1))) {
+          if (row != null &&
+              (row.at.isBefore(start) ||
+                  !row.at.isBefore(ringAddDays(end, 1)))) {
             end = ringDate(row.at);
           }
           chosenSource = 'reference';
@@ -378,12 +414,22 @@ class _TrendBodyState extends State<_TrendBody> {
                     ],
                   ),
                 ),
-                if (input != null)
+                if (input?.hasTrend == true)
                   CardiovascularModelPanel(
                     key: ValueKey(modelKey),
                     analyze: widget.controller.canAnalyzeCardiovascularTrends
-                        ? () => analyze(modelKey, input, language)
+                        ? () => analyze(modelKey, input!, language)
                         : null,
+                  )
+                else if (input != null)
+                  _Panel(
+                    child: Text(
+                      ringText(
+                        c,
+                        '多记录几天血压，再看趋势解读。',
+                        'Record a few more days of blood pressure to see a trend.',
+                      ),
+                    ),
                   ),
                 if (data!.copy == null &&
                     (daily.isNotEmpty || contextSeries.isNotEmpty))
@@ -440,6 +486,7 @@ class _TrendBodyState extends State<_TrendBody> {
                     pressureName: source == null ? '' : sourceName(source),
                     rows: rows,
                     controller: widget.controller,
+                    changeReference: changeReference,
                   ),
                 if (current.isNotEmpty)
                   _PressureChart(current: current, start: start, end: end),
@@ -719,6 +766,7 @@ class _Evidence extends StatelessWidget {
     required this.pressureName,
     required this.rows,
     required this.controller,
+    required this.changeReference,
     super.key,
   });
   final CardiovascularSummary report;
@@ -727,6 +775,7 @@ class _Evidence extends StatelessWidget {
   final String pressureName;
   final List<PressureSample> rows;
   final AppController controller;
+  final Future<void> Function(PressureSample?, {bool remove}) changeReference;
 
   @override
   Widget build(BuildContext c) {
@@ -803,73 +852,125 @@ class _Evidence extends StatelessWidget {
           ],
           if (rows.isNotEmpty)
             TextButton(
-              onPressed: () => showModalBottomSheet<void>(
-                context: c,
-                isScrollControlled: true,
-                useSafeArea: true,
-                builder: (sheet) => ListenableBuilder(
-                  listenable: controller,
-                  builder: (_, _) {
-                    if (owner != controller.ringExperienceOwner ||
-                        target !=
-                            (controller.connectedDevice ??
-                                    controller.rememberedDevice)
-                                ?.id ||
-                        (rows.first.source != 'reference' &&
-                            !controller.isMetricAvailableInRelease(
-                              HealthMetric.bloodPressure,
-                            ))) {
-                      return const SizedBox.shrink();
-                    }
-                    return FractionallySizedBox(
-                      heightFactor: .75,
-                      child: Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(
-                              pressureName,
-                              style: Theme.of(sheet).textTheme.titleMedium,
-                            ),
-                          ),
-                          Expanded(
-                            child: ListView.builder(
-                              itemCount: rows.length,
-                              itemBuilder: (_, i) {
-                                final row = rows[rows.length - 1 - i];
-                                return ListTile(
-                                  title: Text(
-                                    '${row.systolic}/${row.diastolic} mmHg',
+              onPressed: () async {
+                final action =
+                    await showModalBottomSheet<
+                      ({PressureSample row, bool remove})
+                    >(
+                      context: c,
+                      isScrollControlled: true,
+                      useSafeArea: true,
+                      builder: (sheet) => ListenableBuilder(
+                        listenable: controller,
+                        builder: (_, _) {
+                          if (owner != controller.ringExperienceOwner ||
+                              target !=
+                                  (controller.connectedDevice ??
+                                          controller.rememberedDevice)
+                                      ?.id ||
+                              (rows.first.source != 'reference' &&
+                                  !controller.isMetricAvailableInRelease(
+                                    HealthMetric.bloodPressure,
+                                  ))) {
+                            return const SizedBox.shrink();
+                          }
+                          return FractionallySizedBox(
+                            heightFactor: .75,
+                            child: Column(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Text(
+                                    pressureName,
+                                    style: Theme.of(
+                                      sheet,
+                                    ).textTheme.titleMedium,
                                   ),
-                                  subtitle: Text(
-                                    '${l.formatCompactDate(row.at)} · ${ringClockText(row.at)}',
-                                  ),
-                                  trailing:
-                                      controller.ringSharingEnabled &&
-                                          controller.isAuthenticated
-                                      ? RingShareButton(
-                                          controller: controller,
-                                          compact: true,
-                                          snapshot:
-                                              RingSnapshot('health', row.at, {
-                                                'systolic': row.systolic,
-                                                'diastolic': row.diastolic,
-                                                'measuredTime': ringClockText(
+                                ),
+                                Expanded(
+                                  child: ListView.builder(
+                                    itemCount: rows.length,
+                                    itemBuilder: (_, i) {
+                                      final row = rows[rows.length - 1 - i];
+                                      return ListTile(
+                                        title: Text(
+                                          '${row.systolic}/${row.diastolic} mmHg',
+                                        ),
+                                        subtitle: Text(
+                                          '${l.formatCompactDate(row.at)} · ${ringClockText(row.at)}',
+                                        ),
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (controller.ringSharingEnabled &&
+                                                controller.isAuthenticated)
+                                              RingShareButton(
+                                                controller: controller,
+                                                compact: true,
+                                                snapshot: RingSnapshot(
+                                                  'health',
                                                   row.at,
+                                                  {
+                                                    'systolic': row.systolic,
+                                                    'diastolic': row.diastolic,
+                                                    'measuredTime':
+                                                        ringClockText(row.at),
+                                                  },
                                                 ),
-                                              }),
-                                        )
-                                      : null,
-                                );
-                              },
+                                              ),
+                                            if (row.source == 'reference')
+                                              PopupMenuButton<bool>(
+                                                tooltip: ringText(
+                                                  sheet,
+                                                  '管理参考值',
+                                                  'Manage reference reading',
+                                                ),
+                                                onSelected: (remove) =>
+                                                    Navigator.pop(sheet, (
+                                                      row: row,
+                                                      remove: remove,
+                                                    )),
+                                                itemBuilder: (_) => [
+                                                  PopupMenuItem(
+                                                    value: false,
+                                                    child: Text(
+                                                      ringText(
+                                                        sheet,
+                                                        '修改',
+                                                        'Edit',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  PopupMenuItem(
+                                                    value: true,
+                                                    child: Text(
+                                                      ringText(
+                                                        sheet,
+                                                        '删除',
+                                                        'Delete',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
+                          );
+                        },
                       ),
                     );
-                  },
-                ),
-              ),
+                if (action != null &&
+                    c.mounted &&
+                    owner == controller.ringExperienceOwner) {
+                  await changeReference(action.row, remove: action.remove);
+                }
+              },
               child: Text(ringText(c, '逐条查看血压记录', 'View individual readings')),
             ),
         ],
@@ -879,16 +980,26 @@ class _Evidence extends StatelessWidget {
 }
 
 class _ReferenceEntry extends StatefulWidget {
-  const _ReferenceEntry(this.day);
+  const _ReferenceEntry(this.day, {this.existing});
   final DateTime day;
+  final PressureSample? existing;
   @override
   State<_ReferenceEntry> createState() => _ReferenceEntryState();
 }
 
 class _ReferenceEntryState extends State<_ReferenceEntry> {
-  final upper = TextEditingController();
-  final lower = TextEditingController();
+  late final upper = TextEditingController(
+    text: widget.existing == null
+        ? ''
+        : cardioNumber(widget.existing!.systolic.toDouble()),
+  );
+  late final lower = TextEditingController(
+    text: widget.existing == null
+        ? ''
+        : cardioNumber(widget.existing!.diastolic.toDouble()),
+  );
   late DateTime date = () {
+    if (widget.existing case final sample?) return sample.at.toLocal();
     final now = DateTime.now(), day = widget.day;
     return DateTime(day.year, day.month, day.day, now.hour, now.minute);
   }();
@@ -928,8 +1039,8 @@ class _ReferenceEntryState extends State<_ReferenceEntry> {
   }
 
   void save() {
-    final systolic = int.tryParse(upper.text.trim());
-    final diastolic = int.tryParse(lower.text.trim());
+    final systolic = num.tryParse(upper.text.trim());
+    final diastolic = num.tryParse(lower.text.trim());
     if (!PressureSample.validPair(systolic, diastolic) ||
         date.isAfter(DateTime.now())) {
       setState(() => invalid = true);
@@ -948,21 +1059,25 @@ class _ReferenceEntryState extends State<_ReferenceEntry> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text(ringText(context, '录入血压参考值', 'Add a reference reading')),
+    title: Text(
+      widget.existing == null
+          ? ringText(context, '录入血压参考值', 'Add a reference reading')
+          : ringText(context, '修改血压参考值', 'Edit reference reading'),
+    ),
     scrollable: true,
     content: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         TextField(
           controller: upper,
-          keyboardType: TextInputType.number,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
             labelText: ringText(context, '收缩压 (mmHg)', 'Systolic (mmHg)'),
           ),
         ),
         TextField(
           controller: lower,
-          keyboardType: TextInputType.number,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
             labelText: ringText(context, '舒张压 (mmHg)', 'Diastolic (mmHg)'),
           ),

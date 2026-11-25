@@ -24,6 +24,8 @@ class RingLink {
   final RingLinkType type;
   final String token;
 
+  Uri get uri => url(type.name, token);
+
   static String? invitationCode(String value) {
     final code = value.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
     return RegExp(r'^[A-HJ-NP-Z2-9]{20}$').hasMatch(code) ? code : null;
@@ -31,7 +33,7 @@ class RingLink {
 
   static RingLink? parse(Uri uri) {
     if (uri.scheme != 'https' ||
-        uri.host != ringH5Host ||
+        !{ringH5Host, 'links.saydian.cn'}.contains(uri.host) ||
         uri.port != 443 ||
         uri.userInfo.isNotEmpty ||
         uri.hasQuery) {
@@ -50,6 +52,44 @@ class RingLink {
 
   static Uri url(String path, String token) =>
       Uri.https(ringH5Host, '$ringH5Path$path').replace(fragment: token);
+}
+
+class PendingRingLink {
+  const PendingRingLink(this.link, this.receivedAt, this.owner);
+  final RingLink link;
+  final DateTime receivedAt;
+  final String? owner;
+
+  PendingRingLink withOwner(String account) =>
+      PendingRingLink(link, receivedAt, account);
+
+  bool isRecent(DateTime now) {
+    final age = now.difference(receivedAt);
+    final limit = Duration(days: link.type == RingLinkType.invite ? 2 : 7);
+    return !age.isNegative && age < limit;
+  }
+
+  Map<String, Object?> toJson() => {
+    'uri': link.uri.toString(),
+    'receivedAt': receivedAt.toUtc().toIso8601String(),
+    'owner': owner,
+  };
+
+  static PendingRingLink? fromJson(Object? value) {
+    final map = ringMap(value);
+    final uri = Uri.tryParse('${map['uri'] ?? ''}');
+    final received = DateTime.tryParse('${map['receivedAt'] ?? ''}');
+    final owner = map['owner'];
+    if (uri == null ||
+        received == null ||
+        (owner != null && owner is! String)) {
+      return null;
+    }
+    final link = RingLink.parse(uri);
+    return link == null
+        ? null
+        : PendingRingLink(link, received, owner as String?);
+  }
 }
 
 Map<String, Object?> ringMap(Object? raw) =>
