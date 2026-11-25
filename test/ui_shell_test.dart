@@ -300,7 +300,7 @@ void main() {
         final title = find.text('健康数据');
         await tester.ensureVisible(title);
         await tester.pumpAndSettle();
-        for (final label in ['健康数据', '近期数据', '全部数据']) {
+        for (final label in ['健康数据', '全部数据']) {
           expect(find.text(label), findsOneWidget);
           expect(
             tester
@@ -1297,23 +1297,19 @@ void main() {
       );
 
       expect(find.byKey(const Key('mind-body-readiness-card')), findsNothing);
-      expect(find.byKey(const Key('dashboard-ai-assistant')), findsOneWidget);
-      final assistantDecoration =
-          tester
-                  .widget<Container>(
-                    find.byKey(const Key('dashboard-ai-assistant')),
-                  )
-                  .decoration
-              as BoxDecoration;
-      expect((assistantDecoration.gradient as LinearGradient).colors, const [
-        Color(0xFFF5F8FF),
-        Color(0xFFE8F4FF),
-      ]);
+      final shortcuts = find.byKey(const Key('dashboard-functions'));
+      expect(shortcuts, findsOneWidget);
       expect(
-        tester.getSize(find.byKey(const Key('dashboard-ai-assistant'))).height,
-        lessThanOrEqualTo(170),
+        find.descendant(
+          of: shortcuts,
+          matching: find.byKey(const Key('dashboard-ai-ask')),
+        ),
+        findsOneWidget,
       );
-      expect(find.byKey(const Key('dashboard-functions')), findsOneWidget);
+      expect(
+        tester.getTopLeft(shortcuts).dy,
+        greaterThan(tester.getBottomLeft(find.text('健康数据')).dy),
+      );
       final functionDecoration =
           tester
                   .widget<Container>(
@@ -1346,6 +1342,7 @@ void main() {
         ['健康', '设备', '我的'],
       );
 
+      await tester.ensureVisible(find.text('健康百科'));
       await tester.tap(find.text('健康百科'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('article-category-page')), findsOneWidget);
@@ -1354,6 +1351,7 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.text('赛电商城'));
       await tester.tap(find.text('赛电商城'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('shop-page')), findsOneWidget);
@@ -1406,13 +1404,13 @@ void main() {
         find.byKey(const Key('dashboard-health-card-list')),
         findsOneWidget,
       );
-      expect(find.text('近期数据'), findsOneWidget);
+      expect(find.text('健康数据'), findsOneWidget);
       final metricSurface = tester.widget<DecoratedBox>(
         find.byKey(const ValueKey('health-metric-surface-heartRate')),
       );
       final metricDecoration = metricSurface.decoration as BoxDecoration;
       expect(metricDecoration.color, Colors.white);
-      expect(metricDecoration.borderRadius, BorderRadius.circular(24));
+      expect(metricDecoration.borderRadius, BorderRadius.circular(20));
       expect(
         tester.getSize(find.byKey(const Key('dashboard-health-notice'))).height,
         lessThanOrEqualTo(60),

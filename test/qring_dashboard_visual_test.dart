@@ -209,6 +209,51 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets('home shortcuts stack below health data at double text size', (
+    tester,
+  ) async {
+    final controller = _Controller(MemoryHealthStore());
+    await _mount(
+      tester,
+      controller,
+      width: 320,
+      textScale: 2,
+      locale: const Locale('en'),
+      shell: true,
+    );
+    await tester.pumpAndSettle();
+
+    final shortcuts = find.byKey(const Key('dashboard-functions'));
+    final workouts = find.descendant(
+      of: shortcuts,
+      matching: find.text('Workouts'),
+    );
+    final familyCare = find.descendant(
+      of: shortcuts,
+      matching: find.text('Family care'),
+    );
+    expect(
+      tester.getTopLeft(find.text('Shortcuts')).dy,
+      greaterThan(tester.getBottomLeft(find.text('Health data')).dy),
+    );
+    expect(tester.getTopLeft(familyCare).dx, tester.getTopLeft(workouts).dx);
+    expect(
+      tester.getTopLeft(familyCare).dy,
+      greaterThan(tester.getBottomLeft(workouts).dy),
+    );
+    expect(
+      tester.renderObject<RenderParagraph>(familyCare).didExceedMaxLines,
+      isFalse,
+    );
+
+    await tester.ensureVisible(workouts);
+    await tester.pumpAndSettle();
+    expect(workouts.hitTestable(), findsOneWidget);
+    await tester.tap(workouts);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('sport-overview-page')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     'opening sports only loads saved activity; pull refresh still reads the ring',
     (tester) async {
