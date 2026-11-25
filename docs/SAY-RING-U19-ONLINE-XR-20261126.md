@@ -29,5 +29,16 @@
 - `GlobalAuthService.requestCode` 在创建验证码挑战前查验同语言、同版本的已发布协议。缺少对应协议时返回 `legal_unavailable`。验证码登录、密码登录和创建账号也校验这一配套文档。补齐已审核的英文文档后，现有版本可重新获取注册能力。
 - 对应生产提交的独立工作树运行 `global-legal.test.ts` 与 `global-auth.test.ts`，共 81 项通过。新增一次隔离夹具复现英文缺失、只有一份、尚未启用及版本不匹配四种状态，均未调用投递。两份合成文档同版本启用后，模拟验证码可以创建并登录新会员。App 登录、注册、协议及接口定向用例共 172 项通过。
 - 独立工作树使用 `pnpm install --offline --frozen-lockfile --ignore-scripts`、`pnpm --filter @saydian/app-contracts build` 及 `pnpm --filter @saydian/app-api prisma:generate` 准备测试。首次 Vitest 启动遇到桌面进程内置 Node 与 Rollup 本机模块签名不匹配，改用已安装的 Codex 运行时 Node 后通过。Flutter 使用 `flutter test --no-pub --reporter expanded` 运行 `global_verified_registration`、`global_auth_consent`、`global_code_login_page`、`global_auth_page`、`global_legal_page`、`global_api` 六组。
-- 两份英文稿依据现网中文正文翻译，保存在本机 `build/say-ring-english-registration-20261126.dToYLVOA/`。用户协议现网运营方文本为空，稿内标记待确认。发布前还需核对现行邮箱验证码、U19 手表等实际范围。草稿待审阅，线上英文注册尚未恢复，本轮未发送生产验证码。
+- 两份英文审阅稿依据现网中文正文翻译，初稿保存在本机 `build/say-ring-english-registration-20261126.dToYLVOA/`。排查时现网英文注册尚未恢复，草稿将用户协议的空白运营方标为待确认。
 - 最后一次 USB 检查至 XR 为 `unavailable`。云端血压需要 XR 原账号重新认证后核对。普通 1331 的安装与复测结果见上文。
+
+## 中国站英文注册恢复
+
+2026-11-26，用户确认英文审阅稿并要求开启注册。现行隐私政策、同版本用户协议原稿和 App Store 中国区 Say Ring 发布信息均指向 Xuewu Tang，据此补齐英文运营方。按现行功能补充了邮箱验证码、兼容手表和血压数据的表述。
+
+- 在中国站后台分别保存 `say_ring_user_agreement` 和 `say_ring_privacy_policy`，语言 `en`，版本 `say-ring-cn-2026-10-05-v3`。核对完整正文、标题与两条原隐私链接后，按用户确认标为已审核并启用。北京时间用户协议于 02:49:00 生效，隐私政策于 02:49:26 生效。
+- 生产 `/global/api/saydian-app/v2/auth/capabilities?locale=en&product=say-ring` 已返回配套版本，`registration.email`、`registration.sms`、`login.emailAutoRegistration`、`login.smsAutoRegistration` 均为 `true`，注册仍要求验证码。两条真实公开文档路径返回英文原文，全文、标题层级及链接与发布候选逐项一致。
+- 英文公开正文 SHA-256 分别为用户协议 `f90f6d5c6d32bdfc0f0ca6e312cacfb3aa10a0fb767d839f65f27971ea1f65c7`、隐私政策 `191187015e549ad59e25944010b2edb5befbcb63d23382f74a6036ecae0f86b5`。简体中文注册能力和两份正文摘要核对一致。Saydian Health 当前协议版本仍为 `global-appstore-2026-10-14-r2`，中国站 readiness 为 `2d332feba0153593ba143bba233851296cfef77a`。
+- 本轮后台发布与线上读回已完成。真实邮箱收件、实际创建新会员和 XR 原账号的云端血压读回待单独验证。
+
+发布候选及公开读回保存在 `build/say-ring-english-registration-release-20261126.VgNKnA8D/`。公开校验命令为 `python3 verify-public-release.py`。首次校验在旧版 Python 解析 UTC 的 `Z` 后缀时中断，规范化为 `+00:00` 后重跑通过。
