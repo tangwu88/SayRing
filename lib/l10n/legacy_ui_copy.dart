@@ -1467,6 +1467,9 @@ const legacyUiEnglish = <String, String>{
   "数据同步失败，请将戒指靠近手机后重试": "Could not sync. Keep your ring nearby and try again.",
   "数据同步完成": "Data synced",
   "本次未从手表读到血压记录": "No blood pressure records were received from the watch.",
+  "暂未取得手表健康数据读取权限，请联网后再次同步":
+      "Watch health data access is unavailable. Connect to the internet and sync again.",
+  "当前未开放手表健康数据读取": "Watch health data access is disabled for now.",
   "本次未能读取血压，请重新连接手表后再试":
       "Could not read blood pressure. Reconnect the watch and try again.",
   "血压记录的时间无法确认，请核对手表日期和时间":

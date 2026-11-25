@@ -81,10 +81,10 @@ class U19HealthFeatureService extends ChangeNotifier {
   Future<void> _close() async {
     if (_disposed) return;
     _revision++;
-    final before = features.generation;
-    features.close();
+    final hadGrant = features.hasLease;
+    if (hadGrant) features.close();
     _expiryTimer?.cancel();
-    if (before != features.generation) notifyListeners();
+    if (hadGrant) notifyListeners();
     try {
       await _configure(null, Duration.zero);
     } catch (_) {

@@ -31,6 +31,9 @@ class DevicePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final connected = controller.connectedDevice;
     final bound = connected ?? controller.rememberedDevice;
+    final watchReadNotice = connected?.sdkSource == WearableSdkSource.urion
+        ? controller.u19HealthReadNotice
+        : null;
     final visibleFeatures = controller.visibleDeviceFeatures;
     final watchFaceFeatures = const [
       DeviceFeature.watchFaces,
@@ -231,6 +234,14 @@ class DevicePage extends StatelessWidget {
                                   ],
                                 ),
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (watchReadNotice case final notice?) ...[
+                      InlineNotice(
+                        message: uiCopy(context, notice),
+                        icon: Icons.info_outline_rounded,
+                        color: SaydianColors.techBlue,
                       ),
                       const SizedBox(height: 10),
                     ],
