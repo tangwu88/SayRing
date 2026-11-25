@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
@@ -5,6 +6,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:saydian_app/domain/global_care.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/ring_experience.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
@@ -17,10 +19,35 @@ import 'package:saydian_app/services/ring_firmware.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/cardiovascular_trends_page.dart';
+import 'package:saydian_app/ui/global_care_page.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/ring_share_page.dart';
 
 class _OfflineRingApi extends Fake implements SaydianApi, GlobalAccountApi {}
+
+class _ConnectedRingApi extends _OfflineRingApi
+    implements RingExperienceApi, GlobalCareApi {
+  final availability = Completer<Map<String, Object?>>();
+
+  @override
+  Future<Map<String, Object?>> readRingCapabilities() => availability.future;
+
+  @override
+  Future<List<GlobalCareRelationship>> globalCareRelationships() async => [];
+
+  @override
+  Future<Map<String, Object?>> requestRing(
+    Session expected,
+    String method,
+    String path, {
+    Map<String, String>? query,
+    Map<String, Object?>? data,
+  }) async {
+    expect(method, 'GET');
+    expect(path, 'care/invitations');
+    return {'items': []};
+  }
+}
 
 class _DisconnectedRing extends Fake implements WearableBridge {}
 
@@ -39,6 +66,85 @@ class _MissingStepsStore extends MemoryHealthStore {
 }
 
 void main() {
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets(
+      'share and invitations appear in open pages when the server enables them ($platform)',
+      (tester) async {
+        final api = _ConnectedRingApi();
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                api,
+                MemoryHealthStore(),
+                _DisconnectedRing(),
+                wellnessOnly: platform == TargetPlatform.iOS,
+              )
+              ..session = Session(
+                accessToken: 'fixture',
+                refreshToken: '',
+                expiresAt: DateTime.utc(2099),
+                memberId: 'fixture',
+                accountKey: 'global:fixture',
+                displayName: 'Fixture',
+              );
+        addTearDown(controller.dispose);
+        final refreshing = controller.refreshRingCapabilities();
+        await tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => Column(
+                  children: [
+                    RingShareButton(
+                      controller: controller,
+                      snapshot: RingSnapshot('sleep', DateTime(2026, 11, 25), {
+                        'sleepMinutes': 420,
+                      }),
+                    ),
+                    TextButton(
+                      child: const Text('Open care'),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              GlobalCarePage(controller: controller),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        expect(find.text('Share with friends'), findsNothing);
+        await tester.tap(find.text('Open care'));
+        await tester.pumpAndSettle();
+        final invite = find.byKey(const Key('care-empty-invite-link'));
+        expect(invite, findsNothing);
+
+        api.availability.complete({'sharing': true, 'care': true});
+        await refreshing;
+        await tester.pumpAndSettle();
+        expect(invite, findsOneWidget);
+        await tester.tap(invite);
+        await tester.pumpAndSettle();
+        expect(find.text('Invite a friend'), findsOneWidget);
+        final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+        navigator.pop();
+        await tester.pumpAndSettle();
+        navigator.pop();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Share with friends'));
+        await tester.pumpAndSettle();
+        expect(find.byType(RingComposeSharePage), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(platform),
+    );
+  }
+
   for (final (platform, language, title, saveLabel) in [
     (TargetPlatform.android, 'zh', '心血管趋势', '保存到本机'),
     (

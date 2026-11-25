@@ -99,6 +99,13 @@ typedef _Report = ({
   Set<HealthMetric> failed,
 });
 
+RingSnapshot _pressureSnapshot(PressureSample reading) =>
+    RingSnapshot('health', reading.at, {
+      'systolic': reading.systolic,
+      'diastolic': reading.diastolic,
+      'measuredTime': ringClockText(reading.at),
+    });
+
 class _TrendBodyState extends State<_TrendBody> {
   int days = 7;
   DateTime end = ringDate(DateTime.now());
@@ -343,6 +350,9 @@ class _TrendBodyState extends State<_TrendBody> {
                   input.encodedEvidence,
                 ]);
           final selected = source != null ? selectedDay : null;
+          final shareReading = selected == null
+              ? rows.lastOrNull
+              : rows.where((row) => ringDate(row.at) == selected).lastOrNull;
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: EdgeInsets.fromLTRB(
@@ -397,6 +407,15 @@ class _TrendBodyState extends State<_TrendBody> {
                     selected: selected,
                     onSelect: (date) => setState(() => selectedDay = date),
                     onAdd: addReference,
+                    shareAction:
+                        shareReading == null ||
+                            !widget.controller.ringSharingEnabled ||
+                            !widget.controller.isAuthenticated
+                        ? null
+                        : _PressureShareButton(
+                            controller: widget.controller,
+                            reading: shareReading,
+                          ),
                   )
                 else
                   Card(
@@ -631,6 +650,33 @@ class _PressureSource extends StatelessWidget {
   }
 }
 
+class _PressureShareButton extends StatelessWidget {
+  const _PressureShareButton({required this.controller, required this.reading});
+  final AppController controller;
+  final PressureSample reading;
+
+  @override
+  Widget build(BuildContext context) => RingShareButton(
+    controller: controller,
+    compact: true,
+    snapshot: _pressureSnapshot(reading),
+    canRead: () =>
+        reading.source == 'reference' ||
+        controller.isMetricAvailableInRelease(HealthMetric.bloodPressure),
+    loadDate: (date) async {
+      final readings = await controller.loadPressureTrend(
+        date,
+        ringAddDays(date, 1),
+      );
+      return [
+        for (final value in readings)
+          if (value.source == reading.source && ringDate(value.at) == date)
+            _pressureSnapshot(value),
+      ];
+    },
+  );
+}
+
 class _Evidence extends StatelessWidget {
   const _Evidence({
     required this.report,
@@ -724,22 +770,10 @@ class _Evidence extends StatelessWidget {
                                         trailing: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            if (controller.ringSharingEnabled &&
-                                                controller.isAuthenticated)
-                                              RingShareButton(
-                                                controller: controller,
-                                                compact: true,
-                                                snapshot: RingSnapshot(
-                                                  'health',
-                                                  row.at,
-                                                  {
-                                                    'systolic': row.systolic,
-                                                    'diastolic': row.diastolic,
-                                                    'measuredTime':
-                                                        ringClockText(row.at),
-                                                  },
-                                                ),
-                                              ),
+                                            _PressureShareButton(
+                                              controller: controller,
+                                              reading: row,
+                                            ),
                                             if (row.source == 'reference')
                                               PopupMenuButton<bool>(
                                                 tooltip: ringText(

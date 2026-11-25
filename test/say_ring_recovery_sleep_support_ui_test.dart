@@ -88,6 +88,9 @@ Session _session(String account, {String? memberId}) => Session(
 
 class _UiController extends Fake implements AppController {
   @override
+  bool get ringExperience => false;
+
+  @override
   OnlineSupportApi? get onlineSupportApi => null;
   @override
   Future<List<HealthRecord>> loadSleepReportReadings(

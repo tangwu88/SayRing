@@ -433,6 +433,14 @@ class AppController extends ChangeNotifier {
       ? commerceEnabled
       : moduleVisibility!.allows(SayRingModule.mall);
 
+  bool get ringExperience =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android) &&
+      _api is RingExperienceApi &&
+      isGlobalEdition &&
+      !isPreviewMode;
+
   Future<void> refreshModuleVisibility() async {
     final lease = moduleVisibility;
     final api = _api;

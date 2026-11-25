@@ -33,6 +33,7 @@ class CardioPressureOverview extends StatelessWidget {
     required this.selected,
     required this.onSelect,
     required this.onAdd,
+    this.shareAction,
     super.key,
   });
 
@@ -43,6 +44,7 @@ class CardioPressureOverview extends StatelessWidget {
   final DateTime? selected;
   final ValueChanged<DateTime?> onSelect;
   final VoidCallback onAdd;
+  final Widget? shareAction;
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +86,7 @@ class CardioPressureOverview extends StatelessWidget {
                   icon: const Icon(Icons.add, size: 18),
                   label: Text(ringText(context, '记上臂血压', 'Add cuff reading')),
                 ),
+                ?shareAction,
               ],
             ),
             Semantics(

@@ -14,6 +14,9 @@ class _Api extends Fake implements SaydianApi {}
 class _Ring extends Fake implements WearableBridge {}
 
 class _Ui extends Fake implements AppController {
+  @override
+  bool get ringExperience => false;
+
   (int, double, int)? saved;
   @override
   int get stepGoal => 10000;

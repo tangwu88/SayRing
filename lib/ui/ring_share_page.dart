@@ -251,7 +251,7 @@ class RingSnapshotView extends StatelessWidget {
   );
 }
 
-class RingShareButton extends StatelessWidget {
+class RingShareButton extends StatefulWidget {
   const RingShareButton({
     required this.controller,
     required this.snapshot,
@@ -267,37 +267,70 @@ class RingShareButton extends StatelessWidget {
   final bool Function()? canRead;
 
   @override
-  Widget build(BuildContext context) {
-    final input = snapshot;
-    if (!controller.ringSharingEnabled ||
-        !controller.isAuthenticated ||
-        input == null ||
-        input.fields.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    final title = ringText(context, '分享给好友', 'Share with friends');
-    void open() => Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => RingComposeSharePage(
-          controller: controller,
-          snapshot: input,
-          loadDate: loadDate,
-          canRead: canRead,
-        ),
-      ),
-    );
-    return compact
-        ? IconButton(
-            tooltip: title,
-            onPressed: open,
-            icon: const Icon(Icons.ios_share_rounded),
-          )
-        : OutlinedButton.icon(
-            onPressed: open,
-            icon: const Icon(Icons.ios_share_rounded),
-            label: Text(title),
-          );
+  State<RingShareButton> createState() => _RingShareButtonState();
+}
+
+class _RingShareButtonState extends State<RingShareButton> {
+  late final AppController _controller;
+  late final String? _owner;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = widget.controller;
+    _owner = _controller.ringExperience
+        ? _controller.ringExperienceOwner
+        : null;
   }
+
+  bool get _canShare {
+    return identical(widget.controller, _controller) &&
+        _controller.ringSharingEnabled &&
+        _controller.isAuthenticated &&
+        _owner == _controller.ringExperienceOwner &&
+        widget.canRead?.call() != false;
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) {
+      final input = widget.snapshot;
+      if (input == null || input.fields.isEmpty || !_canShare) {
+        return const SizedBox.shrink();
+      }
+      final title = ringText(context, '分享给好友', 'Share with friends');
+      void open() {
+        if (!_canShare) return;
+        final loadDate = widget.loadDate;
+        final canRead = widget.canRead;
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => RingComposeSharePage(
+              controller: _controller,
+              snapshot: input,
+              loadDate: loadDate,
+              canRead: () =>
+                  _owner == _controller.ringExperienceOwner &&
+                  canRead?.call() != false,
+            ),
+          ),
+        );
+      }
+
+      return widget.compact
+          ? IconButton(
+              tooltip: title,
+              onPressed: open,
+              icon: const Icon(Icons.ios_share_rounded),
+            )
+          : OutlinedButton.icon(
+              onPressed: open,
+              icon: const Icon(Icons.ios_share_rounded),
+              label: Text(title),
+            );
+    },
+  );
 }
 
 class RingComposeSharePage extends StatefulWidget {

@@ -14,6 +14,9 @@ class _Controller extends Fake implements AppController {
   bool get isWellnessOnly => false;
 
   @override
+  bool get ringExperience => false;
+
+  @override
   Session? session = Session(
     accessToken: 'synthetic',
     refreshToken: '',

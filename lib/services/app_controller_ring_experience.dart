@@ -1,9 +1,6 @@
 part of 'app_controller.dart';
 
 extension RingExperienceController on AppController {
-  bool get ringExperience =>
-      isWellnessOnly && isGlobalEdition && !isPreviewMode;
-
   // Local pressure trends are available on both phone platforms. Wearable
   // readings still follow the release policy for the individual metric.
   bool get canOpenCardiovascularTrends =>
@@ -433,7 +430,8 @@ extension RingFirmwareController on AppController {
   bool get ringFirmwareCandidate {
     const key = String.fromEnvironment('SAY_RING_FIRMWARE_PUBLIC_KEY');
     final device = connectedDevice;
-    return ringExperience &&
+    return isWellnessOnly &&
+        ringExperience &&
         _ringCapabilities.firmware &&
         isAuthenticated &&
         key.isNotEmpty &&
