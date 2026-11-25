@@ -1980,18 +1980,6 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }];
 }
 
-- (NSString *)qualifiedFirmwareModel {
-    NSString *name = self.connectedName.uppercaseString ?: @"";
-    NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:
-        @"(?:^|[^A-Z0-9])(R8[ _-]?PRO|R21|R22|R7C|R8)(?:$|[^A-Z0-9])"
-        options:0 error:nil];
-    NSTextCheckingResult *match = [expression firstMatchInString:name options:0 range:NSMakeRange(0, name.length)];
-    if (!match || [match rangeAtIndex:1].location == NSNotFound) return @"";
-    NSString *model = [name substringWithRange:[match rangeAtIndex:1]];
-    return [[[model stringByReplacingOccurrencesOfString:@" " withString:@""]
-        stringByReplacingOccurrencesOfString:@"_" withString:@""] stringByReplacingOccurrencesOfString:@"-" withString:@""];
-}
-
 - (BOOL)firmwareTargetReady:(NSDictionary *)arguments {
     NSString *expected = arguments[@"expectedDeviceId"];
     return [expected isKindOfClass:NSString.class] && expected.length &&
@@ -2007,7 +1995,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)ringFirmwareIdentity:(NSDictionary *)arguments result:(FlutterResult)result {
-    if (self.firmwareTransferring || ![self firmwareTargetReady:arguments] || ![self qualifiedFirmwareModel].length) {
+    NSString *model = QRingFirmwareModel(self.connectedName);
+    if (!model || self.firmwareTransferring || ![self firmwareTargetReady:arguments]) {
         result(nil); return;
     }
     NSUInteger generation = self.connectionGeneration;
@@ -2028,13 +2017,14 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             self.firmware = software;
             [QCSDKCmdCreator readBatterySuccess:^(int battery, BOOL charging) {
                 QRingOnMain(^{
-                    if (finished || ![self isCurrentConnection:generation] || battery < 0 || battery > 100) {
+                    if (finished || ![self isCurrentConnection:generation] ||
+                        ![model isEqualToString:QRingFirmwareModel(self.connectedName)] || battery < 0 || battery > 100) {
                         finish(nil); return;
                     }
                     self.battery = @(battery);
                     self.charging = @(charging);
                     self.batteryUpdatedAt = [NSDate date];
-                    finish(@{@"model": [self qualifiedFirmwareModel], @"hardware": hardware,
+                    finish(@{@"model": model, @"packageModel": @"R21", @"hardware": hardware,
                              @"fromVersion": software, @"battery": @(battery)});
                 });
             } failed:^{ QRingOnMain(^{ finish(nil); }); }];
@@ -2050,11 +2040,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     id threshold = arguments[@"minBattery"];
     id operation = arguments[@"operationId"];
     NSInteger minimum = [threshold isKindOfClass:NSNumber.class] ? [threshold integerValue] : 0;
+    NSString *model = QRingFirmwareModel(self.connectedName);
     if (self.firmwareTransferring || ![self firmwareTargetReady:arguments] ||
         !data.length || data.length > 8 * 1024 * 1024 ||
         ![operation isKindOfClass:NSString.class] || ![[NSUUID alloc] initWithUUIDString:operation] ||
-        ![self qualifiedFirmwareModel].length ||
-        ![[self qualifiedFirmwareModel] isEqual:arguments[@"model"]] ||
+        ![model isEqual:arguments[@"model"]] ||
+        ![@"R21" isEqual:arguments[@"packageModel"]] ||
+        ![@"qring" isEqual:arguments[@"transport"]] ||
         !self.firmwareHardware.length || ![self.firmwareHardware isEqual:arguments[@"hardware"]] ||
         !self.firmware.length || ![self.firmware isEqual:arguments[@"fromVersion"]] ||
         minimum < 1 || minimum > 100 || !batteryAt || -batteryAt.timeIntervalSinceNow > 20 ||

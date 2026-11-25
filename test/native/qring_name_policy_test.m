@@ -19,8 +19,16 @@ int main(void) {
         for (NSString *name in accepted) assert(QRingIsSupportedName(name));
         for (NSString *name in rejected) assert(!QRingIsSupportedName(name));
         assert(!QRingIsSupportedName(nil));
-        printf("QRing iOS name policy: %lu cases passed\n",
-               (unsigned long)(accepted.count + rejected.count + 1));
+        assert([QRingFirmwareModel(@"SD_RING_R8") isEqualToString:@"R8"]);
+        assert([QRingFirmwareModel(@" r21_D47C ") isEqualToString:@"R21"]);
+        assert([QRingFirmwareModel(@"R8") isEqualToString:@"R8"]);
+        assert([QRingFirmwareModel(@"R21") isEqualToString:@"R21"]);
+        for (NSString *name in @[@"R8-Pro", @"R21_R8Pro", @"R22_C493", @"R7C-R8", @"R7U",
+                                  @"R8-R21", @"R21_HR05", @"R21_Plus", @"r210", @"U19M"]) {
+            assert(QRingFirmwareModel(name) == nil);
+        }
+        printf("QRing iOS name and firmware policies: %lu cases passed\n",
+               (unsigned long)(accepted.count + rejected.count + 15));
     }
     return 0;
 }

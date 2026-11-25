@@ -456,8 +456,54 @@ void main() {
     );
   });
 
+  test('firmware package families are limited to the six product models', () {
+    const expected = {
+      ('qring', 'R8'): 'R21',
+      ('qring', 'R21'): 'R21',
+      ('coolwear', 'R7 Pro'): 'HR05',
+      ('coolwear', 'R7u'): 'HR05',
+      ('coolwear', 'R7'): 'HR01',
+      ('coolwear', 'R7y'): 'HR01',
+      ('qring', 'R8 Pro'): null,
+      ('qring', 'R22'): null,
+      ('qring', 'R7C'): null,
+      ('qring', 'R8-R21'): null,
+      ('coolwear', 'HR05'): null,
+      ('coolwear', 'HR01'): null,
+      ('coolwear', 'R21'): null,
+      ('urion', 'U19M'): null,
+    };
+    for (final MapEntry(key: (transport, model), value: family)
+        in expected.entries) {
+      final device = RingFirmwareIdentity(
+        platform: 'ios',
+        transport: transport,
+        model: model,
+        hardware: 'labA',
+        version: '1.0',
+        battery: 90,
+      );
+      expect(device.query(1318)['packageModel'], family, reason: model);
+    }
+    expect(qringIosFirmwareModel(' SD_RING_R8 '), 'R8');
+    expect(qringIosFirmwareModel('r21_D47C'), 'R21');
+    for (final name in [
+      'R8_Pro',
+      'R21_R8Pro',
+      'R22_C493',
+      'R7C-R8',
+      'R8-R21',
+      'R21_HR05',
+      'R21_Plus',
+      'r210',
+      'U19M',
+    ]) {
+      expect(qringIosFirmwareModel(name), isNull, reason: name);
+    }
+  });
+
   test(
-    'firmware manifest signature, expiry and hardware must all match',
+    'firmware manifest signature, expiry, package and hardware must all match',
     () async {
       final ed = Ed25519();
       final key = await ed.newKeyPair();
@@ -471,36 +517,51 @@ void main() {
         version: '1.0',
         battery: 90,
       );
-      final body = utf8.encode(
-        jsonEncode({
-          ...device.query(1318),
-          'product': 'say-ring',
-          'id': '24d0b7d2-0214-4131-953f-c2e389dbd101',
-          'version': '1.1',
-          'sha256': List.filled(64, '1').join(),
-          'bytes': 3,
-          'minBattery': 30,
-          'minBuild': 1318,
-          'expiresAt': now.add(const Duration(minutes: 8)).toIso8601String(),
-        }),
-      );
-      final signature = await ed.sign(body, keyPair: key);
-      final envelope = <String, Object?>{
-        'available': true,
-        'payload': base64Url.encode(body),
-        'signature': base64Url.encode(signature.bytes),
+      final manifest = <String, Object?>{
+        ...device.query(1318),
+        'product': 'say-ring',
+        'id': '24d0b7d2-0214-4131-953f-c2e389dbd101',
+        'version': '1.1',
+        'sha256': List.filled(64, '1').join(),
+        'bytes': 3,
+        'minBattery': 30,
+        'minBuild': 1318,
+        'expiresAt': now.add(const Duration(minutes: 8)).toIso8601String(),
       };
+      Future<Map<String, Object?>> signed(Map<String, Object?> payload) async {
+        final body = utf8.encode(jsonEncode(payload));
+        final signature = await ed.sign(body, keyPair: key);
+        return {
+          'available': true,
+          'payload': base64Url.encode(body),
+          'signature': base64Url.encode(signature.bytes),
+        };
+      }
+
+      final envelope = await signed(manifest);
       Future<RingFirmwarePackage?> verify(
         RingFirmwareIdentity identity,
-        DateTime clock,
-      ) => RingFirmwarePackage.verify(
-        envelope: envelope,
+        DateTime clock, {
+        Map<String, Object?>? offer,
+      }) => RingFirmwarePackage.verify(
+        envelope: offer ?? envelope,
         device: identity,
         build: 1318,
         encodedPublicKey: base64Url.encode(pub.bytes),
         now: clock,
       );
       expect((await verify(device, now))?.version, '1.1');
+      for (final invalid in [
+        {...manifest, 'packageModel': 'HR05'},
+        {...manifest}..remove('packageModel'),
+        {...manifest, 'model': 'R21'},
+      ]) {
+        final offer = await signed(invalid);
+        await expectLater(
+          verify(device, now, offer: offer),
+          throwsFormatException,
+        );
+      }
       const other = RingFirmwareIdentity(
         platform: 'ios',
         transport: 'qring',

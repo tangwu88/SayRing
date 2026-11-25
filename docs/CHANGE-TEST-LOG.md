@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-11-25 Say Ring 固件升级范围与 QRing 附件核对](SAY-RING-FIRMWARE-MODEL-SCOPE-20261125.md) — 限定六个产品型号、核对三个原厂包归属和两份 QRing SDK 附件。
+
 - [2026-11-25 Say Ring 1323 四项功能续验](SAY-RING-CONNECTED-COMPLETION-1323-20261125.md) — 血压参考值可更正，分享补日期和回应历史，邀请支持恢复，固件传输显示 SDK 进度。
 
 - [2026-11-25 Say Ring 1322 心血管趋势模型联调](SAY-RING-CARDIOVASCULAR-MODEL-1322-20261125.md) — 华为真机核对现网模型按血压及同日心率、睡眠、步数返回中英文分析。

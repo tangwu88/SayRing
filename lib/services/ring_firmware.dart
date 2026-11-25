@@ -8,6 +8,13 @@ import 'package:uuid/uuid.dart';
 
 import '../domain/ring_experience.dart';
 
+final _qringFirmwareName = RegExp(
+  r'^(?:SD[ _-]+RING[ _-]+)?(R8|R21)(?:[ _-]+[0-9A-F]{4,6})?$',
+);
+
+String? qringIosFirmwareModel(String name) =>
+    _qringFirmwareName.firstMatch(name.trim().toUpperCase())?.group(1);
+
 class RingFirmwareIdentity {
   const RingFirmwareIdentity({
     required this.platform,
@@ -24,6 +31,16 @@ class RingFirmwareIdentity {
   final String version;
   final int battery;
 
+  String? get packageModel => switch ((
+    transport,
+    model.replaceAll(RegExp(r'[ _-]+'), '').toUpperCase(),
+  )) {
+    ('qring', 'R8' || 'R21') => 'R21',
+    ('coolwear', 'R7PRO' || 'R7U' || 'R7ULTRA') => 'HR05',
+    ('coolwear', 'R7' || 'R7Y') => 'HR01',
+    _ => null,
+  };
+
   Map<String, Object> query(int build) => {
     'platform': platform,
     'transport': transport,
@@ -31,14 +48,19 @@ class RingFirmwareIdentity {
     'hardware': hardware,
     'fromVersion': version,
     'appBuild': build,
+    'packageModel': ?packageModel,
   };
 
-  bool describes(Map<String, Object?> payload) =>
-      platform == payload['platform'] &&
-      transport == payload['transport'] &&
-      model == payload['model'] &&
-      hardware == payload['hardware'] &&
-      version == payload['fromVersion'];
+  bool describes(Map<String, Object?> payload) {
+    final package = packageModel;
+    return package != null &&
+        package == payload['packageModel'] &&
+        platform == payload['platform'] &&
+        transport == payload['transport'] &&
+        model == payload['model'] &&
+        hardware == payload['hardware'] &&
+        version == payload['fromVersion'];
+  }
 }
 
 class RingFirmwarePackage {
@@ -161,7 +183,7 @@ class QringIosFirmwareTransport {
         result['battery'] is! int) {
       return null;
     }
-    return RingFirmwareIdentity(
+    final identity = RingFirmwareIdentity(
       platform: 'ios',
       transport: 'qring',
       model: result['model']! as String,
@@ -169,6 +191,10 @@ class QringIosFirmwareTransport {
       version: result['fromVersion']! as String,
       battery: result['battery']! as int,
     );
+    return identity.packageModel != null &&
+            identity.packageModel == result['packageModel']
+        ? identity
+        : null;
   }
 
   Future<void> send(

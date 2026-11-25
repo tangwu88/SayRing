@@ -432,12 +432,15 @@ extension RingExperienceController on AppController {
 extension RingFirmwareController on AppController {
   bool get ringFirmwareCandidate {
     const key = String.fromEnvironment('SAY_RING_FIRMWARE_PUBLIC_KEY');
+    final device = connectedDevice;
     return ringExperience &&
         _ringCapabilities.firmware &&
         isAuthenticated &&
         key.isNotEmpty &&
         defaultTargetPlatform == TargetPlatform.iOS &&
-        connectedDevice?.sdkSource == WearableSdkSource.qring;
+        device != null &&
+        device.sdkSource == WearableSdkSource.qring &&
+        qringIosFirmwareModel(device.name) != null;
   }
 
   bool get ringFirmwareBusy => _ringFirmwareBusy;
@@ -448,7 +451,9 @@ extension RingFirmwareController on AppController {
     final owner = ringExperienceOwner;
     final adapter = const QringIosFirmwareTransport();
     final identity = await adapter.identify(device.nativeId);
-    if (identity == null || !_ringFirmwareSameTarget(owner, device)) {
+    if (identity == null ||
+        identity.model != qringIosFirmwareModel(device.name) ||
+        !_ringFirmwareSameTarget(owner, device)) {
       return null;
     }
     final build = int.tryParse((await PackageInfo.fromPlatform()).buildNumber);
@@ -528,13 +533,14 @@ extension RingFirmwareController on AppController {
     }
 
     final freshOffer = await findRingFirmware();
-    if (freshOffer?.id != release.id ||
-        freshOffer?.sha256 != release.sha256 ||
+    if (freshOffer == null ||
+        freshOffer.id != release.id ||
+        freshOffer.sha256 != release.sha256 ||
         !_ringFirmwareSameTarget(owner, device) ||
         !_ringFirmwareIdle) {
       throw const ApiException('固件分发状态已变化，请重新检查');
     }
-    if (freshOffer!.target.battery < release.minBattery) {
+    if (freshOffer.target.battery < freshOffer.minBattery) {
       throw const ApiException('设备电量不足，请充电后再试');
     }
 
@@ -552,7 +558,7 @@ extension RingFirmwareController on AppController {
       phase(RingFirmwarePhase.transfer);
       await adapter.send(
         device.nativeId,
-        release,
+        freshOffer,
         bytes,
         onProgress: (value) {
           if (_ringFirmwareSameTarget(owner, device)) onProgress?.call(value);
@@ -574,7 +580,8 @@ extension RingFirmwareController on AppController {
             final actual = await adapter.identify(device.nativeId, fresh: true);
             if (_ringFirmwareSameTarget(owner, device) &&
                 actual?.version == release.version &&
-                actual?.hardware == release.target.hardware) {
+                actual?.hardware == release.target.hardware &&
+                actual?.model == release.target.model) {
               await safeSecureStorage.delete(key: stateKey);
               phase(RingFirmwarePhase.complete);
               return;
