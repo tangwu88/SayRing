@@ -307,14 +307,6 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
       controller: controller,
       snapshot: _shareSnapshot(_date, period, _records),
       canRead: () => controller.isMetricAvailableInRelease(HealthMetric.sleep),
-      loadDate: (date) async {
-        final range = sleepPeriodRange(date, period);
-        final rows = await controller.loadSleepDays(
-          start: range.start,
-          end: range.end,
-        );
-        return [?_shareSnapshot(date, period, rows)];
-      },
     );
   }
 

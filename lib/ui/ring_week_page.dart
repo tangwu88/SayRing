@@ -16,6 +16,7 @@ class RingWeekPage extends StatefulWidget {
 class _RingWeekPageState extends State<RingWeekPage> {
   late final String owner = widget.controller.ringExperienceOwner;
   final note = TextEditingController();
+  String _shareNote = '';
   late final DateTime now = ringDate(DateTime.now());
   late final DateTime start = ringAddDays(now, 1 - now.weekday);
   late final Future<RingSnapshot?> summary = _load();
@@ -165,34 +166,16 @@ class _RingWeekPageState extends State<RingWeekPage> {
                   children: [
                     RingSnapshotView(snapshot: display),
                     TextField(
-                      controller: note,
                       maxLength: 140,
-                      onChanged: (_) => setState(() {}),
+                      textInputAction: TextInputAction.done,
+                      onChanged: (value) =>
+                          setState(() => _shareNote = value.trim()),
                       decoration: InputDecoration(
                         labelText: ringText(
                           context,
-                          '留一句话给自己',
-                          'Leave a note for yourself',
+                          '给好友的附言（选填）',
+                          'A note for your friend (optional)',
                         ),
-                      ),
-                    ),
-                    OutlinedButton(
-                      onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        final savedLabel = ringText(context, '已保存', 'Saved');
-                        await widget.controller.writeRingWeekNote(
-                          ringDateText(start),
-                          note.text.trim(),
-                        );
-                        if (mounted &&
-                            owner == widget.controller.ringExperienceOwner) {
-                          messenger.showSnackBar(
-                            SnackBar(content: Text(savedLabel)),
-                          );
-                        }
-                      },
-                      child: Text(
-                        ringText(context, '保存私人卡片', 'Save private card'),
                       ),
                     ),
                     RingShareButton(
@@ -201,8 +184,48 @@ class _RingWeekPageState extends State<RingWeekPage> {
                         display.kind,
                         display.date,
                         display.fields,
-                        note: note.text.trim(),
+                        note: _shareNote,
                       ),
+                    ),
+                    ExpansionTile(
+                      title: Text(ringText(context, '私人笔记', 'Private note')),
+                      children: [
+                        TextField(
+                          controller: note,
+                          maxLength: 140,
+                          decoration: InputDecoration(
+                            labelText: ringText(
+                              context,
+                              '留一句话给自己',
+                              'Leave a note for yourself',
+                            ),
+                          ),
+                        ),
+                        OutlinedButton(
+                          onPressed: () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            final savedLabel = ringText(
+                              context,
+                              '已保存',
+                              'Saved',
+                            );
+                            await widget.controller.writeRingWeekNote(
+                              ringDateText(start),
+                              note.text.trim(),
+                            );
+                            if (mounted &&
+                                owner ==
+                                    widget.controller.ringExperienceOwner) {
+                              messenger.showSnackBar(
+                                SnackBar(content: Text(savedLabel)),
+                              );
+                            }
+                          },
+                          child: Text(
+                            ringText(context, '保存私人卡片', 'Save private card'),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 );

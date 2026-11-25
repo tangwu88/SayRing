@@ -663,17 +663,6 @@ class _PressureShareButton extends StatelessWidget {
     canRead: () =>
         reading.source == 'reference' ||
         controller.isMetricAvailableInRelease(HealthMetric.bloodPressure),
-    loadDate: (date) async {
-      final readings = await controller.loadPressureTrend(
-        date,
-        ringAddDays(date, 1),
-      );
-      return [
-        for (final value in readings)
-          if (value.source == reading.source && ringDate(value.at) == date)
-            _pressureSnapshot(value),
-      ];
-    },
   );
 }
 

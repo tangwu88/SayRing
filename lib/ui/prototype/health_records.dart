@@ -304,7 +304,6 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
               snapshot: ringHealthSnapshot(record),
               canRead: () =>
                   controller.isMetricAvailableInRelease(record.metric),
-              loadDate: (day) => ringHealthSnapshotsOn(controller, record, day),
             ),
         ],
       ),

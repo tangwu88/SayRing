@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/global_care.dart';
@@ -22,12 +23,15 @@ import 'package:saydian_app/ui/cardiovascular_trends_page.dart';
 import 'package:saydian_app/ui/global_care_page.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/ring_share_page.dart';
+import 'package:saydian_app/ui/ring_week_page.dart';
 
 class _OfflineRingApi extends Fake implements SaydianApi, GlobalAccountApi {}
 
 class _ConnectedRingApi extends _OfflineRingApi
     implements RingExperienceApi, GlobalCareApi {
   final availability = Completer<Map<String, Object?>>();
+  final sharePosts = <Map<String, Object?>>[];
+  Future<Map<String, Object?>> Function()? shareResponse;
 
   @override
   Future<Map<String, Object?>> readRingCapabilities() => availability.future;
@@ -43,10 +47,32 @@ class _ConnectedRingApi extends _OfflineRingApi
     Map<String, String>? query,
     Map<String, Object?>? data,
   }) async {
+    if (method == 'POST' && path == 'shares') {
+      sharePosts.add(data!);
+      return await (shareResponse?.call() ?? Future.value({'id': 'fixture'}));
+    }
     expect(method, 'GET');
     expect(path, 'care/invitations');
     return {'items': []};
   }
+}
+
+List<MethodCall> _recordNativeShares(WidgetTester tester) {
+  const channel = MethodChannel('dev.fluttercommunity.plus/share');
+  final calls = <MethodCall>[];
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+    call,
+  ) async {
+    calls.add(call);
+    return 'dev.fluttercommunity.plus/share/dismissed';
+  });
+  addTearDown(() {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      null,
+    );
+  });
+  return calls;
 }
 
 class _DisconnectedRing extends Fake implements WearableBridge {}
@@ -70,7 +96,13 @@ void main() {
     testWidgets(
       'share and invitations appear in open pages when the server enables them ($platform)',
       (tester) async {
+        final nativeShares = _recordNativeShares(tester);
         final api = _ConnectedRingApi();
+        final snapshot = RingSnapshot('sleep', DateTime(2026, 11, 25), {
+          'sleepMinutes': 420,
+          'deepMinutes': 75,
+          'awakeMinutes': 0,
+        }, note: 'A fixture note');
         final controller =
             AppController(
                 MemorySessionVault(),
@@ -97,12 +129,7 @@ void main() {
               body: Builder(
                 builder: (context) => Column(
                   children: [
-                    RingShareButton(
-                      controller: controller,
-                      snapshot: RingSnapshot('sleep', DateTime(2026, 11, 25), {
-                        'sleepMinutes': 420,
-                      }),
-                    ),
+                    RingShareButton(controller: controller, snapshot: snapshot),
                     TextButton(
                       child: const Text('Open care'),
                       onPressed: () => Navigator.of(context).push(
@@ -138,7 +165,15 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Share with friends'));
         await tester.pumpAndSettle();
-        expect(find.byType(RingComposeSharePage), findsOneWidget);
+        final posted = api.sharePosts.single;
+        expect(posted['confirmed'], isTrue);
+        expect(posted['snapshot'], snapshot.toJson());
+        expect(nativeShares.single.method, 'share');
+        expect(
+          nativeShares.single.arguments['text'],
+          RingLink.url('share', posted['token'] as String).toString(),
+        );
+        expect(find.byType(CheckboxListTile), findsNothing);
         expect(tester.takeException(), isNull);
       },
       variant: TargetPlatformVariant.only(platform),
@@ -429,51 +464,153 @@ void main() {
   );
 
   testWidgets(
-    'changing a share date clears the previous snapshot when the selected day is empty',
+    'weekly share sends the optional friend note and keeps the saved note private',
     (tester) async {
-      final controller = AppController(
-        MemorySessionVault(),
-        _OfflineRingApi(),
-        MemoryHealthStore(),
-        _DisconnectedRing(),
-      );
+      FlutterSecureStorage.setMockInitialValues({});
+      final nativeShares = _recordNativeShares(tester);
+      final api = _ConnectedRingApi();
+      final now = DateTime.now();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              api,
+              MemoryHealthStore(),
+              _DisconnectedRing(),
+            )
+            ..session = Session(
+              accessToken: 'fixture',
+              refreshToken: '',
+              expiresAt: DateTime.utc(2099),
+              memberId: 'fixture',
+              accountKey: 'global:fixture',
+              displayName: 'Fixture',
+            )
+            ..sportRecords = [
+              SportRecord(
+                id: 'fixture-walk',
+                mode: SportMode.walking,
+                startedAt: now,
+                durationSeconds: 1800,
+                distanceKm: 2.3,
+                calories: 0,
+                steps: 2980,
+              ),
+            ];
       addTearDown(controller.dispose);
-      final today = ringDate(DateTime.now());
-      final yesterday = ringAddDays(today, -1);
-      DateTime? requested;
+      api.availability.complete({'sharing': true});
+      await controller.refreshRingCapabilities();
+      final week = ringDateText(ringAddDays(ringDate(now), 1 - now.weekday));
+      await controller.writeRingWeekNote(week, 'Private fixture note');
+
       await tester.pumpWidget(
         MaterialApp(
-          home: RingComposeSharePage(
-            controller: controller,
-            snapshot: RingSnapshot('sleep', today, {'sleepMinutes': 371}),
-            loadDate: (date) async {
-              requested = date;
-              return [];
-            },
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: RingWeekPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final share = find.text('Share with friends');
+      await tester.ensureVisible(share);
+      await tester.tap(share);
+      await tester.pumpAndSettle();
+      final first = api.sharePosts.single['snapshot'] as Map<String, Object?>;
+      expect(first['note'], isEmpty);
+      expect(
+        first['fields'],
+        contains(equals({'key': 'steps', 'value': 2980})),
+      );
+      expect(nativeShares, hasLength(1));
+
+      await tester.enterText(find.byType(TextField), 'A note for my friend');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(share);
+      await tester.tap(share);
+      await tester.pumpAndSettle();
+      expect(api.sharePosts, hasLength(2));
+      final second = api.sharePosts.last['snapshot'] as Map<String, Object?>;
+      expect(second['note'], 'A note for my friend');
+      expect(second['fields'], first['fields']);
+      expect(await controller.readRingWeekNote(week), 'Private fixture note');
+      expect(nativeShares, hasLength(2));
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'quick share retries a single request for the same report',
+    (tester) async {
+      final nativeShares = _recordNativeShares(tester);
+      final api = _ConnectedRingApi();
+      final firstResponse = Completer<Map<String, Object?>>();
+      api.shareResponse = () => switch (api.sharePosts.length) {
+        1 => firstResponse.future,
+        2 => Future.error(const ApiException('Expired', statusCode: 409)),
+        _ => Future.value({'id': 'fixture'}),
+      };
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              api,
+              MemoryHealthStore(),
+              _DisconnectedRing(),
+            )
+            ..session = Session(
+              accessToken: 'fixture',
+              refreshToken: '',
+              expiresAt: DateTime.utc(2099),
+              memberId: 'fixture',
+              accountKey: 'global:fixture',
+              displayName: 'Fixture',
+            );
+      addTearDown(controller.dispose);
+      api.availability.complete({'sharing': true});
+      await controller.refreshRingCapabilities();
+      final snapshot = RingSnapshot('health', DateTime(2026, 11, 25), {
+        'systolic': 122.5,
+        'diastolic': 81,
+        'pulse': 67,
+        'measuredTime': '13:15',
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RingShareButton(controller: controller, snapshot: snapshot),
           ),
         ),
       );
-      expect(find.textContaining('371 min'), findsWidgets);
-      await tester.tap(find.byKey(const Key('ring-share-date')));
-      await tester.pumpAndSettle();
-      tester
-          .widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
-          .onDateChanged(yesterday);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('OK'));
-      await tester.pumpAndSettle();
-      expect(requested, yesterday);
-      expect(find.textContaining('371 min'), findsNothing);
-      expect(find.text('Nothing to share for this date.'), findsOneWidget);
-      expect(
-        tester
-            .widget<FilledButton>(
-              find.widgetWithText(FilledButton, 'Create and share link'),
-            )
-            .onPressed,
-        isNull,
+
+      final shareButton = find.widgetWithText(
+        OutlinedButton,
+        'Share with friends',
       );
+      final press = tester.widget<OutlinedButton>(shareButton).onPressed!;
+      press();
+      press();
+      await tester.pump();
+      expect(api.sharePosts, hasLength(1));
+      expect(nativeShares, isEmpty);
+
+      firstResponse.completeError(StateError('Fixture: interrupted request'));
+      await tester.pumpAndSettle();
+      await tester.tap(shareButton);
+      await tester.pumpAndSettle();
+      expect(api.sharePosts, hasLength(2));
+      expect(api.sharePosts.first, api.sharePosts.last);
+      expect(nativeShares, isEmpty);
+
+      await tester.tap(shareButton);
+      await tester.pumpAndSettle();
+      expect(api.sharePosts, hasLength(3));
+      expect(
+        api.sharePosts.first['token'],
+        isNot(api.sharePosts.last['token']),
+      );
+      expect(api.sharePosts.last['snapshot'], snapshot.toJson());
+      expect(nativeShares, hasLength(1));
+      expect(find.byType(CheckboxListTile), findsNothing);
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
 
   test('the first-party host and exact routes are required for care links', () {

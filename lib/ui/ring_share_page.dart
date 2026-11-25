@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +8,7 @@ import '../domain/models.dart';
 import '../domain/ring_experience.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../l10n/ui_labels.dart';
+import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import '../services/health_analysis.dart';
 
@@ -132,24 +134,6 @@ RingSnapshot? ringWorkoutSnapshot(BuildContext context, SportRecord record) {
   });
 }
 
-List<RingSnapshot> ringWorkoutSnapshotsOn(
-  BuildContext context,
-  List<SportRecord> records,
-  DateTime day,
-) {
-  final wanted = ringDate(day);
-  final rows =
-      records
-          .where(
-            (r) =>
-                r.startedAt != null &&
-                ringDate(r.startedAt!.toLocal()) == wanted,
-          )
-          .toList()
-        ..sort((a, b) => b.startedAt!.compareTo(a.startedAt!));
-  return rows.map((r) => ringWorkoutSnapshot(context, r)).nonNulls.toList();
-}
-
 RingSnapshot? ringHealthSnapshot(HealthRecord record) {
   final map = switch (record.metric) {
     HealthMetric.bloodPressure => {
@@ -192,30 +176,6 @@ RingSnapshot? ringHealthSnapshot(HealthRecord record) {
   });
 }
 
-Future<List<RingSnapshot>> ringHealthSnapshotsOn(
-  AppController controller,
-  HealthRecord source,
-  DateTime day,
-) async {
-  final wanted = ringDate(day);
-  final records = await controller.loadHealthRecords(
-    metric: source.metric,
-    start: ringAddDays(wanted, -1),
-    end: ringAddDays(wanted, 2),
-  );
-  final rows =
-      records
-          .where(
-            (row) =>
-                row.deviceId == source.deviceId &&
-                row.source == source.source &&
-                ringDate(HealthAnalysisService.displayTime(row)) == wanted,
-          )
-          .toList()
-        ..sort((a, b) => b.measuredAt.compareTo(a.measuredAt));
-  return rows.map(ringHealthSnapshot).nonNulls.toList();
-}
-
 class RingSnapshotView extends StatelessWidget {
   const RingSnapshotView({required this.snapshot, super.key});
   final RingSnapshot snapshot;
@@ -256,14 +216,12 @@ class RingShareButton extends StatefulWidget {
     required this.controller,
     required this.snapshot,
     this.compact = false,
-    this.loadDate,
     this.canRead,
     super.key,
   });
   final AppController controller;
   final RingSnapshot? snapshot;
   final bool compact;
-  final Future<List<RingSnapshot>> Function(DateTime)? loadDate;
   final bool Function()? canRead;
 
   @override
@@ -273,6 +231,9 @@ class RingShareButton extends StatefulWidget {
 class _RingShareButtonState extends State<RingShareButton> {
   late final AppController _controller;
   late final String? _owner;
+  bool _sharing = false;
+  String? _retryToken;
+  RingSnapshot? _retrySnapshot;
 
   @override
   void initState() {
@@ -291,6 +252,72 @@ class _RingShareButtonState extends State<RingShareButton> {
         widget.canRead?.call() != false;
   }
 
+  bool get _canPresent => _canShare && ModalRoute.isCurrentOf(context) != false;
+
+  Future<void> _share(RingSnapshot input) async {
+    if (_sharing || !mounted || !_canPresent) return;
+    final snapshot = RingSnapshot(
+      input.kind,
+      ringDate(input.date),
+      Map.unmodifiable(input.fields),
+      note: input.note,
+    );
+    final previous = _retrySnapshot;
+    final sameSnapshot =
+        previous != null &&
+        previous.kind == snapshot.kind &&
+        previous.date == snapshot.date &&
+        previous.note == snapshot.note &&
+        mapEquals(previous.fields, snapshot.fields);
+    final token = (sameSnapshot ? _retryToken : null) ?? newRingShareToken();
+    _retrySnapshot = snapshot;
+    _retryToken = token;
+    setState(() => _sharing = true);
+    Uri? issued;
+    try {
+      await _controller.ringRequest(
+        'POST',
+        'shares',
+        data: {
+          'token': token,
+          'confirmed': true,
+          'snapshot': snapshot.toJson(),
+        },
+      );
+      _retrySnapshot = null;
+      _retryToken = null;
+      if (!mounted || !_canPresent) return;
+      issued = RingLink.url('share', token);
+      await ringSystemShare(context, issued);
+    } catch (error) {
+      if (!mounted || !_canPresent) return;
+      final link = issued;
+      if (link == null) {
+        if (error is ApiException && error.statusCode == 409) {
+          _retrySnapshot = null;
+          _retryToken = null;
+        }
+        showRingError(context, error);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              ringText(context, '分享面板未打开', 'Couldn’t open sharing'),
+            ),
+            action: SnackBarAction(
+              label: ringText(context, '复制链接', 'Copy link'),
+              onPressed: () {
+                if (mounted && _canPresent) ringCopy(context, link.toString());
+              },
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.controller,
@@ -300,312 +327,23 @@ class _RingShareButtonState extends State<RingShareButton> {
         return const SizedBox.shrink();
       }
       final title = ringText(context, '分享给好友', 'Share with friends');
-      void open() {
-        if (!_canShare) return;
-        final loadDate = widget.loadDate;
-        final canRead = widget.canRead;
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => RingComposeSharePage(
-              controller: _controller,
-              snapshot: input,
-              loadDate: loadDate,
-              canRead: () =>
-                  _owner == _controller.ringExperienceOwner &&
-                  canRead?.call() != false,
-            ),
-          ),
-        );
-      }
+      final onPressed = _sharing ? null : () => _share(input);
+      final icon = _sharing
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.ios_share_rounded);
 
       return widget.compact
-          ? IconButton(
-              tooltip: title,
-              onPressed: open,
-              icon: const Icon(Icons.ios_share_rounded),
-            )
+          ? IconButton(tooltip: title, onPressed: onPressed, icon: icon)
           : OutlinedButton.icon(
-              onPressed: open,
-              icon: const Icon(Icons.ios_share_rounded),
+              onPressed: onPressed,
+              icon: icon,
               label: Text(title),
             );
     },
   );
-}
-
-class RingComposeSharePage extends StatefulWidget {
-  const RingComposeSharePage({
-    required this.controller,
-    required this.snapshot,
-    this.loadDate,
-    this.canRead,
-    super.key,
-  });
-  final AppController controller;
-  final RingSnapshot snapshot;
-  final Future<List<RingSnapshot>> Function(DateTime)? loadDate;
-  final bool Function()? canRead;
-
-  @override
-  State<RingComposeSharePage> createState() => _RingComposeSharePageState();
-}
-
-class _RingComposeSharePageState extends State<RingComposeSharePage> {
-  late final String owner = widget.controller.ringExperienceOwner;
-  late final TextEditingController note = TextEditingController(
-    text: widget.snapshot.note,
-  );
-  late RingSnapshot? draft = widget.snapshot;
-  late DateTime date = ringDate(widget.snapshot.date);
-  late List<RingSnapshot> choices = [widget.snapshot];
-  late Set<String> selected = _defaultFields(widget.snapshot);
-  String? token;
-  Uri? link;
-  bool confirmed = false;
-  bool busy = false;
-  bool loadingDate = false;
-  bool dateFailed = false;
-
-  bool get current =>
-      mounted &&
-      owner == widget.controller.ringExperienceOwner &&
-      (widget.canRead?.call() ?? true);
-
-  Set<String> _defaultFields(RingSnapshot? row) =>
-      row == null || row.kind == 'health'
-      ? <String>{}
-      : row.fields.keys.where((key) => key != 'heartRate').toSet();
-
-  RingSnapshot? get preview {
-    final row = draft;
-    return row == null
-        ? null
-        : RingSnapshot(row.kind, row.date, {
-            for (final entry in row.fields.entries)
-              if (selected.contains(entry.key)) entry.key: entry.value,
-          }, note: note.text.trim());
-  }
-
-  Future<void> _pickShareDate() async {
-    final chosen = await showDatePicker(
-      context: context,
-      initialDate: date,
-      firstDate: DateTime(1970),
-      lastDate: DateTime.now(),
-    );
-    if (current && chosen != null) await _readDate(chosen);
-  }
-
-  Future<void> _readDate(DateTime day) async {
-    final load = widget.loadDate;
-    if (!current || loadingDate || load == null) return;
-    setState(() {
-      loadingDate = true;
-      dateFailed = false;
-      date = ringDate(day);
-      draft = null;
-      choices = [];
-      selected = {};
-      confirmed = false;
-      token = null;
-    });
-    try {
-      final rows = (await load(day)).where((r) => r.fields.isNotEmpty).toList();
-      if (current) {
-        setState(() {
-          choices = rows;
-          draft = rows.firstOrNull;
-          selected = _defaultFields(draft);
-        });
-      }
-    } catch (_) {
-      if (current) setState(() => dateFailed = true);
-    } finally {
-      if (mounted) setState(() => loadingDate = false);
-    }
-  }
-
-  @override
-  void dispose() {
-    note.dispose();
-    super.dispose();
-  }
-
-  Future<void> _publish() async {
-    final snapshot = preview;
-    if (busy ||
-        loadingDate ||
-        !confirmed ||
-        selected.isEmpty ||
-        !current ||
-        snapshot == null) {
-      return;
-    }
-    setState(() => busy = true);
-    final key = token ??= newRingShareToken();
-    try {
-      await widget.controller.ringRequest(
-        'POST',
-        'shares',
-        data: {'token': key, 'confirmed': true, 'snapshot': snapshot.toJson()},
-      );
-      if (!mounted || !current) return;
-      final issued = RingLink.url('share', key);
-      setState(() => link = issued);
-      await ringSystemShare(context, issued);
-    } catch (error) {
-      if (mounted) showRingError(context, error);
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  void _changed() => setState(() {
-    confirmed = false;
-    token = null;
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final canEdit = !busy && !loadingDate && link == null;
-    final row = draft;
-    final snapshot = preview;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(ringText(context, '分享给好友', 'Share with friends')),
-      ),
-      body: ListenableBuilder(
-        listenable: widget.controller,
-        builder: (context, _) => !current
-            ? const SizedBox.shrink()
-            : ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (link == null) ...[
-                    if (widget.loadDate != null)
-                      OutlinedButton.icon(
-                        key: const Key('ring-share-date'),
-                        onPressed: canEdit ? _pickShareDate : null,
-                        icon: const Icon(Icons.calendar_today_outlined),
-                        label: Text(
-                          MaterialLocalizations.of(
-                            context,
-                          ).formatMediumDate(date),
-                        ),
-                      ),
-                    if (loadingDate)
-                      const LinearProgressIndicator()
-                    else if (dateFailed)
-                      TextButton(
-                        onPressed: () => _readDate(date),
-                        child: Text(ringText(context, '重试读取', 'Retry loading')),
-                      )
-                    else if (row == null)
-                      Text(
-                        ringText(
-                          context,
-                          '这一天没有可分享的记录。',
-                          'Nothing to share for this date.',
-                        ),
-                      ),
-                    if (choices.length > 1)
-                      for (final choice in choices)
-                        ListTile(
-                          title: Text(
-                            '${choice.fields['sportName'] ?? ringSnapshotTitle(context, choice.kind)} · ${ringClockText(choice.date)}',
-                          ),
-                          selected: identical(choice, row),
-                          leading: Icon(
-                            identical(choice, row)
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_off,
-                          ),
-                          onTap: canEdit
-                              ? () {
-                                  setState(() {
-                                    draft = choice;
-                                    selected = _defaultFields(choice);
-                                    confirmed = false;
-                                    token = null;
-                                  });
-                                }
-                              : null,
-                        ),
-                    for (final key in row?.fields.keys ?? const <String>[])
-                      CheckboxListTile(
-                        value: selected.contains(key),
-                        title: Text(ringShareField(context, key)),
-                        subtitle: Text(
-                          ringShareValue(context, key, row!.fields[key]!),
-                        ),
-                        onChanged: canEdit
-                            ? (value) {
-                                if (value == true) {
-                                  selected.add(key);
-                                } else {
-                                  selected.remove(key);
-                                }
-                                _changed();
-                              }
-                            : null,
-                      ),
-                    TextField(
-                      controller: note,
-                      maxLength: 140,
-                      enabled: canEdit,
-                      onChanged: (_) => _changed(),
-                      decoration: InputDecoration(
-                        labelText: ringText(
-                          context,
-                          '说一句（可选）',
-                          'Add a note (optional)',
-                        ),
-                      ),
-                    ),
-                    Text(ringText(context, '好友看到的内容', 'What friends will see')),
-                  ],
-                  if (snapshot != null && selected.isNotEmpty)
-                    RingSnapshotView(snapshot: snapshot),
-                  if (link == null) ...[
-                    CheckboxListTile(
-                      controlAffinity: ListTileControlAffinity.leading,
-                      title: Text(
-                        ringText(
-                          context,
-                          '任何持链接的人都能查看所选内容。链接 7 天有效，可提前撤回。',
-                          'Anyone with the link can view what is selected. The link expires after 7 days and can be revoked earlier.',
-                        ),
-                      ),
-                      value: confirmed,
-                      onChanged: canEdit
-                          ? (value) => setState(() => confirmed = value == true)
-                          : null,
-                    ),
-                    FilledButton.icon(
-                      onPressed: confirmed && selected.isNotEmpty && canEdit
-                          ? _publish
-                          : null,
-                      icon: const Icon(Icons.ios_share_rounded),
-                      label: Text(
-                        ringText(context, '生成并分享链接', 'Create and share link'),
-                      ),
-                    ),
-                  ] else ...[
-                    FilledButton.icon(
-                      onPressed: () => ringSystemShare(context, link!),
-                      icon: const Icon(Icons.ios_share_rounded),
-                      label: Text(ringText(context, '分享链接', 'Share link')),
-                    ),
-                    OutlinedButton(
-                      onPressed: () => ringCopy(context, link.toString()),
-                      child: Text(ringText(context, '复制链接', 'Copy link')),
-                    ),
-                  ],
-                ],
-              ),
-      ),
-    );
-  }
 }
 
 class RingMySharesPage extends StatefulWidget {
