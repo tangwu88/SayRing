@@ -50,8 +50,13 @@ class RingLink {
     return null;
   }
 
-  static Uri url(String path, String token) =>
-      Uri.https(ringH5Host, '$ringH5Path$path').replace(fragment: token);
+  static Uri url(String path, String token) => Uri.https(
+    ringH5Host,
+    '$ringH5Path$path',
+    path == 'share'
+        ? {'title': sha256.convert(utf8.encode(token)).toString()}
+        : null,
+  ).replace(fragment: token);
 }
 
 class PendingRingLink {

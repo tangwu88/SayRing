@@ -346,6 +346,15 @@ class _RingShareButtonState extends State<RingShareButton> {
   );
 }
 
+Future<Map<String, Object?>> _shareHistory(
+  AppController controller,
+  String? before,
+) => controller.ringRequest(
+  'GET',
+  'shares',
+  query: {'history': 'true', 'before': ?before},
+);
+
 class RingMySharesPage extends StatefulWidget {
   const RingMySharesPage({required this.controller, super.key});
   final AppController controller;
@@ -359,11 +368,7 @@ class _RingMySharesPageState extends State<RingMySharesPage> {
   bool loadingMore = false;
 
   Future<Map<String, Object?>> _list([String? before]) =>
-      widget.controller.ringRequest(
-        'GET',
-        'shares',
-        query: {'history': 'true', 'before': ?before},
-      );
+      _shareHistory(widget.controller, before);
 
   Future<void> _refresh() async {
     final next = _list();
@@ -548,12 +553,36 @@ class _RingShareRepliesPageState extends State<RingShareRepliesPage> {
       widget.controller.isAuthenticated &&
       widget.controller.ringExperienceOwner == _owner;
 
-  Future<Map<String, Object?>> _load([String? before]) =>
-      widget.controller.ringRequest(
+  Future<Map<String, Object?>> _load([String? before]) async {
+    try {
+      return await widget.controller.ringRequest(
         'GET',
         'shares/${widget.shareId}',
         query: {'before': ?before},
       );
+    } on ApiException catch (error) {
+      if (before != null ||
+          (error.statusCode != 404 && error.statusCode != 405)) {
+        rethrow;
+      }
+      // Older servers expose the most recent responses on the owner's history.
+      String? cursor;
+      final seen = <String>{};
+      for (var page = 0; page < 5 && mounted && _allowed; page++) {
+        final history = await _shareHistory(widget.controller, cursor);
+        if (!mounted || !_allowed) break;
+        for (final row in ringRows(history['entries'])) {
+          if (row['id'] == widget.shareId) {
+            return {'share': row, 'reactions': row['reactions']};
+          }
+        }
+        final next = history['nextBefore'];
+        if (next is! String || next.isEmpty || !seen.add(next)) break;
+        cursor = next;
+      }
+      rethrow;
+    }
+  }
 
   Future<void> _refresh() async {
     final next = _load();

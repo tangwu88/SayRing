@@ -36,6 +36,9 @@ class _ConnectedRingApi extends _OfflineRingApi
   List<Map<String, Object?>> inbox = const [];
   Map<String, Object?> share = const {};
   List<Map<String, Object?>> olderReplies = const [];
+  int? repliesStatus;
+  Map<String?, Map<String, Object?>> historyPages = const {};
+  final historyCursors = <String?>[];
   final readShareIds = <String>[];
 
   @override
@@ -61,12 +64,17 @@ class _ConnectedRingApi extends _OfflineRingApi
       return await (shareResponse?.call() ?? Future.value({'id': 'fixture'}));
     }
     if (method == 'GET' && path == 'shares') {
+      historyCursors.add(query?['before']);
+      if (historyPages[query?['before']] case final page?) return page;
       return {
         'entries': [share],
       };
     }
     if (method == 'GET' && path.startsWith('shares/')) {
       readShareIds.add(path.substring('shares/'.length));
+      if (repliesStatus case final status?) {
+        throw ApiException('Missing detail route', statusCode: status);
+      }
       return {
         'share': share,
         'reactions': query?['before'] == null
@@ -672,6 +680,20 @@ void main() {
   });
 
   test(
+    'share URLs send a title reference and keep the read token in the fragment',
+    () {
+      final token = 'A' * 43;
+      final url = RingLink.url('share', token);
+      expect(url.queryParameters, {
+        'title':
+            '0f007385b6f9d4b7eeb2748605afe1a984a0a3bfa3f014d09e2a784ce9e5cd1a',
+      });
+      expect(url.toString().split('#').first, isNot(contains(token)));
+      expect(url.fragment, token);
+    },
+  );
+
+  test(
     'reference readings require a real pair and three different days per comparison',
     () {
       expect(PressureSample.validPair(75, 81), isFalse);
@@ -832,6 +854,28 @@ void main() {
       expect(find.text('View replies'), findsOneWidget);
       expect(find.text('Sending a hug'), findsOneWidget);
       expect(find.text('Revoke link'), findsNothing);
+
+      api.repliesStatus = 404;
+      api.historyPages = {
+        null: {
+          'entries': [
+            {
+              'id': '2dcf623b-43be-42b2-9fda-d8638b12ec3e',
+              'reactions': api.olderReplies,
+            },
+          ],
+          'nextBefore': 'fixture-past-share',
+        },
+        'fixture-past-share': {
+          'entries': [api.share],
+        },
+      };
+      await tester.tap(find.text('View replies'));
+      await tester.pumpAndSettle();
+      expect(api.historyCursors, [null, null, 'fixture-past-share']);
+      expect(find.text('This share is unavailable'), findsNothing);
+      expect(find.text('A friend · $date $clock'), findsOneWidget);
+      expect(find.text('Fixture friend · $date $clock'), findsNothing);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
