@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-11-25 Say Ring 1325 心血管趋势界面](SAY-RING-CARDIOVASCULAR-UI-1325-20261125.md) — 血压曲线可逐日联看心率、睡眠和步数，模型解读默认显示一句。含 XR 实测及中英文界面验证。
+
 - [2026-11-25 Say Ring 固件升级范围与 QRing 附件核对](SAY-RING-FIRMWARE-MODEL-SCOPE-20261125.md) — 限定六个产品型号、核对三个原厂包归属和两份 QRing SDK 附件。
 
 - [2026-11-25 Say Ring 1323 四项功能续验](SAY-RING-CONNECTED-COMPLETION-1323-20261125.md) — 血压参考值可更正，分享补日期和回应历史，邀请支持恢复，固件传输显示 SDK 进度。

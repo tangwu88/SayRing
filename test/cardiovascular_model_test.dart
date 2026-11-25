@@ -17,6 +17,7 @@ import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/cardiovascular_trends_page.dart';
 import 'cardiovascular_trend_summary_test.dart' as fixtures;
+import 'support/cardio_chart_scenario.dart';
 import '../tool/cardio_model_live_device.dart' show syntheticCardioModelInput;
 
 Session member(String id) => Session(
@@ -70,6 +71,16 @@ Map<String, dynamic> payload(CardiovascularModelInput input) =>
     jsonDecode(input.encodedEvidence) as Map<String, dynamic>;
 
 void main() {
+  for (final (lang, scale, width) in [('zh', 1.0, 375.0), ('en', 2.0, 320.0)]) {
+    testWidgets(
+      'explore cuff readings, paired metrics and model details ($lang ${scale}x)',
+      (t) async {
+        await t.binding.setSurfaceSize(Size(width, 740));
+        addTearDown(() => t.binding.setSurfaceSize(null));
+        await cardioChartScenario(t, lang, scale);
+      },
+    );
+  }
   test(
     'daily aligned ranked evidence and paired windows are different when the same pressure and context move differently',
     () {
@@ -184,6 +195,13 @@ void main() {
       );
       final result = await api.analyzeCardiovascularTrends(owner, input, 'en');
       expect(result.summary, contains('systolic pressure rose'));
+      expect(result.highlight, contains('all 3 comparisons'));
+      expect(
+        result.highlight,
+        contains(
+          'Sleep duration and systolic pressure moved in opposite directions',
+        ),
+      );
       expect(result.observations.keys.toList(), [
         'sleep',
         'heartRate',
@@ -299,7 +317,11 @@ void main() {
       );
       await tester.pumpWidget(screen('en'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Upper-arm monitor'));
+      await tester.tap(find.byKey(const Key('cardio-source-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(CheckedPopupMenuItem<String>, 'Upper-arm monitor'),
+      );
       await tester.pumpAndSettle();
       await tester.pumpWidget(screen('zh'));
       await tester.pumpAndSettle();

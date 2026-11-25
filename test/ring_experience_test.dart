@@ -195,22 +195,25 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('数据摘要'), findsOneWidget);
+      final chart = find.descendant(
+        of: find.byKey(const Key('cardio-pressure-plot')),
+        matching: find.byType(LineChart),
+      );
+      expect(chart, findsOneWidget);
+      expect(
+        tester.widget<LineChart>(chart).data.lineBarsData.first.spots[1],
+        FlSpot.nullSpot,
+      );
       expect(find.text('多记录几天血压，再看趋势解读。'), findsOneWidget);
-      expect(find.textContaining('123/79 mmHg，心率为64 bpm'), findsOneWidget);
+      expect(find.textContaining('123/79 mmHg，心率为64 bpm'), findsNothing);
       final evidence = find.byKey(const Key('cardio-evidence'));
       await tester.scrollUntilVisible(evidence.hitTestable(), 180);
       await tester.tap(evidence);
       await tester.pumpAndSettle();
       expect(find.text('血压来源 · 上臂血压计'), findsOneWidget);
       expect(find.text('心率 · Fixture watch'), findsOneWidget);
+      expect(find.textContaining('123/79 mmHg，心率为64 bpm'), findsOneWidget);
       expect(find.textContaining('123/79 mmHg · 1 次'), findsOneWidget);
-      final chart = find.byType(LineChart);
-      await tester.scrollUntilVisible(chart, 160);
-      expect(
-        tester.widget<LineChart>(chart).data.lineBarsData.first.spots[1],
-        FlSpot.nullSpot,
-      );
       final retry = find.text('部分记录读取失败，重试');
       await tester.scrollUntilVisible(retry.hitTestable(), 180);
       expect(retry.hitTestable(), findsOneWidget);

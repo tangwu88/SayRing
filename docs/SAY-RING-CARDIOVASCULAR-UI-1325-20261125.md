@@ -1,0 +1,31 @@
+# Say Ring 1325 心血管趋势界面
+
+2026-11-25，iOS 与 Android，1.0.15（1325）。修改前已从配置的 Git 远端更新，工作树干净，基线为 `9e974549cba60d84c6a2bff57b78eb8c93619327`。
+
+## 页面与交互
+
+从「健康 → 健康数据 → 全部数据」打开列表末尾的「心血管趋势」。原页面在血压曲线之前分别展示最近读数、摘要和几组长解读。新版打开后先看到所选来源最近一次测量的高压、低压、时间和日均曲线。
+
+- 高压用实线和圆点，低压用虚线和空心方点。7 天和 30 天都按日历排布。实际只有一天就显示一个点，缺失日期留空。
+- 点按或横向拖动曲线可查看当日平均血压。也可点记录天数进入逐日查看，用左右按钮切日或返回最近一次。心率、睡眠和步数随所选日期一起变化。区间概览按各项有记录的日期计算，实际零步单独显示。
+- 多个血压来源可在测量时间旁切换。上臂血压从所选日期开始录入。「查看依据」里可查看原始记录，编辑、删除或分享已有记录。
+- AI 区域默认显示一句观察。展开后可按心率、睡眠和步数查看模型选中的比较及其次数。账号、来源、语言和周期参与结果隔离。逐日查看复用同一段时间的分析。适用数据不足时给出相应状态，网络请求失败时提供重试。
+
+界面在 `lib/ui/cardiovascular_trends_page.dart`、`lib/ui/cardiovascular_charts.dart` 和 `lib/ui/cardiovascular_model_panel.dart`。`lib/services/cardiovascular_model.dart` 依据后台返回的关注指标与观察类型生成首句，数值从该次请求对应的统计结果取得。本轮使用既有健康记录和模型接口。
+
+## 验证记录
+
+| 检查 | 结果 |
+| --- | --- |
+| Dart 格式及 Flutter 静态分析 | 最终格式检查覆盖 8 个 Dart 文件，`flutter analyze` 通过。 |
+| 定向测试 | 27 项通过。覆盖最近一次与日均不同、单点、缺日、零步、点选及拖动日期、切换来源、模型结果与迟到回复、上臂记录的操作。320 逻辑像素宽及两倍字号通过布局检查。 |
+| 全量 Flutter 回归 | `TZ=UTC flutter test` 和 `TZ=Asia/Shanghai flutter test` 各通过 2,500 项。 |
+| Android 模拟器 | `integration_test/cardio_trends_device_test.dart` 的三个场景通过。中英文分别核对曲线、选日联动和展开解读，另从「全部健康数据」验证正常入口。截图为实际渲染的页面，采用隔离的合成记录和模拟模型响应。 |
+| iPhone XR | 原位安装普通入口 Profile 包，系统读回 `cn.saydian.ring`、1.0.15（1325）。XCUITest 从健康页进入趋势页，完成 30 天和 7 天切换，打开上臂血压表单，核对收缩压与舒张压并取消。1 项通过，0 失败。 |
+| 双端测试包 | Android Debug、QA Release 与 iOS Profile、Debug 均构建成功。华为覆盖 APK 的签名证书与已安装版本相同。iOS 真机测试 IPA 已验签。 |
+
+相关自动检查位于 `test/cardiovascular_model_test.dart`、`test/ring_experience_test.dart`、`test/support/cardio_chart_scenario.dart` 和上述集成测试。首次检查发现曲线的读屏增减操作缺少相邻日期描述、英文大字标签溢出，已分别补齐读屏值并允许标签换行。测试夹具修正了重复的首页路由、旧版页面选择器、屏幕外按钮点击，以及与当前 Flutter 版本不匹配的截图清理调用。静态检查提示的字符串插值已修正。iOS 构建第一次因 Xcode 正在读取工程而延后，随后串行完成两个配置。
+
+本轮 XR 实测覆盖浏览、切换周期与取消录入。带完整数据的曲线和模型展示由上述隔离测试验证。线上模型本轮未重新请求，华为及 15 Pro Max 未实测本次界面。
+
+本机产物位于 `build/say-ring-cardio-ui-1325-20261125.TCLO2I/`。`overview-zh.png`、`overview-en.png` 是中英文概览，`details-zh.png`、`details-en.png` 是展开后的页面。`final/` 下保存双端包及验签记录，`xr-ui/xr-test.log` 保存真机结果。

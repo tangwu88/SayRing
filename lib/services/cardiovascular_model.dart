@@ -189,9 +189,14 @@ class _Levels {
 }
 
 class CardiovascularModelReply {
-  const CardiovascularModelReply(this.summary, this.observations);
+  const CardiovascularModelReply(
+    this.summary,
+    this.observations, {
+    this.highlight,
+  });
   final String summary;
   final Map<String, String> observations;
+  final String? highlight;
 
   factory CardiovascularModelReply.parse(
     String reply,
@@ -301,6 +306,48 @@ class _TrendWording {
     ].join(t('', ' '));
   }
 
+  String _highlight(String name, String choice) {
+    final row = evidence._metric(name);
+    final label = _name(name);
+    if (choice == 'period') {
+      final change = row['change'] as String;
+      if (change[0] != change[1]) return period(change, metric: name);
+      return t(
+        '与上期相比，高低压均值都${direction(change[0])}，$label${direction(change[2])}。',
+        'Compared with last period, both pressure averages ${direction(change[0])} and $label ${direction(change[2])}.',
+      );
+    }
+    // Describe one actual count for the metric the model chose to foreground.
+    final moves = ((row['pairedMoves'] as Map)['systolic'] as Map)
+        .cast<String, int>();
+    final total = moves['same']! + moves['opposite']! + moves['flat']!;
+    final key = [
+      'same',
+      'opposite',
+      'flat',
+    ].reduce((a, b) => moves[a]! >= moves[b]! ? a : b);
+    final count = moves[key]!;
+    final frequency = count == total ? '均' : '有 $count 次';
+    final englishFrequency = count == total
+        ? 'all $total comparisons'
+        : '$count of $total comparisons';
+    final subject = '${label[0].toUpperCase()}${label.substring(1)}';
+    return switch (key) {
+      'same' => t(
+        '$total 次对比中，$label与高压$frequency同向变化。',
+        '$subject and systolic pressure moved together in $englishFrequency.',
+      ),
+      'opposite' => t(
+        '$total 次对比中，$label与高压$frequency反向变化。',
+        '$subject and systolic pressure moved in opposite directions in $englishFrequency.',
+      ),
+      _ => t(
+        '前后对比 $total 次，有 $count 次$label或高压持平。',
+        '$subject or systolic pressure stayed level in $englishFrequency.',
+      ),
+    };
+  }
+
   CardiovascularModelReply reply(String focus, Map items) {
     final pressure = evidence._pressure;
     final change = pressure['change'];
@@ -316,6 +363,9 @@ class _TrendWording {
         for (final name in order)
           name: observation(name, items[name] as String),
       },
+      highlight: focus == 'pressure'
+          ? null
+          : _highlight(focus, items[focus] as String),
     );
   }
 }

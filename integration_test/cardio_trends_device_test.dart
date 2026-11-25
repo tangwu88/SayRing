@@ -13,6 +13,7 @@ import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/pages.dart';
+import '../test/support/cardio_chart_scenario.dart';
 
 class _OfflineApi extends Fake implements SaydianApi, GlobalAccountApi {}
 
@@ -21,7 +22,31 @@ class _NoWearable extends Fake implements WearableBridge {}
 /// Run on a disposable QA installation. All readings and storage in this
 /// fixture are synthetic and in memory. The production route and widgets render them.
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  for (final lang in ['zh', 'en']) {
+    testWidgets(
+      'explores daily readings and related metrics on the device ($lang)',
+      (t) async {
+        var surfaceReady = false;
+        await cardioChartScenario(
+          t,
+          lang,
+          1,
+          capture: const bool.fromEnvironment('CARDIO_SCREENSHOTS')
+              ? (name) async {
+                  if (!surfaceReady) {
+                    await binding.convertFlutterSurfaceToImage();
+                    surfaceReady = true;
+                  }
+                  await t.pump();
+                  await t.pumpAndSettle();
+                  await binding.takeScreenshot(name);
+                }
+              : null,
+        );
+      },
+    );
+  }
   testWidgets(
     'opens paired cardiovascular insights from the bottom of All health data',
     (tester) async {
@@ -103,19 +128,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         tester
-            .widget<ChoiceChip>(find.byKey(const ValueKey('pressure-period-7')))
+            .widget<Semantics>(find.byKey(const ValueKey('pressure-period-7')))
+            .properties
             .selected,
         isTrue,
       );
-      expect(find.text('数据摘要'), findsOneWidget);
-      expect(find.textContaining('123/79 mmHg，心率为64 bpm'), findsOneWidget);
+      expect(find.byKey(const Key('cardio-pressure-plot')), findsOneWidget);
+      expect(find.text('123'), findsOneWidget);
+      expect(find.text('79'), findsOneWidget);
+      expect(find.textContaining('123/79 mmHg，心率为64 bpm'), findsNothing);
       await tester.tap(find.byKey(const ValueKey('pressure-period-30')));
       await tester.pumpAndSettle();
       expect(
         tester
-            .widget<ChoiceChip>(
-              find.byKey(const ValueKey('pressure-period-30')),
-            )
+            .widget<Semantics>(find.byKey(const ValueKey('pressure-period-30')))
+            .properties
             .selected,
         isTrue,
       );
@@ -125,6 +152,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('血压来源 · 上臂血压计'), findsOneWidget);
       expect(find.text('心率 · QA'), findsOneWidget);
+      expect(find.textContaining('123/79 mmHg，心率为64 bpm'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
