@@ -471,6 +471,127 @@ void main() {
     },
   );
   test(
+    'required initialization recovery publishes only the final first outcome',
+    () async {
+      start();
+      await settle();
+      service.record(
+        SyncDiagnosticStage.connect,
+        SyncDiagnosticState.failed,
+        code: SyncDiagnosticCode.connectionTimeout,
+        initializationContinuation: true,
+      );
+      await settle();
+      expect(remote.reports, isEmpty);
+      service.begin(
+        'global:a',
+        'PRIVATE-NATIVE-ID',
+        connectionAttempt: true,
+        initializationContinuation: true,
+      );
+      healthy();
+      await settle();
+      expect(remote.starts, hasLength(1));
+      expect(remote.reports, hasLength(1));
+      expect(
+        (remote.reports.single['stages'] as List).firstWhere(
+          (r) => r['stage'] == 'connect',
+        )['state'],
+        'ok',
+      );
+    },
+  );
+  test(
+    'new explicit attempt freezes deferred failure rather than collecting again',
+    () async {
+      start();
+      await settle();
+      service.record(
+        SyncDiagnosticStage.connect,
+        SyncDiagnosticState.failed,
+        code: SyncDiagnosticCode.connectionTimeout,
+        initializationContinuation: true,
+      );
+      await settle();
+      start();
+      healthy();
+      await settle();
+      expect(remote.starts, hasLength(1));
+      expect(remote.reports, hasLength(1));
+      expect(
+        (remote.reports.single['stages'] as List).single['state'],
+        'failed',
+      );
+    },
+  );
+  test(
+    'initialization continuation cannot adopt another target snapshot',
+    () async {
+      start();
+      await settle();
+      service.record(
+        SyncDiagnosticStage.connect,
+        SyncDiagnosticState.failed,
+        code: SyncDiagnosticCode.connectionTimeout,
+        initializationContinuation: true,
+      );
+      await settle();
+      model = 'R8';
+      service.begin(
+        'global:a',
+        'ANOTHER-TARGET',
+        connectionAttempt: true,
+        initializationContinuation: true,
+      );
+      healthy();
+      await settle();
+      expect(remote.reports.single['model'], 'R7Pro');
+      expect(remote.starts, hasLength(1));
+    },
+  );
+  testWidgets(
+    'initialization recovery never extends the original three-minute watchdog',
+    (tester) async {
+      service.dispose();
+      service = create();
+      start();
+      await tester.pump();
+      service.record(
+        SyncDiagnosticStage.connect,
+        SyncDiagnosticState.failed,
+        code: SyncDiagnosticCode.connectionTimeout,
+        initializationContinuation: true,
+      );
+      await tester.pump(const Duration(minutes: 2));
+      // Native recovery may retry after the initializer's own Future ended.
+      service.record(
+        SyncDiagnosticStage.connect,
+        SyncDiagnosticState.failed,
+        code: SyncDiagnosticCode.connectionTimeout,
+      );
+      await tester.pump();
+      expect(remote.reports, isEmpty);
+      service.begin(
+        'global:a',
+        'PRIVATE-NATIVE-ID',
+        connectionAttempt: true,
+        initializationContinuation: true,
+      );
+      expect(remote.reports, isEmpty);
+      await tester.pump(const Duration(minutes: 1));
+      await tester.pumpAndSettle();
+      expect(remote.reports, hasLength(1));
+      expect(
+        (remote.reports.single['stages'] as List).single['state'],
+        'failed',
+      );
+      healthy();
+      await tester.pumpAndSettle();
+      expect(remote.reports, hasLength(1));
+      service.dispose();
+    },
+  );
+  test(
     'offline delivery retries the identical frozen first report after a restart and another target',
     () async {
       remote.offline = true;

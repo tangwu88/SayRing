@@ -248,6 +248,7 @@ class AppController extends ChangeNotifier {
       saved: saved,
       uploaded: uploaded,
       rejected: rejected,
+      initializationContinuation: _isFirstInitializationDiagnosticContinuation,
     );
   }
 
@@ -1642,6 +1643,16 @@ class AppController extends ChangeNotifier {
   String? _ringInitializationDeviceId;
   int? _firstRingInitializationReconnectGeneration;
   bool _firstRingInitializationReconnectScheduled = false;
+  (int, String, String)? _firstInitializationDiagnosticScope;
+  bool get _isFirstInitializationDiagnosticContinuation {
+    final scope = _firstInitializationDiagnosticScope;
+    return scope != null &&
+        scope.$1 == _sessionGeneration &&
+        scope.$2 == _healthOwnerFor(session) &&
+        scope.$3 ==
+            (_diagnosticDevice ?? connectedDevice ?? rememberedDevice)?.id;
+  }
+
   bool get isRingInitializationPending => _firstRingBindingPending;
   bool get isDeviceSyncPreparing =>
       _bindingHistoryRecoveryToken != null ||
@@ -3381,7 +3392,13 @@ class AppController extends ChangeNotifier {
     return true;
   }
 
-  Future<void> connectDevice(DeviceInfo device) async {
+  Future<void> connectDevice(DeviceInfo device) =>
+      _connectDeviceForAttempt(device);
+
+  Future<void> _connectDeviceForAttempt(
+    DeviceInfo device, {
+    bool initializationContinuation = false,
+  }) async {
     if (_ringFirmwareBusy &&
         (connectedDevice != null || rememberedDevice?.id != device.id)) {
       return;
@@ -3403,7 +3420,10 @@ class AppController extends ChangeNotifier {
     }
     // 用户已选中设备，不再接受添加页上一轮扫描的完成或报错。
     ++_deviceScanGeneration;
-    final connecting = _connectDevice(device);
+    final connecting = _connectDevice(
+      device,
+      initializationContinuation: initializationContinuation,
+    );
     _wearableConnectInFlight = connecting;
     try {
       await connecting;
@@ -3417,11 +3437,15 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> _connectDevice(DeviceInfo device) async {
+  Future<void> _connectDevice(
+    DeviceInfo device, {
+    bool initializationContinuation = false,
+  }) async {
     final sessionGeneration = _sessionGeneration;
     final connectionOwner = _healthOwnerFor(session);
     int? connectionSyncGeneration;
     var failureCode = SyncDiagnosticCode.connectFailed;
+    var connectionFailed = false;
     bool isCurrent() =>
         !_accountTransitioning &&
         _healthOwnerFor(session) == connectionOwner &&
@@ -3436,6 +3460,7 @@ class AppController extends ChangeNotifier {
       device.id,
       connectionAttempt: true,
       connectionKind: rememberedDevice == null ? 'first' : 'explicit',
+      initializationContinuation: initializationContinuation,
     );
     _diagnose(SyncDiagnosticStage.connect, SyncDiagnosticState.pending);
     _latestDeviceDetails = null;
@@ -3577,6 +3602,7 @@ class AppController extends ChangeNotifier {
       unawaited(_syncInitialDeviceData(device.id));
     } on WearableSdkNotConfigured catch (_) {
       if (!isCurrent()) return;
+      connectionFailed = true;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       sdkStatus = '设备连接服务暂时不可用';
       errorMessage = '此功能暂时无法使用，请稍后再试';
@@ -3590,17 +3616,19 @@ class AppController extends ChangeNotifier {
           deviceMachine.transition(DeviceConnectionState.disconnected);
         }
       } else {
+        connectionFailed = true;
         deviceCapabilityState = DeviceCapabilityState.disconnected;
         errorMessage = _wearableErrorMessage(error, fallback: '设备连接失败');
         deviceMachine.transition(DeviceConnectionState.error);
       }
     } catch (_) {
       if (!isCurrent()) return;
+      connectionFailed = true;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = '连接失败，请将戒指靠近手机后重试';
       deviceMachine.transition(DeviceConnectionState.error);
     }
-    if (_errorMessage != null) {
+    if (connectionFailed) {
       _diagnose(
         SyncDiagnosticStage.connect,
         SyncDiagnosticState.failed,
@@ -5135,6 +5163,8 @@ class AppController extends ChangeNotifier {
     }
     _firstRingInitializationReconnectGeneration = syncGeneration;
     _firstRingInitializationReconnectScheduled = true;
+    final diagnosticScope = (sessionGeneration, owner, deviceId);
+    _firstInitializationDiagnosticScope = diagnosticScope;
     try {
       // The reset ACK can arrive before connectDevice has returned. Wait for
       // that operation to release its slot; never send the reset again.
@@ -5155,6 +5185,9 @@ class AppController extends ChangeNotifier {
       }
       await reconnectDevice();
     } finally {
+      if (_firstInitializationDiagnosticScope == diagnosticScope) {
+        _firstInitializationDiagnosticScope = null;
+      }
       _firstRingInitializationReconnectScheduled = false;
       if (!_disposed) notifyListeners();
     }
@@ -5224,11 +5257,19 @@ class AppController extends ChangeNotifier {
             .prepareRememberedDevice();
         if (!isCurrent()) return;
         if (prepared != null) {
-          await connectDevice(prepared);
+          await _connectDeviceForAttempt(
+            prepared,
+            initializationContinuation:
+                _isFirstInitializationDiagnosticContinuation,
+          );
           if (connectedDevice != null) return;
         }
       } else if (previous != null) {
-        await connectDevice(previous);
+        await _connectDeviceForAttempt(
+          previous,
+          initializationContinuation:
+              _isFirstInitializationDiagnosticContinuation,
+        );
         if (connectedDevice != null) return;
       }
       if (deviceState == DeviceConnectionState.error) {

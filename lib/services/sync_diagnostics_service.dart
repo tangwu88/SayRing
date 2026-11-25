@@ -56,6 +56,7 @@ class SyncDiagnosticsService {
   bool _reservationAccepted = false;
   String? _collectionMember, _collectionAccount;
   Map<String, Object?>? _readEvidence;
+  bool _initializationRecoveryFailure = false;
   bool get canCollectReadEvidence =>
       _reservationAccepted &&
       session()?.memberId == _collectionMember &&
@@ -242,6 +243,7 @@ class SyncDiagnosticsService {
     String? target, {
     bool connectionAttempt = false,
     String? connectionKind,
+    bool initializationContinuation = false,
   }) {
     if (_owner != owner) {
       clear();
@@ -268,16 +270,22 @@ class SyncDiagnosticsService {
       return;
     }
     if (_attemptStarted) {
-      if (!_closed && !_frozen && _target != target) {
+      if (!_closed &&
+          !_frozen &&
+          (_target != target ||
+              (_initializationRecoveryFailure &&
+                  !initializationContinuation))) {
         // Freeze the first target's last observed state, never the new target.
-        _events.add(
-          SyncDiagnosticEvent(
-            SyncDiagnosticStage.connect,
-            SyncDiagnosticState.blocked,
-            SyncDiagnosticCode.cancelled,
-            _elapsed.elapsedMilliseconds,
-          ),
-        );
+        if (_target != target) {
+          _events.add(
+            SyncDiagnosticEvent(
+              SyncDiagnosticStage.connect,
+              SyncDiagnosticState.blocked,
+              SyncDiagnosticCode.cancelled,
+              _elapsed.elapsedMilliseconds,
+            ),
+          );
+        }
         completeInitialSync(_generation, useLastSnapshot: true);
       }
       return;
@@ -351,6 +359,7 @@ class SyncDiagnosticsService {
     int? saved,
     int? uploaded,
     int? rejected,
+    bool initializationContinuation = false,
   }) {
     final guest =
         _owner == 'anonymous' &&
@@ -377,8 +386,17 @@ class SyncDiagnosticsService {
     if (guest) return;
     if (stage == SyncDiagnosticStage.connect &&
         state == SyncDiagnosticState.failed) {
-      completeInitialSync(_generation);
-      return;
+      // A reconnect required by first initialization is part of the same
+      // bounded first window. The original watchdog is never extended.
+      if (initializationContinuation || _initializationRecoveryFailure) {
+        _initializationRecoveryFailure = true;
+      } else {
+        completeInitialSync(_generation);
+        return;
+      }
+    } else if (stage == SyncDiagnosticStage.connect &&
+        state == SyncDiagnosticState.ok) {
+      _initializationRecoveryFailure = false;
     }
     if (_draftScheduled) return;
     _draftScheduled = true;
@@ -422,6 +440,7 @@ class SyncDiagnosticsService {
       return;
     }
     _frozen = true;
+    _initializationRecoveryFailure = false;
     _initialTimer?.cancel();
     if (!useLastSnapshot) _lastSnapshot = Map.of(snapshot());
     final captured = jsonDecode(jsonEncode(_capture())) as Map<String, Object?>;
@@ -690,6 +709,7 @@ class SyncDiagnosticsService {
     _reservationAccepted = false;
     _collectionMember = _collectionAccount = null;
     _readEvidence = null;
+    _initializationRecoveryFailure = false;
     _attemptStarted = false;
     _closed = false;
     _frozen = false;
