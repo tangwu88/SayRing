@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../domain/models.dart';
 import '../domain/ring_experience.dart';
+import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'ring_share_page.dart';
 
@@ -237,12 +238,12 @@ class RingAcceptInvitePage extends StatefulWidget {
 
 class _RingAcceptInvitePageState extends State<RingAcceptInvitePage> {
   late final String owner = widget.controller.ringExperienceOwner;
-  late final Future<Map<String, Object?>> preview = widget.controller
-      .ringRequest(
-        'POST',
-        'care/invitations/preview',
-        data: {'code': widget.code},
-      );
+  late Future<Map<String, Object?>> preview = _loadPreview();
+  Future<Map<String, Object?>> _loadPreview() => widget.controller.ringRequest(
+    'POST',
+    'care/invitations/preview',
+    data: {'code': widget.code},
+  );
   final selected = <String>{};
   bool busy = false;
 
@@ -291,9 +292,26 @@ class _RingAcceptInvitePageState extends State<RingAcceptInvitePage> {
               return const Center(child: CircularProgressIndicator());
             }
             if (result.hasError) {
+              final error = result.error;
+              if (error is! ApiException || error.statusCode != 404) {
+                return Center(
+                  child: TextButton(
+                    onPressed: () => setState(() {
+                      preview = _loadPreview();
+                    }),
+                    child: Text(
+                      ringText(context, '重新读取邀请', 'Retry invitation'),
+                    ),
+                  ),
+                );
+              }
               return Center(
                 child: Text(
-                  ringText(context, '邀请暂不可用', 'Invitation unavailable'),
+                  ringText(
+                    context,
+                    '邀请已失效',
+                    'Invitation expired or unavailable',
+                  ),
                 ),
               );
             }
@@ -693,16 +711,7 @@ class _RingCareThreadPageState extends State<RingCareThreadPage>
     final mine = members.where((row) => row['mine'] == true).firstOrNull;
     final other = members.where((row) => row['mine'] != true).firstOrNull;
     final today = goal?['today'];
-    final mayUseWorkout = widget.controller.sportRecords.any(
-      (record) =>
-          record.mode == SportMode.walking &&
-          record.startedAt != null &&
-          record.durationSeconds > 0 &&
-          ringDateText(
-                record.startedAt!.toUtc().add(const Duration(hours: 8)),
-              ) ==
-              today,
-    );
+    final mayUseWorkout = goal?['activityAvailable'] == true;
     return Card(
       child: ExpansionTile(
         title: Text(ringText(context, '我们的小约定', 'Our walking plan')),
@@ -778,7 +787,11 @@ class _RingCareThreadPageState extends State<RingCareThreadPage>
                     },
                   ),
                   child: Text(
-                    ringText(context, '使用今天的散步记录', 'Use today’s walk'),
+                    ringText(
+                      context,
+                      '用今天已同步的活动打卡',
+                      'Use today’s synced activity',
+                    ),
                   ),
                 ),
             ],

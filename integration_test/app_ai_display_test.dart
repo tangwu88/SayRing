@@ -62,7 +62,9 @@ void main() {
     addTearDown(controller.dispose);
     await controller.refreshAppDisplayConfig();
     await _pumpShell(tester, controller);
-    await tester.tap(find.byKey(const Key('dashboard-ai-ask')));
+    final aiEntry = find.byKey(const Key('dashboard-ai-ask'));
+    await tester.ensureVisible(aiEntry);
+    await tester.tap(aiEntry);
     await tester.pumpAndSettle();
     expect(find.byType(AiChatPage), findsOneWidget);
     expect(api.chatReads, 1);

@@ -12,6 +12,9 @@ import 'package:saydian_app/ui/sleep_detail_widgets.dart';
 
 // Synthetic rendering fixtures. These are not device or sleep-accuracy evidence.
 class _VisualController extends Fake implements AppController {
+  @override
+  bool get ringExperience => false;
+
   final List<HealthRecord> stored = [];
   int healthReads = 0;
 

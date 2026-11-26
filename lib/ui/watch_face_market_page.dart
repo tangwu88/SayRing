@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import '../domain/feature_models.dart';
 import '../services/app_controller.dart';
 import '../services/device_watch_face_market_service.dart';
-import '../services/user_message.dart';
 import 'app_theme.dart';
 
 class WatchFaceLoadRequestGate {
@@ -165,7 +164,8 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
     } on DeviceWatchFaceMarketException catch (error) {
       if (_isCurrentLoad(generation, requestedDeviceId, requestedFingerprint)) {
         setState(
-          () => _error = userFacingMessage(
+          () => _error = uiErrorCopy(
+            context,
             error.message,
             fallback: uiCopy(context, "显示样式暂时无法加载，请重试"),
           ),
@@ -320,7 +320,8 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       ).showSnackBar(SnackBar(content: Text(resultMessage)));
     } on DeviceWatchFaceMarketException catch (error) {
       if (mounted) {
-        final message = userFacingMessage(
+        final message = uiErrorCopy(
+          context,
           error.message,
           fallback: uiCopy(context, "显示样式设置失败，请重试"),
         );

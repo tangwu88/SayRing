@@ -34,11 +34,14 @@ class DeviceWaitStatus extends StatelessWidget {
         : receivedRecords > 0
         ? uiCopy(context, "已接收 {p0} 条记录", parameters: [receivedRecords])
         : uiCopy(context, "正在读取活动与睡眠记录");
+    final separator = context.l10n.localeName.startsWith('zh') ? '，' : ', ';
     return Semantics(
       liveRegion: true,
-      label:
-          '$title，$detail'
-          '${confirmedProgress == null ? '' : '，${(confirmedProgress * 100).round()}%'}',
+      label: [
+        title,
+        detail,
+        if (confirmedProgress != null) '${(confirmedProgress * 100).round()}%',
+      ].join(separator),
       child: ExcludeSemantics(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),

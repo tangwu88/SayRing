@@ -5,7 +5,6 @@ import 'prototype_pages.dart' show CustomerServicePage;
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import '../services/user_message.dart';
 import 'package:flutter/material.dart';
 import 'health_reminder_center.dart';
 import 'package:flutter/services.dart';
@@ -149,7 +148,10 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       Localizations.localeOf(context).languageCode == 'zh'
           ? '请确认已满14周岁后继续'
           : 'Confirm that you are at least 14 years old to continue.',
-    'wechat' => widget.controller.errorMessage ?? l.serviceUnavailable,
+    'wechat' => appStatusCopy(
+      widget.controller.errorMessage ?? l.serviceUnavailable,
+      context: context,
+    ),
     _ => l.serviceUnavailable,
   };
 
@@ -967,7 +969,8 @@ class _GlobalWechatPhoneBindingPageState
     } on ApiException catch (error) {
       if (mounted) {
         setState(
-          () => _error = userFacingMessage(
+          () => _error = uiErrorCopy(
+            context,
             error.message,
             fallback: l.serviceUnavailable,
           ),

@@ -55,15 +55,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
       return;
     }
     if (widget.controller.ringExperience) {
-      final relationship = ringCareRelationshipFromLink(
-        item['deepLink'] ?? item['deep_link'],
+      final link = item['deepLink'] ?? item['deep_link'];
+      final share = ringShareForNotice(
+        eventId,
+        link: link,
+        entityId: item['entity_id'],
       );
-      if (isRingShareNotice(eventId) ||
+      final relationship = ringCareRelationshipFromLink(link);
+      if (share != null ||
           (isRingCareNotice(eventId) && relationship != null)) {
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => isRingShareNotice(eventId)
-                ? RingMySharesPage(controller: widget.controller)
+            builder: (_) => share != null
+                ? RingShareRepliesPage(
+                    controller: widget.controller,
+                    shareId: share,
+                  )
                 : RingCareThreadPage(
                     controller: widget.controller,
                     relationshipId: relationship!,
@@ -265,6 +272,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
                             final item = values[index];
                             final isHealthWarning =
                                 item['kind'] == 'health_warning';
+                            final isShareReply = isRingShareNotice(
+                              '${item['event_id'] ?? ''}',
+                            );
                             final unread = item['is_read'] == false;
                             return Card(
                               clipBehavior: Clip.antiAlias,
@@ -282,7 +292,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                       ? SaydianColors.brandRed
                                       : SaydianColors.techBlue,
                                   child: Icon(
-                                    isHealthWarning
+                                    isShareReply
+                                        ? Icons.favorite_border_rounded
+                                        : isHealthWarning
                                         ? Icons.health_and_safety_rounded
                                         : Icons.notifications_none_rounded,
                                   ),
@@ -291,7 +303,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        '${item['title'] ?? item['name'] ?? uiCopy(context, "系统消息")}',
+                                        isShareReply
+                                            ? ringText(
+                                                context,
+                                                '有人回应了你的分享',
+                                                'Someone replied to your share',
+                                              )
+                                            : '${item['title'] ?? item['name'] ?? uiCopy(context, "系统消息")}',
                                         style: TextStyle(
                                           fontWeight: unread
                                               ? FontWeight.w900
@@ -312,7 +330,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                 ),
                                 subtitle: Text(
                                   [
-                                        _notificationPreview(item),
+                                        isShareReply
+                                            ? ringText(
+                                                context,
+                                                '点击查看好友回应',
+                                                'Tap to see the reply',
+                                              )
+                                            : _notificationPreview(item),
                                         notificationDisplayTime(
                                           item['created_at'] ??
                                               item['createdAt'],

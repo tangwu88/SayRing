@@ -33,9 +33,11 @@ class _AppShellState extends State<AppShell> {
         ..showSnackBar(
           SnackBar(
             content: Text(
-              userFacingMessage(
+              uiErrorCopy(
+                context,
                 message,
                 fallback: uiCopy(context, "操作未完成，请重试"),
+                genericDevice: controller.usesDevicePrompts,
               ),
             ),
           ),
@@ -163,31 +165,7 @@ class DashboardPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _DashboardHeader(controller: controller),
-                    const SizedBox(height: 12),
-                    if (controller.canOpenCardiovascularTrends) ...[
-                      Card(
-                        margin: EdgeInsets.zero,
-                        child: ListTile(
-                          key: const Key('dashboard-cardiovascular-trends'),
-                          leading: const Icon(
-                            Icons.monitor_heart_outlined,
-                            color: SaydianColors.blue,
-                          ),
-                          title: Text(
-                            ringText(context, '心血管趋势', 'Cardiovascular trends'),
-                          ),
-                          trailing: const Icon(Icons.chevron_right_rounded),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => CardiovascularTrendsPage(
-                                controller: controller,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
+                    const SizedBox(height: 16),
                     if (controller.shouldShowHealthMetric(
                       HealthMetric.steps,
                     )) ...[
@@ -249,82 +227,10 @@ class DashboardPage extends StatelessWidget {
                     ],
                     if (controller.canOpenSleepOverview) ...[
                       _SleepQuickCard(controller: controller),
-                      if (controller.ringExperience)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 10),
-                          child: Align(
-                            alignment: AlignmentDirectional.centerStart,
-                            child: OutlinedButton.icon(
-                              key: const Key('dashboard-my-week'),
-                              onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      RingWeekPage(controller: controller),
-                                ),
-                              ),
-                              icon: const Icon(
-                                Icons.calendar_view_week_outlined,
-                              ),
-                              label: Text(
-                                ringText(context, '我的这一周', 'My week'),
-                              ),
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 12),
-                    ],
-                    _FeatureEntryGrid(
-                      commerceEnabled: controller.mallVisible,
-                      encyclopediaEnabled: controller.healthLibraryVisible,
-                      onCare: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => controller.isGlobalEdition
-                              ? CarePage(controller: controller)
-                              : Scaffold(
-                                  appBar: AppBar(
-                                    title: Text(context.l10n.remoteCare),
-                                  ),
-                                  body: CarePage(controller: controller),
-                                ),
-                        ),
-                      ),
-                      onEncyclopedia: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          settings: const RouteSettings(
-                            name: 'health-encyclopedia-categories',
-                          ),
-                          builder: (_) =>
-                              ArticleCategoryPage(controller: controller),
-                        ),
-                      ),
-                      onSport: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          settings: const RouteSettings(name: 'sport-overview'),
-                          builder: (_) =>
-                              SportOverviewPage(controller: controller),
-                        ),
-                      ),
-                      onMall: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          settings: const RouteSettings(name: 'shop-home'),
-                          builder: (_) => ShopHomePage(
-                            controller: controller,
-                            ordersPageBuilder: (_) => OrdersPage(
-                              controller: controller,
-                              initialStatus: null,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (!controller.hideAiContent) ...[
-                      _AiHealthAssistantCard(controller: controller),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 20),
                     ],
                     _SectionTitle(
                       title: context.l10n.healthData,
-                      subtitle: context.l10n.recentData,
                       actionLabel: context.l10n.allData,
                       onEdit:
                           controller.isWellnessOnly ||
@@ -403,6 +309,7 @@ class DashboardPage extends StatelessWidget {
                                       controller: controller,
                                       metric: metric,
                                       record: latest[metric],
+                                      compact: true,
                                     ),
                                   ),
                                 ),
@@ -410,6 +317,72 @@ class DashboardPage extends StatelessWidget {
                           );
                         },
                       ),
+                    const SizedBox(height: 24),
+                    _FeatureEntryGrid(
+                      commerceEnabled: controller.mallVisible,
+                      encyclopediaEnabled: controller.healthLibraryVisible,
+                      onWeek:
+                          controller.canOpenSleepOverview &&
+                              controller.ringExperience
+                          ? () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    RingWeekPage(controller: controller),
+                              ),
+                            )
+                          : null,
+                      onAskAi: controller.hideAiContent
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                settings: const RouteSettings(
+                                  name: 'ai-health-chat',
+                                ),
+                                builder: (_) =>
+                                    AiChatPage(controller: controller, app: 1),
+                              ),
+                            ),
+                      onCare: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => controller.isGlobalEdition
+                              ? CarePage(controller: controller)
+                              : Scaffold(
+                                  appBar: AppBar(
+                                    title: Text(context.l10n.remoteCare),
+                                  ),
+                                  body: CarePage(controller: controller),
+                                ),
+                        ),
+                      ),
+                      onEncyclopedia: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: const RouteSettings(
+                            name: 'health-encyclopedia-categories',
+                          ),
+                          builder: (_) =>
+                              ArticleCategoryPage(controller: controller),
+                        ),
+                      ),
+                      onSport: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: const RouteSettings(name: 'sport-overview'),
+                          builder: (_) =>
+                              SportOverviewPage(controller: controller),
+                        ),
+                      ),
+                      onMall: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: const RouteSettings(name: 'shop-home'),
+                          builder: (_) => ShopHomePage(
+                            controller: controller,
+                            ordersPageBuilder: (_) => OrdersPage(
+                              controller: controller,
+                              initialStatus: null,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -450,16 +423,16 @@ class _DashboardHeader extends StatelessWidget {
       children: [
         Container(
           key: const Key('dashboard-profile-avatar'),
-          width: 50,
-          height: 50,
+          width: 42,
+          height: 42,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: Colors.white,
             shape: BoxShape.circle,
           ),
           child: avatarUrl.isEmpty
-              ? const SaydianBrandMark(size: 46, color: SaydianColors.ink)
-              : _MemberAvatar(imageUrl: avatarUrl, size: 50),
+              ? const SaydianBrandMark(size: 37, color: SaydianColors.ink)
+              : _MemberAvatar(imageUrl: avatarUrl, size: 42),
         ),
         const SizedBox(width: 11),
         Expanded(
@@ -467,12 +440,17 @@ class _DashboardHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
+                context.l10n.health,
+                style: Theme.of(context).textTheme.headlineLarge,
+              ),
+              Text(
                 context.l10n.welcome(name),
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  height: 1.4,
+                  color: SaydianColors.muted,
                 ),
               ),
             ],
@@ -499,7 +477,12 @@ class _DashboardHeader extends StatelessWidget {
                 builder: (_) => NotificationsPage(controller: controller),
               ),
             ),
-            icon: const Icon(Icons.notifications_none_rounded, size: 27),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: SaydianColors.techBlue,
+              minimumSize: const Size.square(48),
+            ),
+            icon: const Icon(Icons.notifications_none_rounded, size: 24),
           ),
         ),
       ],
@@ -577,119 +560,6 @@ class _MindBodyReadinessCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _AiHealthAssistantCard extends StatelessWidget {
-  const _AiHealthAssistantCard({required this.controller});
-
-  final AppController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
-    final stacked = textScale >= 1.8;
-    final doctor = SizedBox(
-      height: stacked ? 64 : 140,
-      child: ClipRect(
-        child: stacked
-            ? Image.asset(
-                'assets/branding/ai-health-manager-doctor-optimized.png',
-                fit: BoxFit.contain,
-                alignment: Alignment.bottomCenter,
-              )
-            : Transform.scale(
-                scale: 1.28,
-                alignment: Alignment.center,
-                child: Transform.translate(
-                  offset: const Offset(18, 0),
-                  child: Image.asset(
-                    'assets/branding/ai-health-manager-doctor-optimized.png',
-                    width: double.infinity,
-                    height: double.infinity,
-                    fit: BoxFit.cover,
-                    alignment: Alignment.center,
-                  ),
-                ),
-              ),
-      ),
-    );
-    final content = Padding(
-      padding: EdgeInsets.fromLTRB(stacked ? 16 : 4, stacked ? 6 : 7, 13, 7),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            context.l10n.aiAssistant,
-            style: const TextStyle(
-              color: Color(0xFF244BA8),
-              fontSize: 19,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 5),
-          FilledButton(
-            key: const Key('dashboard-ai-ask'),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                settings: const RouteSettings(name: 'ai-health-chat'),
-                builder: (_) => AiChatPage(controller: controller, app: 1),
-              ),
-            ),
-            style: FilledButton.styleFrom(
-              backgroundColor: SaydianColors.techBlue,
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(40),
-              shape: const StadiumBorder(),
-            ),
-            child: Text(
-              context.l10n.askNow,
-              style: const TextStyle(
-                fontSize: 14.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-    return Container(
-      key: const Key('dashboard-ai-assistant'),
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF5F8FF), Color(0xFFE8F4FF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(26),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x18316EF5),
-            blurRadius: 24,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      foregroundDecoration: BoxDecoration(
-        border: Border.all(color: const Color(0x66316EF5), width: 1.2),
-        borderRadius: BorderRadius.circular(26),
-      ),
-      child: stacked
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [doctor, content],
-            )
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(flex: 36, child: doctor),
-                Expanded(flex: 64, child: content),
-              ],
-            ),
     );
   }
 }
@@ -789,10 +659,24 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
               ).format(DateTime.parse(sleepRecordSdkDate(latest))),
             ],
           );
+    final showDuration = !_loading && !_failed && latest != null;
+    final duration = showDuration
+        ? Text(
+            _sleepDurationLabel(latest),
+            style: const TextStyle(
+              color: SaydianColors.midnight,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
+          )
+        : null;
     return Material(
       key: const Key('home-sleep-overview-entry'),
-      color: SaydianColors.techVioletSoft,
-      borderRadius: BorderRadius.circular(24),
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: SaydianColors.line),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => Navigator.of(context).push(
@@ -802,53 +686,83 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+          padding: const EdgeInsets.all(14),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final inlineDuration =
+                  constraints.maxWidth >= 280 &&
+                  MediaQuery.textScalerOf(context).scale(1) <= 1.2;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(
-                    Icons.bedtime_outlined,
-                    color: SaydianColors.sleep,
-                    size: 23,
+                  Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: SaydianColors.techVioletSoft,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.bedtime_outlined,
+                          color: SaydianColors.sleep,
+                          size: 21,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              uiCopy(context, "睡眠概览"),
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            Text(
+                              caption,
+                              style: const TextStyle(
+                                color: SaydianColors.muted,
+                                fontSize: 13,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (duration != null && inlineDuration)
+                        Padding(
+                          padding: const EdgeInsetsDirectional.only(start: 8),
+                          child: duration,
+                        ),
+                      const SizedBox(width: 4),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: SaydianColors.muted,
+                        size: 20,
+                      ),
+                    ],
                   ),
-                  SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      uiCopy(context, "睡眠概览"),
-                      style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w600,
+                  if (latest != null && duration != null)
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(
+                        start: 48,
+                        top: 8,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (!inlineDuration) ...[
+                            duration,
+                            const SizedBox(height: 4),
+                          ],
+                          SleepStageMiniBar(record: latest),
+                        ],
                       ),
                     ),
-                  ),
-                  Icon(Icons.chevron_right_rounded, color: SaydianColors.sleep),
                 ],
-              ),
-              if (!_loading && !_failed && latest != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _sleepDurationLabel(latest),
-                  style: const TextStyle(
-                    color: SaydianColors.midnight,
-                    fontSize: 32,
-                    height: 1.2,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -.6,
-                  ),
-                ),
-                SleepStageMiniBar(record: latest),
-              ],
-              const SizedBox(height: 9),
-              Text(
-                caption,
-                style: const TextStyle(
-                  color: SaydianColors.muted,
-                  fontSize: 15,
-                ),
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -1190,8 +1104,13 @@ class _TodayHealthOverview extends StatelessWidget {
     );
     return Card(
       key: const Key('dashboard-today-health'),
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: SaydianColors.line),
+      ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+        padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1200,10 +1119,7 @@ class _TodayHealthOverview extends StatelessWidget {
                 Expanded(
                   child: Text(
                     context.l10n.todayActivity,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
                 TextButton(
@@ -1220,8 +1136,8 @@ class _TodayHealthOverview extends StatelessWidget {
                     MediaQuery.textScalerOf(context).scale(1) > 1.2;
                 // 今日活动只呈现步数／距离；缩小图形与留白，不压缩文字或点击区。
                 // 热量原始记录、同步和详情仍由原来的数据链路保留。
-                final ringWidth = (constraints.maxWidth * .43)
-                    .clamp(104.0, 136.0)
+                final ringWidth = (constraints.maxWidth * .39)
+                    .clamp(98.0, 124.0)
                     .toDouble();
                 return stack
                     ? Column(
@@ -1360,66 +1276,99 @@ class _GoalProgressRow extends StatelessWidget {
 class _FeatureEntryGrid extends StatelessWidget {
   const _FeatureEntryGrid({
     required this.commerceEnabled,
-    this.encyclopediaEnabled = true,
+    required this.encyclopediaEnabled,
     required this.onCare,
     required this.onEncyclopedia,
     required this.onSport,
     required this.onMall,
+    this.onWeek,
+    this.onAskAi,
   });
+
   final VoidCallback onCare, onEncyclopedia, onSport, onMall;
+  final VoidCallback? onWeek, onAskAi;
   final bool commerceEnabled, encyclopediaEnabled;
 
   @override
   Widget build(BuildContext context) {
-    final entries = <Widget>[
+    final entries = [
+      _FeatureEntry(
+        label: context.l10n.workouts,
+        icon: Icons.directions_run_rounded,
+        onTap: onSport,
+      ),
       _FeatureEntry(
         label: context.l10n.remoteCare,
         icon: Icons.family_restroom_outlined,
-        color: SaydianColors.techBlue,
         onTap: onCare,
       ),
+      if (onWeek != null)
+        _FeatureEntry(
+          key: const Key('dashboard-my-week'),
+          label: ringText(context, '我的这一周', 'My week'),
+          icon: Icons.calendar_view_week_outlined,
+          onTap: onWeek!,
+        ),
       if (encyclopediaEnabled)
         _FeatureEntry(
           label: context.l10n.healthLibrary,
           icon: Icons.menu_book_outlined,
-          color: SaydianColors.activity,
           onTap: onEncyclopedia,
         ),
-      _FeatureEntry(
-        label: context.l10n.workouts,
-        icon: Icons.directions_run_rounded,
-        color: SaydianColors.sleep,
-        onTap: onSport,
-      ),
+      if (onAskAi != null)
+        KeyedSubtree(
+          key: const Key('dashboard-ai-assistant'),
+          child: _FeatureEntry(
+            key: const Key('dashboard-ai-ask'),
+            label: context.l10n.aiAssistant,
+            icon: Icons.auto_awesome_outlined,
+            onTap: onAskAi!,
+          ),
+        ),
       if (commerceEnabled)
         _FeatureEntry(
           label: context.l10n.shop,
           icon: Icons.shopping_bag_outlined,
-          color: SaydianColors.energy,
           onTap: onMall,
         ),
     ];
-    return Container(
-      key: const Key('dashboard-functions'),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final columns = MediaQuery.textScalerOf(context).scale(1) > 1.2
-              ? 2
-              : entries.length;
-          return Wrap(
-            runSpacing: 12,
-            children: [
-              for (final entry in entries)
-                SizedBox(width: constraints.maxWidth / columns, child: entry),
-            ],
-          );
-        },
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          ringText(context, '快捷入口', 'Shortcuts'),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        Container(
+          key: const Key('dashboard-functions'),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: SaydianColors.line),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          padding: const EdgeInsets.all(8),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              const gap = 8.0;
+              final twoColumns =
+                  constraints.maxWidth >= 260 &&
+                  MediaQuery.textScalerOf(context).scale(1) <= 1.35;
+              final width = twoColumns
+                  ? (constraints.maxWidth - gap) / 2
+                  : constraints.maxWidth;
+              return Wrap(
+                spacing: gap,
+                runSpacing: 4,
+                children: [
+                  for (final entry in entries)
+                    SizedBox(width: width, child: entry),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1428,42 +1377,46 @@ class _FeatureEntry extends StatelessWidget {
   const _FeatureEntry({
     required this.label,
     required this.icon,
-    required this.color,
     required this.onTap,
+    super.key,
   });
+
   final String label;
   final IconData icon;
-  final Color color;
   final VoidCallback onTap;
+
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(16),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 3),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: .09),
-              borderRadius: BorderRadius.circular(16),
+    borderRadius: BorderRadius.circular(12),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 50),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 7),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: SaydianColors.techBlueSoft,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: SaydianColors.techBlue, size: 20),
             ),
-            child: Icon(icon, color: color, size: 25),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 14,
-              height: 1.35,
-              fontWeight: FontWeight.w600,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );
@@ -1562,6 +1515,7 @@ class HealthMetricCard extends StatelessWidget {
     this.onOpen,
     this.records,
     this.readOnly = false,
+    this.compact = false,
     super.key,
   });
 
@@ -1571,6 +1525,7 @@ class HealthMetricCard extends StatelessWidget {
   final VoidCallback? onOpen;
   final List<HealthRecord>? records;
   final bool readOnly;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1618,7 +1573,10 @@ class HealthMetricCard extends StatelessWidget {
     // receiving a reading must not resize a row underneath a scrolling finger.
     // Only today's genuine samples are charted; reserved space is not data.
     final textScale = MediaQuery.textScalerOf(context);
-    final chartHeight = 44.0 + 6 + (textScale.scale(13) * 1.5).ceil();
+    final plotHeight = compact ? 36.0 : 44.0;
+    final chartHeight = plotHeight + 6 + (textScale.scale(13) * 1.5).ceil();
+    final valueSize = compact ? 28.0 : 32.0;
+    final radius = BorderRadius.circular(compact ? 20 : 24);
     final hasToday =
         record != null &&
         DateUtils.isSameDay(
@@ -1627,17 +1585,18 @@ class HealthMetricCard extends StatelessWidget {
         );
     return ConstrainedBox(
       key: ValueKey('health-metric-${metric.name}'),
-      constraints: const BoxConstraints(minHeight: 170),
+      constraints: BoxConstraints(minHeight: compact ? 152 : 170),
       child: DecoratedBox(
         key: ValueKey('health-metric-surface-${metric.name}'),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: radius,
+          border: compact ? Border.all(color: SaydianColors.line) : null,
         ),
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: radius,
             onTap:
                 onOpen ??
                 () => Navigator.of(context).push(
@@ -1657,7 +1616,7 @@ class HealthMetricCard extends StatelessWidget {
                   ),
                 ),
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(compact ? 12 : 16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1690,9 +1649,9 @@ class HealthMetricCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  SizedBox(height: compact ? 5 : 10),
                   SizedBox(
-                    height: textScale.scale(32) * 1.15,
+                    height: textScale.scale(valueSize) * 1.15,
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerLeft,
@@ -1702,8 +1661,8 @@ class HealthMetricCard extends StatelessWidget {
                         children: [
                           Text(
                             _healthDisplayValue(record, controller),
-                            style: const TextStyle(
-                              fontSize: 32,
+                            style: TextStyle(
+                              fontSize: valueSize,
                               height: 1.15,
                               fontWeight: FontWeight.w700,
                               letterSpacing: -.8,
@@ -1724,7 +1683,7 @@ class HealthMetricCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: compact ? 5 : 8),
                   SizedBox(
                     height: textScale.scale(14) * 1.3,
                     child: Text(
@@ -1740,7 +1699,7 @@ class HealthMetricCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: compact ? 8 : 12),
                   SizedBox(
                     height: chartHeight,
                     child: hasToday
@@ -1749,13 +1708,13 @@ class HealthMetricCard extends StatelessWidget {
                             metric: metric,
                             color: style.accent,
                             showEmptyLabel: false,
-                            height: 44,
+                            height: plotHeight,
                             fitToSamples: true,
                             records: readOnly ? records ?? const [] : records,
                           )
                         : null,
                   ),
-                  const SizedBox(height: 6),
+                  SizedBox(height: compact ? 3 : 6),
                   SizedBox(
                     height: textScale.scale(14) * 1.3,
                     child: Text(
@@ -1928,85 +1887,20 @@ _HomeMetricStatus _homeMetricStatus(
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle({
     required this.title,
-    required this.subtitle,
     required this.actionLabel,
     required this.onAction,
     this.onEdit,
   });
 
   final String title;
-  final String subtitle;
   final String actionLabel;
   final VoidCallback onAction;
   final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
-    final enlargedText = MediaQuery.textScalerOf(context).scale(1) > 1.25;
-    final compactHeading = Row(
-      children: [
-        Flexible(
-          child: Text(
-            title,
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-          ),
-        ),
-        const SizedBox(width: 8),
-        const Icon(
-          Icons.calendar_month_outlined,
-          size: 19,
-          color: SaydianColors.muted,
-        ),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(
-            subtitle,
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
-          ),
-        ),
-      ],
-    );
-    // 手机窄屏把日期说明放在标题下，避免英文标题与操作按钮相互挤压。
-    final heading = enlargedText || MediaQuery.sizeOf(context).width < 600
-        ? Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  color: SaydianColors.muted,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          )
-        : compactHeading;
-    final allDataAction = TextButton.icon(
-      onPressed: onAction,
-      iconAlignment: IconAlignment.end,
-      icon: const Icon(Icons.chevron_right_rounded, size: 21),
-      label: Text(
-        actionLabel,
-        maxLines: 1,
-        softWrap: false,
-        style: const TextStyle(fontWeight: FontWeight.w800),
-      ),
-    );
-    final action = Wrap(
+    final heading = Text(title, style: Theme.of(context).textTheme.titleLarge);
+    final actions = Wrap(
       alignment: WrapAlignment.end,
       children: [
         if (onEdit != null)
@@ -2015,24 +1909,35 @@ class _SectionTitle extends StatelessWidget {
             onPressed: onEdit,
             child: Text(uiCopy(context, "编辑")),
           ),
-        allDataAction,
+        TextButton.icon(
+          onPressed: onAction,
+          iconAlignment: IconAlignment.end,
+          icon: const Icon(Icons.chevron_right_rounded, size: 18),
+          label: Text(actionLabel),
+        ),
       ],
     );
-    if (enlargedText ||
-        (onEdit != null && MediaQuery.sizeOf(context).width < 420)) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          heading,
-          Align(alignment: Alignment.centerRight, child: action),
-        ],
-      );
-    }
-    return Row(
-      children: [
-        Expanded(child: heading),
-        action,
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked =
+            constraints.maxWidth < 300 ||
+            MediaQuery.textScalerOf(context).scale(1) > 1.4;
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              heading,
+              Align(alignment: AlignmentDirectional.centerEnd, child: actions),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: heading),
+            actions,
+          ],
+        );
+      },
     );
   }
 }

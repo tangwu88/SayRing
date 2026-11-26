@@ -171,6 +171,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @property(nonatomic, strong) NSNumber *battery, *charging;
 @property(nonatomic, strong) NSDate *batteryUpdatedAt;
 @property(nonatomic, copy) NSString *firmware, *activeMetric, *activeSportMode;
+@property(nonatomic, copy) NSString *firmwareHardware;
 @property(nonatomic) NSInteger activeSportType;
 @property(nonatomic, strong) NSMutableArray *events;
 - (id)error:(NSString *)code message:(NSString *)message;

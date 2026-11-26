@@ -20,6 +20,7 @@ import '../domain/global_care.dart';
 import '../domain/health_report_models.dart';
 import 'global_environment.dart';
 import 'cycle_tracking_service.dart';
+import 'cardiovascular_model.dart';
 import 'network_audit.dart';
 import 'secure_vault.dart';
 import 'sleep_report_input.dart';
@@ -27,7 +28,8 @@ import 'notification_route_service.dart'
     show
         supportConversationFromLink,
         ringCareRelationshipFromLink,
-        isRingCareNotice;
+        isRingCareNotice,
+        ringShareForNotice;
 import 'wearable_routing.dart';
 
 part 'global_api_client.dart';

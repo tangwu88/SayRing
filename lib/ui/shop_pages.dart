@@ -6,7 +6,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import '../services/user_message.dart';
 import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
@@ -544,7 +543,8 @@ class _ShopProductPageState extends State<ShopProductPage> {
     } on ApiException catch (error) {
       if (mounted) {
         _showMessage(
-          userFacingMessage(
+          uiErrorCopy(
+            context,
             error.message,
             fallback: uiCopy(context, "未能加入购物车，请重试"),
           ),

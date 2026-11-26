@@ -74,6 +74,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/audio/health_reminder_alarm.wav
+    - assets/cardiovascular/insights.json
     - assets/china_regions.json
     - assets/branding/saidian-brand-mark.png
     - assets/branding/logo_en.jpg

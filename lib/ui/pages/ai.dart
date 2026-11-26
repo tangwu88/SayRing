@@ -343,7 +343,8 @@ class _AiChatPageState extends State<AiChatPage> {
                               if (failed) ...[
                                 const SizedBox(height: 5),
                                 Text(
-                                  userFacingMessage(
+                                  uiErrorCopy(
+                                    context,
                                     message['send_error']?.toString(),
                                     fallback: uiCopy(context, "消息未发送，请重试"),
                                   ),

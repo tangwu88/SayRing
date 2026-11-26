@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
@@ -63,6 +64,7 @@ class TestSupport implements OnlineSupportApi {
   final sends = <String>[], opened = <String>[];
   final channels = <String, StreamController<Map<String, Object?>>>{};
   final Map<String, Completer<Map<String, Object?>>> protectedLoads = {};
+  final List<Map<String, Object?>> faqArticles = [];
   bool offline = true;
   String status = 'ai';
   String? selected;
@@ -99,11 +101,12 @@ class TestSupport implements OnlineSupportApi {
       };
     }
     if (path == 'faq') {
-      return {
-        'items': <Map<String, Object?>>[],
-        'locale': 'en',
-        'nextOffset': null,
-      };
+      return {'items': faqArticles, 'locale': 'en', 'nextOffset': null};
+    }
+    if (path.startsWith('faq/')) {
+      return faqArticles.singleWhere(
+        (row) => row['id'] == path.split('/').last,
+      );
     }
     if (path == 'conversations') {
       return {'id': member?.memberId == 'B' ? idB : idA};
@@ -260,6 +263,33 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('English FAQ labels Chinese source material in English', (
+    tester,
+  ) async {
+    final controller = TestController();
+    addTearDown(controller.dispose);
+    final api = TestSupport()
+      ..faqArticles.add({
+        'id': idA,
+        'locale': 'zh-Hans',
+        'title': '如何连接设备',
+        'contentHtml': '<p>打开手机蓝牙。</p>',
+      });
+    await frame(
+      tester,
+      SupportFaqPage(controller: controller, apiOverride: api),
+    );
+    final title = tester.renderObject<RenderParagraph>(find.text('FAQ'));
+    expect(title.didExceedMaxLines, isFalse);
+    expect(find.text('Chinese'), findsOneWidget);
+    await tester.tap(find.text('如何连接设备'));
+    await tester.pumpAndSettle();
+    expect(find.text('Help article'), findsOneWidget);
+    expect(find.text('Chinese'), findsOneWidget);
+    expect(find.text('如何连接设备'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   test('support notification routes only its exact conversation path', () {
     Map<String, Object?> wire(String link) =>

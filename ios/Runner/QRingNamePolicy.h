@@ -21,3 +21,15 @@ NS_INLINE NSString * _Nullable QRingSelectionName(NSString * _Nullable systemNam
         (observedName.length && !QRingIsSupportedName(observedName))) return nil;
     return systemName.length ? systemName : (observedName.length ? observedName : nil);
 }
+
+// The connection policy accepts a wider range of names. OTA needs a single,
+// exact product model from the currently supported broadcast patterns.
+NS_INLINE NSString * _Nullable QRingFirmwareModel(NSString * _Nullable name) {
+    NSString *upper = [[name ?: @"" stringByTrimmingCharactersInSet:
+        NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
+    NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:
+        @"^(?:SD[ _-]+RING[ _-]+)?(R8|R21)(?:[ _-]+[0-9A-F]{4,6})?$"
+        options:0 error:nil];
+    NSTextCheckingResult *match = [expression firstMatchInString:upper options:0 range:NSMakeRange(0, upper.length)];
+    return match ? [upper substringWithRange:[match rangeAtIndex:1]] : nil;
+}

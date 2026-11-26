@@ -8,7 +8,6 @@ import '../domain/health_report_models.dart';
 import '../domain/models.dart';
 import '../services/app_controller.dart';
 import '../services/sleep_health_projection.dart';
-import '../services/user_message.dart';
 import 'app_theme.dart';
 import 'report_visual_summary.dart';
 import 'health_ui_owner.dart';
@@ -525,7 +524,8 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
       return uiCopy(context, "睡眠分析暂时无法生成，请更新睡眠记录后重试");
     }
     if (message.contains('说明尚未发布')) return uiCopy(context, "分析说明暂不可用，请稍后重试");
-    return userFacingMessage(
+    return uiErrorCopy(
+      context,
       message,
       fallback: uiCopy(context, "报告暂不可用，请稍后重试"),
     );

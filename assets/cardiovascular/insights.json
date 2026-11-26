@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "zh": {
+    "bpChange": "与上一周期相比，平均收缩压{upper}，舒张压{lower}。",
+    "sparseBp": "本期有 {span} 血压记录，上期有 {previousSpan}。两期各满 3 天，就能比较平均血压的变化。",
+    "noBp": "本期有穿戴记录。记下同一天的血压，就能放在一起看。",
+    "pairedChange": "在同时记录血压和{metric}的日子里，平均收缩压{upper}，{metric}日均从{prior}变为{value}（上期 {previousSpan}，本期 {span}）。",
+    "pairedDay": "{date} 同时记录了两项数据。当天平均血压为 {bp} mmHg，{metric}为{value}。",
+    "pairedDays": "在同时有两项记录的 {days} 天里，平均血压为 {bp} mmHg，{metric}日均为{value}。",
+    "contextChange": "按有记录的日子，{metric}日均从{prior}变为{value}。",
+    "contextOnly": "本期有 {span} 的{metric}记录，日均为{value}。",
+    "differentDates": "本期的穿戴记录和血压记录在不同日期，可分别查看。",
+    "pairedAlignedChange": "在同一批血压记录日里，{metric}日均从{prior}变为{value}（上期 {previousSpan}，本期 {span}）。"
+  },
+  "en": {
+    "bpChange": "Compared with the previous period, average systolic pressure {upper} and diastolic pressure {lower}.",
+    "sparseBp": "You recorded blood pressure on {span} this period and {previousSpan} last period. A comparison needs three recorded days in each.",
+    "noBp": "You have wearable data for this period. Add a blood pressure reading on the same day to see them together.",
+    "pairedChange": "On days with both readings, average systolic pressure {upper}. Average {metric} was {prior} last period and {value} this period, based on {previousSpan} and {span} of paired readings respectively.",
+    "pairedDay": "On {date}, average blood pressure was {bp} mmHg and {metric} averaged {value}.",
+    "pairedDays": "Across the {days} days with both readings, blood pressure averaged {bp} mmHg and {metric} averaged {value}.",
+    "contextChange": "Across recorded days, average {metric} was {prior} last period and {value} this period.",
+    "contextOnly": "Average {metric} was {value} across {span} of records.",
+    "differentDates": "The wearable and blood pressure readings fall on different dates this period.",
+    "pairedAlignedChange": "On those same blood pressure days, average {metric} was {prior} last period and {value} this period, across {previousSpan} and {span} respectively."
+  }
+}

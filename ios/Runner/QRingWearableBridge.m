@@ -67,6 +67,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, copy) NSString *firmware;
 @property(nonatomic, copy) NSString *firmwareHardware;
 @property(nonatomic, assign) BOOL firmwareTransferring;
+@property(nonatomic, copy, nullable) NSString *firmwareOperation;
+@property(nonatomic, assign) NSInteger firmwareProgress;
 @property(nonatomic, strong, nullable) NSNumber *battery;
 @property(nonatomic, strong, nullable) NSNumber *charging;
 @property(nonatomic, strong, nullable) NSDate *batteryUpdatedAt;
@@ -1978,18 +1980,6 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }];
 }
 
-- (NSString *)qualifiedFirmwareModel {
-    NSString *name = self.connectedName.uppercaseString ?: @"";
-    NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:
-        @"(?:^|[^A-Z0-9])(R8[ _-]?PRO|R21|R22|R7C|R8)(?:$|[^A-Z0-9])"
-        options:0 error:nil];
-    NSTextCheckingResult *match = [expression firstMatchInString:name options:0 range:NSMakeRange(0, name.length)];
-    if (!match || [match rangeAtIndex:1].location == NSNotFound) return @"";
-    NSString *model = [name substringWithRange:[match rangeAtIndex:1]];
-    return [[[model stringByReplacingOccurrencesOfString:@" " withString:@""]
-        stringByReplacingOccurrencesOfString:@"_" withString:@""] stringByReplacingOccurrencesOfString:@"-" withString:@""];
-}
-
 - (BOOL)firmwareTargetReady:(NSDictionary *)arguments {
     NSString *expected = arguments[@"expectedDeviceId"];
     return [expected isKindOfClass:NSString.class] && expected.length &&
@@ -2005,7 +1995,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)ringFirmwareIdentity:(NSDictionary *)arguments result:(FlutterResult)result {
-    if (self.firmwareTransferring || ![self firmwareTargetReady:arguments] || ![self qualifiedFirmwareModel].length) {
+    NSString *model = QRingFirmwareModel(self.connectedName);
+    if (!model || self.firmwareTransferring || ![self firmwareTargetReady:arguments]) {
         result(nil); return;
     }
     NSUInteger generation = self.connectionGeneration;
@@ -2026,13 +2017,14 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             self.firmware = software;
             [QCSDKCmdCreator readBatterySuccess:^(int battery, BOOL charging) {
                 QRingOnMain(^{
-                    if (finished || ![self isCurrentConnection:generation] || battery < 0 || battery > 100) {
+                    if (finished || ![self isCurrentConnection:generation] ||
+                        ![model isEqualToString:QRingFirmwareModel(self.connectedName)] || battery < 0 || battery > 100) {
                         finish(nil); return;
                     }
                     self.battery = @(battery);
                     self.charging = @(charging);
                     self.batteryUpdatedAt = [NSDate date];
-                    finish(@{@"model": [self qualifiedFirmwareModel], @"hardware": hardware,
+                    finish(@{@"model": model, @"packageModel": @"R21", @"hardware": hardware,
                              @"fromVersion": software, @"battery": @(battery)});
                 });
             } failed:^{ QRingOnMain(^{ finish(nil); }); }];
@@ -2046,11 +2038,15 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     NSData *data = [wire isKindOfClass:FlutterStandardTypedData.class] ? wire.data : nil;
     NSDate *batteryAt = self.batteryUpdatedAt;
     id threshold = arguments[@"minBattery"];
+    id operation = arguments[@"operationId"];
     NSInteger minimum = [threshold isKindOfClass:NSNumber.class] ? [threshold integerValue] : 0;
+    NSString *model = QRingFirmwareModel(self.connectedName);
     if (self.firmwareTransferring || ![self firmwareTargetReady:arguments] ||
         !data.length || data.length > 8 * 1024 * 1024 ||
-        ![self qualifiedFirmwareModel].length ||
-        ![[self qualifiedFirmwareModel] isEqual:arguments[@"model"]] ||
+        ![operation isKindOfClass:NSString.class] || ![[NSUUID alloc] initWithUUIDString:operation] ||
+        ![model isEqual:arguments[@"model"]] ||
+        ![@"R21" isEqual:arguments[@"packageModel"]] ||
+        ![@"qring" isEqual:arguments[@"transport"]] ||
         !self.firmwareHardware.length || ![self.firmwareHardware isEqual:arguments[@"hardware"]] ||
         !self.firmware.length || ![self.firmware isEqual:arguments[@"fromVersion"]] ||
         minimum < 1 || minimum > 100 || !batteryAt || -batteryAt.timeIntervalSinceNow > 20 ||
@@ -2066,16 +2062,27 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
 
     self.firmwareTransferring = YES;
+    self.firmwareOperation = operation;
+    self.firmwareProgress = 0;
     __block BOOL replied = NO;
     void (^finish)(id) = ^(id value) {
         QRingOnMain(^{
+            if (![self.firmwareOperation isEqual:operation]) return;
             self.firmwareTransferring = NO;
+            self.firmwareOperation = nil;
             if (replied) return;
             replied = YES;
             result(value);
         });
     };
-    [QCSDKCmdCreator syncOtaBinData:data start:nil percentage:nil success:^(__unused int seconds) {
+    [QCSDKCmdCreator syncOtaBinData:data start:nil percentage:^(int value) {
+        QRingOnMain(^{
+            if ([self.firmwareOperation isEqual:operation] && !replied &&
+                value > self.firmwareProgress && value <= 100) {
+                self.firmwareProgress = value;
+            }
+        });
+    } success:^(__unused int seconds) {
         finish(nil);
     } failed:^(__unused NSError *error) {
         finish([self error:@"FIRMWARE_UNCONFIRMED" message:@"升级结果待核对"]);
@@ -2095,6 +2102,12 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
     if ([call.method isEqualToString:@"ringFirmwareTransfer"]) {
         [self ringFirmwareTransfer:arguments result:result]; return;
+    }
+    if ([call.method isEqualToString:@"ringFirmwareProgress"]) {
+        BOOL same = self.firmwareTransferring &&
+            [self.firmwareOperation isEqual:arguments[@"operationId"]] &&
+            [self.connectedID isEqual:arguments[@"expectedDeviceId"]];
+        result(same ? @(self.firmwareProgress) : nil); return;
     }
     if (self.firmwareTransferring && ![@[@"getDeviceSnapshot", @"getBluetoothState"] containsObject:call.method]) {
         result([self error:@"DEVICE_BUSY" message:@"设备正在升级"]); return;

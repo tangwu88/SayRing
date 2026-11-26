@@ -7,6 +7,7 @@ import 'device_prompt_wording.dart';
 import 'generated/app_localizations.dart';
 import 'legacy_ui_copy.dart';
 import '../services/safe_secure_storage.dart';
+import '../services/user_message.dart';
 
 abstract interface class GlobalLocaleStore {
   Future<String?> read();
@@ -236,10 +237,15 @@ final _statusTemplates = legacyUiEnglish.entries
       return (RegExp('^$pattern\$'), e.value, keys);
     })
     .toList();
-String appStatusCopy(String value, {bool genericDevice = false}) {
-  final english =
-      GlobalLocaleController.instance._hasApplicationHost &&
-      GlobalLocaleController.instance.locale.languageCode != 'zh';
+String appStatusCopy(
+  String value, {
+  BuildContext? context,
+  bool genericDevice = false,
+}) {
+  final english = context == null
+      ? GlobalLocaleController.instance._hasApplicationHost &&
+            GlobalLocaleController.instance.locale.languageCode != 'zh'
+      : !context.l10n.localeName.startsWith('zh');
   if (genericDevice) {
     final status = localizeGenericDeviceStatus(value, english: english);
     if (status != null) return status;
@@ -259,8 +265,24 @@ String appStatusCopy(String value, {bool genericDevice = false}) {
     return english.replaceAllMapped(RegExp(r'\{p\d+\}'), (m) {
       final i = keys.indexOf(m[0]!);
       final original = i < 0 ? m[0]! : match[i + 1]!;
-      return legacyUiEnglish[original] ?? original;
+      return (genericDevice
+              ? localizeGenericDeviceStatus(original, english: true)
+              : null) ??
+          legacyUiEnglish[original] ??
+          original;
     });
   }
   return value;
 }
+
+/// Clean transport errors before translating known, app-owned UI messages.
+String uiErrorCopy(
+  BuildContext context,
+  String? value, {
+  required String fallback,
+  bool genericDevice = false,
+}) => appStatusCopy(
+  userFacingMessage(value, fallback: fallback),
+  context: context,
+  genericDevice: genericDevice,
+);

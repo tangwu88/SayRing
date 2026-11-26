@@ -204,6 +204,8 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(320, 568));
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.text('赛电商城'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('赛电商城'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('QA 智能手表'));
@@ -1867,7 +1869,9 @@ void main() {
     addTearDown(controller.dispose);
     await _pumpPhone(tester, controller);
 
-    await tester.tap(find.byKey(const Key('dashboard-ai-ask')));
+    final aiEntry = find.byKey(const Key('dashboard-ai-ask'));
+    await tester.ensureVisible(aiEntry);
+    await tester.tap(aiEntry);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '如何改善睡眠？');
     await tester.tap(find.byIcon(Icons.send_rounded));
@@ -2019,13 +2023,19 @@ void main() {
       await _popRoute(tester);
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.text('远程关爱'));
       await tester.tap(find.text('远程关爱'));
       await tester.pumpAndSettle();
       expect(find.text('守护家人健康'), findsOneWidget);
       await _popRoute(tester);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('健康'));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('健康'),
+        ),
+      );
       await tester.pump();
       await tester.ensureVisible(find.text('全部数据'));
       await tester.tap(find.text('全部数据'));
@@ -2034,6 +2044,7 @@ void main() {
       await _popRoute(tester);
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.text('运动'));
       await tester.tap(find.text('运动'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('sport-overview-page')), findsOneWidget);
@@ -2069,6 +2080,7 @@ void main() {
     addTearDown(controller.dispose);
     await _pumpPhone(tester, controller);
 
+    await tester.ensureVisible(find.text('远程关爱'));
     await tester.tap(find.text('远程关爱'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byTooltip('添加关爱'));
@@ -2089,6 +2101,7 @@ void main() {
     addTearDown(controller.dispose);
     await _pumpPhone(tester, controller);
 
+    await tester.ensureVisible(find.text('远程关爱'));
     await tester.tap(find.text('远程关爱'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('添加关爱'));
@@ -2136,6 +2149,7 @@ void main() {
     addTearDown(controller.dispose);
     await _pumpPhone(tester, controller);
 
+    await tester.ensureVisible(find.text('远程关爱'));
     await tester.tap(find.text('远程关爱'));
     await tester.pumpAndSettle();
 

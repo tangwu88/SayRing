@@ -1,6 +1,5 @@
 import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'dart:convert';
-import '../services/user_message.dart';
 import 'cycle_day_widgets.dart';
 import 'cycle_diary_sheet.dart';
 import 'cycle_night_trend.dart';
@@ -111,7 +110,8 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
           SnackBar(
             content: Text(
               e is FormatException
-                  ? userFacingMessage(
+                  ? uiErrorCopy(
+                      context,
                       e.message,
                       fallback: uiCopy(context, "暂时无法保存，请重试"),
                     )
@@ -786,7 +786,8 @@ class _CycleTrackingPageState extends State<CycleTrackingPage>
                   );
                 } on FormatException catch (e) {
                   update(
-                    () => error = userFacingMessage(
+                    () => error = uiErrorCopy(
+                      context,
                       e.message,
                       fallback: uiCopy(context, "记录未保存，请重试"),
                     ),

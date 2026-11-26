@@ -170,8 +170,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
   bool _updateCheckRunning = false;
   bool _notificationRouteRunning = false;
   StreamSubscription<Uri>? _ringLinks;
-  RingLink? _pendingRingLink;
-  String? _ringIntentOwner;
+  PendingRingLink? _pendingRingLink;
   bool _ringRouteOpen = false;
   Timer? _ringGreetings;
   String? _ringGreetingCursor;
@@ -210,6 +209,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         _receiveRingLink,
         onError: (Object _) {},
       );
+      unawaited(_restoreRingLink());
     }
     _updateService =
         widget.updateService ??
@@ -274,35 +274,73 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
 
   void _receiveRingLink(Uri uri) {
     final link = RingLink.parse(uri);
-    if (!mounted || link == null || !controller.ringExperience) return;
-    _pendingRingLink = link;
-    _ringIntentOwner = controller.isAuthenticated
-        ? controller.ringExperienceOwner
-        : null;
+    if (!mounted || link == null) return;
+    final pending = PendingRingLink(
+      link,
+      DateTime.now(),
+      controller.isAuthenticated ? controller.homeHealthCardOwner : null,
+    );
+    _pendingRingLink = pending;
+    unawaited(
+      controller.writePendingRingLink(pending).catchError((Object _) {}),
+    );
     _handleControllerState();
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _restoreRingLink() async {
+    try {
+      final saved = await controller.readPendingRingLink();
+      if (!mounted ||
+          _pendingRingLink != null ||
+          _ringRouteOpen ||
+          saved == null) {
+        return;
+      }
+      _pendingRingLink = saved;
+      _handleControllerState();
+      WidgetsBinding.instance.ensureVisualUpdate();
+    } catch (_) {
+      // Reopening the original link remains available if local storage fails.
+    }
   }
 
   Future<void> _openRingLink() async {
-    final link = _pendingRingLink;
+    final pending = _pendingRingLink;
     final navigator = _navigatorKey.currentState;
-    if (link == null ||
+    if (pending == null ||
         navigator == null ||
         !_requiredUpdateGateResolved ||
         _requiredUpdate != null ||
         controller.isBooting ||
         _ringRouteOpen ||
-        !controller.isAuthenticated) {
+        !controller.isAuthenticated ||
+        !controller.ringExperience) {
       return;
     }
-    if (_ringIntentOwner != null &&
-        _ringIntentOwner != controller.ringExperienceOwner) {
+    final owner = controller.homeHealthCardOwner;
+    if (!pending.isRecent(DateTime.now()) ||
+        (pending.owner != null && pending.owner != owner)) {
       _pendingRingLink = null;
+      unawaited(
+        controller
+            .writePendingRingLink(pending, consume: true)
+            .catchError((Object _) {}),
+      );
       return;
     }
-    _ringIntentOwner = controller.ringExperienceOwner;
+    final bound = pending.withOwner(owner);
+    final link = bound.link;
     _pendingRingLink = null;
     _ringRouteOpen = true;
     try {
+      await controller.writePendingRingLink(bound).catchError((Object _) {});
+      if (!mounted ||
+          !navigator.mounted ||
+          !controller.isAuthenticated ||
+          controller.homeHealthCardOwner != owner) {
+        return;
+      }
       await navigator.push(
         MaterialPageRoute<void>(
           builder: (_) => switch (link.type) {
@@ -318,6 +356,11 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         ),
       );
     } finally {
+      unawaited(
+        controller
+            .writePendingRingLink(bound, consume: true)
+            .catchError((Object _) {}),
+      );
       _ringRouteOpen = false;
       if (mounted && _pendingRingLink != null) _handleControllerState();
     }
@@ -454,9 +497,13 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
           controller: controller,
           relationshipId: intent.entityId ?? '',
         ),
-        NotificationRouteTarget.ringShares => RingMySharesPage(
-          controller: controller,
-        ),
+        NotificationRouteTarget.ringShares =>
+          intent.entityId == null
+              ? RingMySharesPage(controller: controller)
+              : RingShareRepliesPage(
+                  controller: controller,
+                  shareId: intent.entityId!,
+                ),
         NotificationRouteTarget.notificationInbox => NotificationsPage(
           controller: controller,
         ),

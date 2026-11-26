@@ -54,6 +54,7 @@ class _GlobalCarePageState extends State<GlobalCarePage>
   bool _received = false;
   BuildContext? _activeDialog;
   late String? _owner;
+  late bool _linkInvitesAvailable;
   bool get _sameOwner =>
       _owner != null && _owner == widget.controller.session?.accountKey;
 
@@ -61,8 +62,9 @@ class _GlobalCarePageState extends State<GlobalCarePage>
   void initState() {
     super.initState();
     _owner = widget.controller.session?.accountKey;
+    _linkInvitesAvailable = _sameOwner && widget.controller.ringCareEnabled;
     WidgetsBinding.instance.addObserver(this);
-    widget.controller.addListener(_accountChanged);
+    widget.controller.addListener(_controllerChanged);
     unawaited(_load());
   }
 
@@ -76,8 +78,15 @@ class _GlobalCarePageState extends State<GlobalCarePage>
     }
   }
 
-  void _accountChanged() {
-    if (_sameOwner || !mounted) return;
+  void _controllerChanged() {
+    if (!mounted) return;
+    if (_sameOwner) {
+      final enabled = widget.controller.ringCareEnabled;
+      if (enabled != _linkInvitesAvailable) {
+        setState(() => _linkInvitesAvailable = enabled);
+      }
+      return;
+    }
     _generation++;
     _activeLoad = null;
     final dialog = _activeDialog;
@@ -99,9 +108,19 @@ class _GlobalCarePageState extends State<GlobalCarePage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    widget.controller.removeListener(_accountChanged);
+    widget.controller.removeListener(_controllerChanged);
     _generation++;
     super.dispose();
+  }
+
+  Future<void> _openLinkInvites() async {
+    if (!_sameOwner || !widget.controller.ringCareEnabled) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RingInvitationsPage(controller: widget.controller),
+      ),
+    );
+    if (mounted) await _load();
   }
 
   Future<void> _load() {
@@ -382,7 +401,7 @@ class _GlobalCarePageState extends State<GlobalCarePage>
       appBar: AppBar(
         title: Text(l.remoteCare),
         actions: [
-          if (widget.controller.ringCareEnabled && _sameOwner)
+          if (_linkInvitesAvailable && _sameOwner)
             IconButton(
               key: const Key('care-invite-link'),
               tooltip: ringText(
@@ -390,16 +409,7 @@ class _GlobalCarePageState extends State<GlobalCarePage>
                 '分享邀请或输入邀请码',
                 'Share or enter invitation code',
               ),
-              onPressed: () => Navigator.of(context)
-                  .push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          RingInvitationsPage(controller: widget.controller),
-                    ),
-                  )
-                  .then((_) {
-                    if (mounted) _load();
-                  }),
+              onPressed: _openLinkInvites,
               icon: const Icon(Icons.link_rounded),
             ),
           IconButton(
@@ -479,7 +489,17 @@ class _GlobalCarePageState extends State<GlobalCarePage>
                           Text(
                             _received ? l.careNoFollowers : l.careNoFollowing,
                           ),
-                          if (!_received)
+                          if (_linkInvitesAvailable) ...[
+                            const SizedBox(height: 12),
+                            FilledButton.icon(
+                              key: const Key('care-empty-invite-link'),
+                              onPressed: _openLinkInvites,
+                              icon: const Icon(Icons.link_rounded),
+                              label: Text(
+                                ringText(context, '亲友邀请', 'Family invitations'),
+                              ),
+                            ),
+                          ] else if (!_received)
                             TextButton(
                               onPressed: _working ? null : _invite,
                               child: Text(l.addCare),
@@ -589,7 +609,7 @@ class _GlobalCarePageState extends State<GlobalCarePage>
             ],
             if (row.active) ...[
               const SizedBox(height: 12),
-              if (widget.controller.ringCareEnabled)
+              if (_linkInvitesAvailable)
                 OutlinedButton.icon(
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(

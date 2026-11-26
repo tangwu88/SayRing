@@ -1,5 +1,13 @@
 part of 'api_client.dart';
 
+abstract interface class CardiovascularModelApi {
+  Future<CardiovascularModelReply> analyzeCardiovascularTrends(
+    Session expected,
+    CardiovascularModelInput input,
+    String locale,
+  );
+}
+
 abstract interface class GlobalAccountApi {
   Future<GlobalAuthCapabilities> getAuthCapabilities();
   Future<Map<String, Object?>> getGlobalLegalDocument(String path);
@@ -254,6 +262,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCareMemberInviteApi,
         GlobalCareRangeApi,
         GlobalContentApi,
+        CardiovascularModelApi,
         GlobalSupportApi,
         SaydianAvatarProfileApi,
         SaydianDeviceBindingApi,
@@ -954,6 +963,61 @@ class GlobalSaydianApiClient extends SaydianApiClient
     };
   }
 
+  // Reuse the deployed configured model, in a dedicated session separate from chat.
+  // The only permitted question is built from the bounded trend evidence above.
+  @override
+  Future<CardiovascularModelReply> analyzeCardiovascularTrends(
+    Session expected,
+    CardiovascularModelInput input,
+    String locale,
+  ) async {
+    final owner = _stableSessionAccountKey(expected);
+    final response = await _withAuthorizationRetry((session) async {
+      if (_stableSessionAccountKey(session) != owner) {
+        throw const ApiException('账号已变化，请重新打开');
+      }
+      final request =
+          http.Request('POST', _uri('/api/saydian-app/v2/ai/messages'))
+            ..followRedirects = false
+            ..headers.addAll({
+              ..._authorizationHeaders(session),
+              'Content-Type': 'application/json',
+            })
+            ..body = jsonEncode({
+              'content': input.prompt(locale),
+              'sessionId': 'say-ring-cardio-trends-v1',
+              'locale': locale,
+            });
+      return _performRequest(
+        () async => http.Response.fromStream(await _client.send(request)),
+        timeout: SaydianApiClient._aiReplyTimeout,
+      );
+    });
+    await _checkCareRequestOwner(owner);
+    final reply = _data(_decode(response));
+    if (reply['role'] != 'assistant' ||
+        reply['id'] is! String ||
+        (reply['id'] as String).trim().isEmpty ||
+        reply['content'] is! String) {
+      throw const ApiException(
+        '趋势解读暂未返回',
+        code: 'AI_PROVIDER_INVALID_RESPONSE',
+      );
+    }
+    try {
+      return CardiovascularModelReply.parse(
+        reply['content'] as String,
+        input,
+        locale,
+      );
+    } on FormatException {
+      throw const ApiException(
+        '趋势解读暂未返回',
+        code: 'AI_PROVIDER_INVALID_RESPONSE',
+      );
+    }
+  }
+
   @override
   Future<String> submitFeedback({
     required String category,
@@ -1420,6 +1484,15 @@ class GlobalSaydianApiClient extends SaydianApiClient
     final route = RegExp(
       r'^/(?:care/invitations|health/(?:alerts|warnings))/([A-Za-z0-9._:-]+)$',
     ).firstMatch(deepLink);
+    final systemEntity = type != 'system'
+        ? null
+        : ringShareForNotice(eventId, link: deepLink) ??
+              (eventId.startsWith('support-reply:')
+                  ? supportConversationFromLink(deepLink)
+                  : null) ??
+              (isRingCareNotice(eventId)
+                  ? ringCareRelationshipFromLink(deepLink)
+                  : null);
     return <String, Object?>{
       ...row,
       // The imported detail API accepts only numeric legacy IDs. Keep the V2
@@ -1433,13 +1506,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       },
       'event_id': eventId,
       'remote_event_id': eventId,
-      'entity_id':
-          ?(route?.group(1) ??
-          (type == 'system' && eventId.startsWith('support-reply:')
-              ? supportConversationFromLink(deepLink)
-              : (type == 'system' && isRingCareNotice(eventId)
-                    ? ringCareRelationshipFromLink(deepLink)
-                    : null))),
+      'entity_id': ?(route?.group(1) ?? systemEntity),
       'content': row['body'],
       'created_at': createdAt,
       'is_read': row['readAt'] != null,

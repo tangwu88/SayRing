@@ -1,9 +1,16 @@
-import 'package:fl_chart/fl_chart.dart';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../domain/models.dart';
 import '../domain/ring_experience.dart';
 import '../services/app_controller.dart';
+import '../services/cardiovascular_trend_summary.dart';
+import '../services/cardiovascular_model.dart';
+import 'app_theme.dart';
+import 'cardiovascular_charts.dart';
+import 'cardiovascular_insights.dart';
+import 'cardiovascular_model_panel.dart';
 import 'ring_share_page.dart';
 
 class CardiovascularTrendsPage extends StatefulWidget {
@@ -16,67 +23,232 @@ class CardiovascularTrendsPage extends StatefulWidget {
 }
 
 class _CardiovascularTrendsPageState extends State<CardiovascularTrendsPage> {
-  late final String owner = widget.controller.ringExperienceOwner;
+  late final owner = widget.controller.ringExperienceOwner;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    final title = ringText(context, '心血管趋势', 'Cardiovascular trends');
+    final style =
+        AppBarTheme.of(context).titleTextStyle ??
+        Theme.of(context).textTheme.titleLarge!;
+    final leading = Navigator.canPop(context) ? kToolbarHeight : 0.0;
+    final measure =
+        TextPainter(
+          text: TextSpan(text: title, style: style),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+        )..layout(
+          maxWidth: (MediaQuery.sizeOf(context).width - leading - 32).clamp(
+            1,
+            double.infinity,
+          ),
+        );
+    final headerHeight = (measure.height + 12).clamp(
+      kToolbarHeight,
+      double.infinity,
+    );
+    final titleLines = measure.computeLineMetrics().length;
+    measure.dispose();
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: headerHeight,
+        title: Text(
+          title,
+          maxLines: titleLines,
+          textScaler: MediaQuery.textScalerOf(context),
+          softWrap: true,
+          overflow: TextOverflow.visible,
+        ),
+      ),
+      body: ListenableBuilder(
+        listenable: c,
+        builder: (context, _) {
+          if (owner != c.ringExperienceOwner ||
+              !c.canOpenCardiovascularTrends) {
+            return const SizedBox.shrink();
+          }
+          final device = (c.connectedDevice ?? c.rememberedDevice)?.id;
+          return _TrendBody(
+            key: ValueKey((
+              owner,
+              device,
+              c.isMetricAvailableInRelease(HealthMetric.bloodPressure),
+              c.isMetricAvailableInRelease(HealthMetric.heartRate),
+              c.isMetricAvailableInRelease(HealthMetric.sleep),
+              c.isMetricAvailableInRelease(HealthMetric.steps),
+            )),
+            controller: c,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _TrendBody extends StatefulWidget {
+  const _TrendBody({required this.controller, super.key});
+  final AppController controller;
+  @override
+  State<_TrendBody> createState() => _TrendBodyState();
+}
+
+typedef _Report = ({
+  CardiovascularSummary summary,
+  CardioInsightCopy? copy,
+  Set<HealthMetric> failed,
+});
+
+RingSnapshot _pressureSnapshot(PressureSample reading) =>
+    RingSnapshot('health', reading.at, {
+      'systolic': reading.systolic,
+      'diastolic': reading.diastolic,
+      'measuredTime': ringClockText(reading.at),
+    });
+
+class _TrendBodyState extends State<_TrendBody> {
   int days = 7;
   DateTime end = ringDate(DateTime.now());
   DateTime get start => ringAddDays(end, 1 - days);
-  late Future<
-    ({
-      List<PressureSample> pressure,
-      List<HealthRecord> sleep,
-      List<HealthRecord> heart,
-      List<HealthRecord> activity,
-    })
-  >
-  result = load();
+  String? chosenSource;
+  DateTime? selectedDay;
+  late Future<_Report> result = load();
 
-  Future<
-    ({
-      List<PressureSample> pressure,
-      List<HealthRecord> sleep,
-      List<HealthRecord> heart,
-      List<HealthRecord> activity,
-    })
-  >
-  load() async {
-    final from = start;
-    final until = ringAddDays(end, 1);
-    final reads = await (
-      widget.controller.loadPressureTrend(ringAddDays(from, -days), until),
-      widget.controller.loadSleepDays(start: from, end: end),
-      widget.controller.loadHealthRecords(
-        metric: HealthMetric.heartRate,
-        start: from,
-        end: until,
+  // Scoped to the current page, member and device. No model output is persisted locally.
+  final modelResults = <String, Future<CardiovascularModelReply>>{};
+
+  Future<CardiovascularModelReply> analyze(
+    String key,
+    CardiovascularModelInput input,
+    String locale,
+  ) {
+    final existing = modelResults[key];
+    if (existing != null) return existing;
+    if (modelResults.length >= 8) modelResults.remove(modelResults.keys.first);
+    late final Future<CardiovascularModelReply> future;
+    future = widget.controller
+        .analyzeCardiovascularTrends(input, locale)
+        .catchError((Object error, StackTrace stack) {
+          if (identical(modelResults[key], future)) modelResults.remove(key);
+          Error.throwWithStackTrace(error, stack);
+        });
+    return modelResults[key] = future;
+  }
+
+  Future<_Report> load() async {
+    final c = widget.controller,
+        from = start,
+        to = end,
+        previous = ringAddDays(from, -days);
+    final device = (c.connectedDevice ?? c.rememberedDevice)?.id;
+    final failed = <HealthMetric>{};
+    Future<List<T>> read<T>(
+      HealthMetric metric,
+      Future<List<T>> Function() query,
+    ) async {
+      try {
+        return await query();
+      } catch (_) {
+        failed.add(metric);
+        return <T>[];
+      }
+    }
+
+    final (bp, records, copy) = await (
+      read(
+        HealthMetric.bloodPressure,
+        () => c.loadPressureTrend(previous, ringAddDays(to, 1)),
       ),
-      widget.controller.loadHealthRecords(
-        metric: HealthMetric.steps,
-        start: from,
-        end: until,
-      ),
+      Future.wait([
+        for (final m in CardiovascularSummary.contextMetrics)
+          if (c.isMetricAvailableInRelease(m))
+            read(m, () => c.loadCardioContext(m, previous, to)),
+      ]),
+      CardioInsightCopy.load(),
     ).wait;
     return (
-      pressure: reads.$1,
-      sleep: reads.$2,
-      heart: reads.$3,
-      activity: reads.$4,
+      summary: CardiovascularSummary(
+        start: from,
+        end: to,
+        previousStart: previous,
+        readings: bp,
+        contextRecords: records.expand((r) => r),
+        preferredDeviceId: device,
+        now: DateTime.now(),
+      ),
+      copy: copy,
+      failed: failed,
     );
   }
 
-  Future<void> addReference() async {
-    final row = await showDialog<PressureSample>(
-      context: context,
-      builder: (_) => const _ReferenceEntry(),
-    );
-    if (!mounted ||
-        row == null ||
-        owner != widget.controller.ringExperienceOwner) {
-      return;
+  Future<void> refresh() async {
+    setState(() {
+      selectedDay = null;
+      result = load();
+    });
+    await result;
+  }
+
+  Future<void> addReference() => changeReference(null);
+
+  Future<void> changeReference(
+    PressureSample? original, {
+    bool remove = false,
+  }) async {
+    final owner = widget.controller.ringExperienceOwner;
+    PressureSample? row;
+    if (remove) {
+      if (original == null) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: Text(
+            ringText(dialog, '删除这条上臂血压？', 'Delete this cuff reading?'),
+          ),
+          content: Text(
+            '${original.systolic}/${original.diastolic} mmHg · '
+            '${MaterialLocalizations.of(dialog).formatCompactDate(original.at)} ${ringClockText(original.at)}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog),
+              child: Text(MaterialLocalizations.of(dialog).cancelButtonLabel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(ringText(dialog, '删除', 'Delete')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    } else {
+      row = await showDialog<PressureSample>(
+        context: context,
+        builder: (_) => _ReferenceEntry(selectedDay ?? end, existing: original),
+      );
+      if (row == null) return;
     }
+    if (!mounted || owner != widget.controller.ringExperienceOwner) return;
     try {
-      await widget.controller.savePressureReference(row);
-      if (mounted) {
+      if (original != null) {
+        await widget.controller.replacePressureReference(original, row);
+      } else if (row != null) {
+        await widget.controller.savePressureReference(row);
+      }
+      if (mounted && owner == widget.controller.ringExperienceOwner) {
         setState(() {
+          final savedDay = row == null ? null : ringDate(row.at);
+          final showSavedDay =
+              savedDay != null &&
+              (selectedDay != null || original != null || savedDay != end);
+          if (row != null &&
+              (row.at.isBefore(start) ||
+                  !row.at.isBefore(ringAddDays(end, 1)))) {
+            end = ringDate(row.at);
+          }
+          chosenSource = 'reference';
+          selectedDay = showSavedDay ? savedDay : null;
           result = load();
         });
       }
@@ -86,381 +258,658 @@ class _CardiovascularTrendsPageState extends State<CardiovascularTrendsPage> {
   }
 
   Future<void> pickDate() async {
-    final current = DateTime.now();
-    final next = await showDatePicker(
+    final today = DateTime.now();
+    final date = await showDatePicker(
       context: context,
       initialDate: end,
-      firstDate: DateTime(current.year - 10),
-      lastDate: current,
+      firstDate: DateTime(today.year - 10),
+      lastDate: today,
+      helpText: ringText(context, '选择结束日期', 'Choose the end date'),
     );
-    if (next != null && mounted) {
+    if (date != null && mounted) {
       setState(() {
-        end = next;
+        end = date;
+        selectedDay = null;
         result = load();
       });
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(ringText(context, '心血管趋势', 'Cardiovascular trends')),
-    ),
-    body: ListenableBuilder(
-      listenable: widget.controller,
-      builder: (context, _) {
-        if (owner != widget.controller.ringExperienceOwner) {
-          return const SizedBox.shrink();
-        }
-        return FutureBuilder(
-          future: result,
-          builder: (context, snapshot) {
-            final data = snapshot.connectionState == ConnectionState.done
-                ? snapshot.data
-                : null;
-            final bySource = <String, List<PressureSample>>{};
-            for (final row in data?.pressure ?? const <PressureSample>[]) {
-              bySource.putIfAbsent(row.source, () => []).add(row);
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: refresh,
+      child: FutureBuilder(
+        future: result,
+        builder: (c, s) {
+          final data = s.connectionState == ConnectionState.done
+              ? s.data
+              : null;
+          final report = data?.summary;
+          final sources = report?.sources ?? const <String>[];
+          final source = sources.contains(chosenSource)
+              ? chosenSource
+              : sources.firstOrNull;
+          final rows = report?.pressure[source] ?? const <PressureSample>[];
+          final daily = pressureDays(rows);
+          final current = {
+            for (final r in daily)
+              if (!r.date.isBefore(start)) r.date: r,
+          };
+          final dates = List.generate(days, (i) => ringAddDays(start, i));
+          final contextSeries =
+              report?.contextFor(source) ?? const <CardioContextSeries>[];
+          String sourceName(String id) {
+            if (id == 'reference') {
+              return ringText(c, '上臂血压计', 'Upper-arm monitor');
             }
-            return RefreshIndicator(
-              onRefresh: () async {
-                setState(() {
-                  result = load();
-                });
-                try {
-                  await result;
-                } catch (_) {}
-              },
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final count in [7, 30])
-                        ChoiceChip(
-                          key: ValueKey('pressure-period-$count'),
-                          label: Text(
-                            ringText(context, '近 $count 天', '$count days'),
-                          ),
-                          selected: days == count,
-                          onSelected: (_) => setState(() {
-                            days = count;
-                            result = load();
-                          }),
-                        ),
-                      OutlinedButton.icon(
-                        onPressed: pickDate,
-                        icon: const Icon(Icons.calendar_today_outlined),
-                        label: Text(
-                          MaterialLocalizations.of(
-                            context,
-                          ).formatCompactDate(end),
-                        ),
-                      ),
-                    ],
+            final number =
+                sources.where((s) => s != 'reference').toList().indexOf(id) + 1;
+            final label = report!.pressure[id]!.last.label;
+            if (label.isEmpty) {
+              return ringText(c, '穿戴设备 $number', 'Wearable $number');
+            }
+            final shared =
+                sources
+                    .where(
+                      (s) =>
+                          s != 'reference' &&
+                          report.pressure[s]!.last.label == label,
+                    )
+                    .length >
+                1;
+            return shared ? '$label · $number' : label;
+          }
+
+          final pressureFailed =
+              data?.failed.contains(HealthMetric.bloodPressure) == true;
+          final insights = report == null || data?.copy == null
+              ? const <String>[]
+              : cardioInsights(
+                  c,
+                  data!.copy!,
+                  report,
+                  daily,
+                  contextSeries,
+                  pressureReadFailed: pressureFailed,
+                );
+          final language = Localizations.localeOf(c).languageCode == 'zh'
+              ? 'zh-Hans'
+              : 'en';
+          final input = report == null || pressureFailed
+              ? null
+              : CardiovascularModelInput.from(report, source);
+          final modelKey = input == null
+              ? ''
+              : jsonEncode([
+                  source,
+                  start.toIso8601String(),
+                  end.toIso8601String(),
+                  language,
+                  widget.controller.canAnalyzeCardiovascularTrends,
+                  input.encodedEvidence,
+                ]);
+          final selected = source != null ? selectedDay : null;
+          final shareReading = selected == null
+              ? rows.lastOrNull
+              : rows.where((row) => ringDate(row.at) == selected).lastOrNull;
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              16,
+              4,
+              16,
+              24 + MediaQuery.paddingOf(c).bottom,
+            ),
+            children: [
+              _PeriodBar(
+                days: days,
+                start: start,
+                end: end,
+                pickDate: pickDate,
+                onChange: (n) {
+                  if (days == n) return;
+                  setState(() {
+                    days = n;
+                    selectedDay = null;
+                    result = load();
+                  });
+                },
+              ),
+              if (s.connectionState != ConnectionState.done)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (s.hasError)
+                TextButton.icon(
+                  onPressed: refresh,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(
+                    ringText(c, '读取失败，点此重试', 'Could not load. Tap to retry.'),
                   ),
-                  const SizedBox(height: 10),
-                  FilledButton.icon(
-                    key: const Key('record-pressure-reference'),
-                    onPressed: addReference,
-                    icon: const Icon(Icons.add),
-                    label: Text(
-                      ringText(
-                        context,
-                        '录入上臂血压计参考值',
-                        'Add upper-arm monitor reading',
+                )
+              else if (report != null) ...[
+                if (source != null && current.isNotEmpty)
+                  CardioPressureOverview(
+                    latest: rows.last,
+                    source: _PressureSource(
+                      source: source,
+                      sources: sources,
+                      name: sourceName,
+                      onChanged: (id) => setState(() {
+                        chosenSource = id;
+                        selectedDay = null;
+                      }),
+                    ),
+                    dates: dates,
+                    daily: current,
+                    selected: selected,
+                    onSelect: (date) => setState(() => selectedDay = date),
+                    onAdd: addReference,
+                    shareAction:
+                        shareReading == null ||
+                            !widget.controller.ringSharingEnabled ||
+                            !widget.controller.isAuthenticated
+                        ? null
+                        : _PressureShareButton(
+                            controller: widget.controller,
+                            reading: shareReading,
+                          ),
+                  )
+                else
+                  Card(
+                    margin: const EdgeInsets.only(top: 8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 22,
+                      ),
+                      child: Column(
+                        children: [
+                          const CircleAvatar(
+                            radius: 24,
+                            backgroundColor: SaydianColors.techBlueSoft,
+                            child: Icon(
+                              Icons.monitor_heart_outlined,
+                              color: SaydianColors.techBlue,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            pressureFailed
+                                ? ringText(
+                                    c,
+                                    '暂时读不到血压记录',
+                                    'Couldn’t load blood pressure',
+                                  )
+                                : ringText(
+                                    c,
+                                    '这段时间还没有血压记录',
+                                    'No pressure readings this period',
+                                  ),
+                            textAlign: TextAlign.center,
+                            style: Theme.of(c).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton.icon(
+                            key: const Key('record-pressure-reference'),
+                            onPressed: addReference,
+                            icon: const Icon(Icons.add, size: 18),
+                            label: Text(
+                              ringText(c, '记上臂血压', 'Add cuff reading'),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  if (snapshot.connectionState != ConnectionState.done)
-                    const Center(child: CircularProgressIndicator())
-                  else if (snapshot.hasError)
-                    Text(
+                if (input != null)
+                  CardiovascularModelPanel(
+                    key: ValueKey(modelKey),
+                    needsMoreDays: !input.hasTrend,
+                    analyze:
+                        input.hasTrend &&
+                            widget.controller.canAnalyzeCardiovascularTrends
+                        ? () => analyze(modelKey, input, language)
+                        : null,
+                  ),
+                if (contextSeries.isNotEmpty)
+                  CardioContextCard(
+                    series: contextSeries,
+                    dates: dates,
+                    selected: selected,
+                  ),
+                if (daily.isNotEmpty || contextSeries.isNotEmpty)
+                  _Evidence(
+                    key: ValueKey((source, start, end)),
+                    report: report,
+                    days: daily,
+                    series: contextSeries,
+                    insights: insights,
+                    pressureName: source == null ? '' : sourceName(source),
+                    rows: rows,
+                    controller: widget.controller,
+                    changeReference: changeReference,
+                  ),
+                if (data!.failed.isNotEmpty ||
+                    (data.copy == null &&
+                        (daily.isNotEmpty || contextSeries.isNotEmpty)))
+                  TextButton.icon(
+                    onPressed: refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: Text(
                       ringText(
-                        context,
-                        '暂时无法读取。下拉重试。',
-                        'Could not load. Pull down to retry.',
+                        c,
+                        '部分记录读取失败，重试',
+                        'Some records could not load. Retry',
                       ),
-                    )
-                  else ...[
-                    if (bySource.isEmpty)
-                      Text(
-                        ringText(
-                          context,
-                          '这段时间暂无血压记录',
-                          'No blood pressure readings in this period',
-                        ),
-                      ),
-                    for (final (index, rows) in bySource.values.indexed)
-                      _PressureSource(
-                        rows: rows,
-                        start: start,
-                        end: end,
-                        deviceNumber: index + 1,
-                        canShare: widget.controller.isAuthenticated,
-                        controller: widget.controller,
-                      ),
-                    if (data != null &&
-                        (data.sleep.isNotEmpty ||
-                            data.heart.isNotEmpty ||
-                            data.activity.isNotEmpty))
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                ringText(context, '同期记录', 'During this period'),
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              for (final (zh, en, records) in [
-                                ('睡眠', 'Sleep', data.sleep),
-                                ('心率', 'Heart rate', data.heart),
-                                ('活动', 'Activity', data.activity),
-                              ])
-                                if (records.isNotEmpty)
-                                  Text(
-                                    ringText(
-                                      context,
-                                      '$zh · ${_counts(records)} 天有记录',
-                                      '$en · ${_counts(records)} days recorded',
-                                    ),
-                                  ),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ],
-              ),
-            );
-          },
-        );
-      },
-    ),
-  );
+                    ),
+                  ),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
 
-  int _counts(List<HealthRecord> records) => records
-      .map((item) => ringDateText(item.measuredAt.toLocal()))
-      .toSet()
-      .length;
+class _PeriodBar extends StatelessWidget {
+  const _PeriodBar({
+    required this.days,
+    required this.start,
+    required this.end,
+    required this.pickDate,
+    required this.onChange,
+  });
+  final int days;
+  final DateTime start, end;
+  final VoidCallback pickDate;
+  final ValueChanged<int> onChange;
+
+  @override
+  Widget build(BuildContext c) {
+    final l = MaterialLocalizations.of(c);
+    final showYear = start.year != end.year || end.year != DateTime.now().year;
+    String format(DateTime d) =>
+        showYear ? l.formatShortDate(d) : l.formatShortMonthDay(d);
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: SaydianColors.techBlueSoft,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(3),
+            child: Wrap(
+              children: [
+                for (final n in [7, 30])
+                  Semantics(
+                    key: ValueKey('pressure-period-$n'),
+                    selected: days == n,
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        backgroundColor: days == n
+                            ? SaydianColors.techBlue
+                            : Colors.transparent,
+                        foregroundColor: days == n
+                            ? Colors.white
+                            : SaydianColors.techBlue,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        minimumSize: const Size(48, 40),
+                        tapTargetSize: MaterialTapTargetSize.padded,
+                      ),
+                      onPressed: () => onChange(n),
+                      child: Text(ringText(c, '$n 天', '$n days')),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        TextButton.icon(
+          key: const Key('cardio-date-range'),
+          onPressed: pickDate,
+          icon: const Icon(Icons.calendar_today_outlined, size: 16),
+          label: Text('${format(start)} – ${format(end)}'),
+        ),
+      ],
+    );
+  }
 }
 
 class _PressureSource extends StatelessWidget {
   const _PressureSource({
-    required this.rows,
-    required this.start,
-    required this.end,
-    required this.deviceNumber,
-    required this.canShare,
-    required this.controller,
+    required this.source,
+    required this.sources,
+    required this.name,
+    required this.onChanged,
   });
-  final List<PressureSample> rows;
-  final DateTime start;
-  final DateTime end;
-  final int deviceNumber;
-  final bool canShare;
-  final AppController controller;
+  final String source;
+  final List<String> sources;
+  final String Function(String) name;
+  final ValueChanged<String> onChanged;
 
   @override
-  Widget build(BuildContext context) {
-    final all = pressureDays(rows);
-    final current = all.where((row) => !row.date.isBefore(start)).toList();
-    if (current.isEmpty) return const SizedBox.shrink();
-    final readings = rows.where((row) => !row.at.isBefore(start)).toList();
-    final past = ringAddDays(
-      start,
-      -calendarDistance(start, ringAddDays(end, 1)),
-    );
-    final delta = pressureChange(all, start, past);
-    final source = rows.first.source == 'reference'
-        ? ringText(
-            context,
-            '上臂血压计 · 本人录入',
-            'Upper-arm monitor · entered by you',
-          )
-        : rows.first.label.isNotEmpty
-        ? rows.first.label
-        : ringText(context, '穿戴设备 $deviceNumber', 'Wearable $deviceNumber');
-    final colors = Theme.of(context).colorScheme;
-    const upperColor = Color(0xff245c49);
-    const lowerColor = Color(0xff4764a7);
-    String difference(double value) =>
-        '${value > 0 ? '+' : ''}${value.toStringAsFixed(1)}';
-    final periodLength = calendarDistance(start, end);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(source, style: Theme.of(context).textTheme.titleMedium),
-            Text(
-              ringText(
-                context,
-                '${current.length} 天有记录 · ${readings.length} 次',
-                '${current.length} days recorded · ${readings.length} readings',
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 142,
-              child: Semantics(
-                label: ringText(
-                  context,
-                  '收缩压与舒张压图表，单位 mmHg',
-                  'Systolic and diastolic chart, mmHg',
-                ),
-                child: LineChart(
-                  duration: Duration.zero,
-                  LineChartData(
-                    minX: 0,
-                    maxX: periodLength.toDouble(),
-                    minY:
-                        current
-                            .map((r) => r.diastolic)
-                            .reduce((a, b) => a < b ? a : b) -
-                        10,
-                    maxY:
-                        current
-                            .map((r) => r.systolic)
-                            .reduce((a, b) => a > b ? a : b) +
-                        10,
-                    titlesData: const FlTitlesData(show: false),
-                    borderData: FlBorderData(show: false),
-                    gridData: FlGridData(
-                      show: true,
-                      drawVerticalLine: false,
-                      getDrawingHorizontalLine: (_) =>
-                          FlLine(color: colors.outlineVariant, strokeWidth: 1),
-                    ),
-                    lineBarsData: [
-                      LineChartBarData(
-                        spots: points(current, (row) => row.systolic),
-                        color: upperColor,
-                        barWidth: 2.5,
-                        dotData: const FlDotData(show: true),
-                      ),
-                      LineChartBarData(
-                        spots: points(current, (row) => row.diastolic),
-                        color: lowerColor,
-                        barWidth: 2.5,
-                        dotData: const FlDotData(show: true),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Wrap(
-              spacing: 16,
-              runSpacing: 4,
-              children: [
-                Text(
-                  ringText(context, '● 收缩压', '● Systolic'),
-                  style: const TextStyle(color: upperColor),
-                ),
-                Text(
-                  ringText(context, '● 舒张压', '● Diastolic'),
-                  style: const TextStyle(color: lowerColor),
-                ),
-                const Text('mmHg'),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (delta != null)
-              Text(
-                ringText(
-                  context,
-                  '与前一段相比，日均收缩压 ${difference(delta.systolic)}、舒张压 ${difference(delta.diastolic)} mmHg。',
-                  'Versus the previous period, daily mean systolic pressure changed by ${difference(delta.systolic)} and diastolic by ${difference(delta.diastolic)} mmHg.',
-                ),
-              )
-            else
-              Text(
-                ringText(
-                  context,
-                  '最近一次 ${readings.last.systolic}/${readings.last.diastolic} mmHg',
-                  'Latest reading ${readings.last.systolic}/${readings.last.diastolic} mmHg',
-                ),
-              ),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: Text(ringText(context, '查看依据', 'View readings')),
-              children: [
-                if (delta != null)
-                  Text(
-                    ringText(
-                      context,
-                      '前一段 ${delta.previous} 天 · 当前 ${delta.current} 天',
-                      '${delta.previous} days previously · ${delta.current} days in this period',
-                    ),
-                  ),
-                for (final row in readings.reversed)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text('${row.systolic}/${row.diastolic} mmHg'),
-                    subtitle: Text(
-                      '${MaterialLocalizations.of(context).formatCompactDate(row.at)} · ${ringClockText(row.at)}',
-                    ),
-                    trailing: canShare
-                        ? RingShareButton(
-                            controller: controller,
-                            compact: true,
-                            snapshot: RingSnapshot('health', row.at, {
-                              'systolic': row.systolic,
-                              'diastolic': row.diastolic,
-                              'measuredTime': ringClockText(row.at),
-                            }),
-                          )
-                        : null,
-                  ),
-              ],
-            ),
-          ],
+  Widget build(BuildContext c) {
+    final multiple = sources.length > 1;
+    final label = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          source == 'reference' ? Icons.edit_note : Icons.watch_outlined,
+          size: 16,
+          color: SaydianColors.techBlue,
         ),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            name(source),
+            style: Theme.of(
+              c,
+            ).textTheme.labelMedium?.copyWith(color: SaydianColors.techBlue),
+          ),
+        ),
+        if (multiple)
+          const Icon(
+            Icons.expand_more,
+            size: 18,
+            color: SaydianColors.techBlue,
+          ),
+      ],
+    );
+    if (!multiple) return label;
+    return PopupMenuButton<String>(
+      key: const Key('cardio-source-menu'),
+      tooltip: ringText(c, '切换血压来源', 'Change blood pressure source'),
+      initialValue: source,
+      onSelected: (id) {
+        if (id != source) onChanged(id);
+      },
+      itemBuilder: (_) => [
+        for (final id in sources)
+          CheckedPopupMenuItem(
+            value: id,
+            checked: id == source,
+            child: Text(name(id)),
+          ),
+      ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: label,
       ),
     );
   }
+}
 
-  List<FlSpot> points(
-    List<PressureDay> rows,
-    double Function(PressureDay) value,
-  ) {
-    var previous = -1;
-    final spots = <FlSpot>[];
-    for (final row in rows) {
-      final offset = calendarDistance(start, row.date);
-      if (previous >= 0 && offset > previous + 1) spots.add(FlSpot.nullSpot);
-      spots.add(FlSpot(offset.toDouble(), value(row)));
-      previous = offset;
-    }
-    return spots;
+class _PressureShareButton extends StatelessWidget {
+  const _PressureShareButton({required this.controller, required this.reading});
+  final AppController controller;
+  final PressureSample reading;
+
+  @override
+  Widget build(BuildContext context) => RingShareButton(
+    controller: controller,
+    compact: true,
+    snapshot: _pressureSnapshot(reading),
+    canRead: () =>
+        reading.source == 'reference' ||
+        controller.isMetricAvailableInRelease(HealthMetric.bloodPressure),
+  );
+}
+
+class _Evidence extends StatelessWidget {
+  const _Evidence({
+    required this.report,
+    required this.days,
+    required this.series,
+    required this.insights,
+    required this.pressureName,
+    required this.rows,
+    required this.controller,
+    required this.changeReference,
+    super.key,
+  });
+  final CardiovascularSummary report;
+  final List<PressureDay> days;
+  final List<CardioContextSeries> series;
+  final List<String> insights;
+  final String pressureName;
+  final List<PressureSample> rows;
+  final AppController controller;
+  final Future<void> Function(PressureSample?, {bool remove}) changeReference;
+
+  @override
+  Widget build(BuildContext c) {
+    final owner = controller.ringExperienceOwner;
+    final target =
+        (controller.connectedDevice ?? controller.rememberedDevice)?.id;
+    final l = MaterialLocalizations.of(c);
+    final byDate = {for (final d in days) d.date: d};
+    final dates = {
+      ...byDate.keys,
+      for (final item in series) ...item.values.keys,
+    }.toList()..sort((a, b) => b.compareTo(a));
+    return Card(
+      margin: const EdgeInsets.only(top: 12),
+      child: ExpansionTile(
+        key: const Key('cardio-evidence'),
+        leading: const Icon(Icons.receipt_long_outlined),
+        title: Text(ringText(c, '查看依据', 'View evidence')),
+        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        children: [
+          if (rows.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                final action =
+                    await showModalBottomSheet<
+                      ({PressureSample row, bool remove})
+                    >(
+                      context: c,
+                      isScrollControlled: true,
+                      useSafeArea: true,
+                      builder: (sheet) => ListenableBuilder(
+                        listenable: controller,
+                        builder: (_, _) {
+                          if (owner != controller.ringExperienceOwner ||
+                              target !=
+                                  (controller.connectedDevice ??
+                                          controller.rememberedDevice)
+                                      ?.id ||
+                              (rows.first.source != 'reference' &&
+                                  !controller.isMetricAvailableInRelease(
+                                    HealthMetric.bloodPressure,
+                                  ))) {
+                            return const SizedBox.shrink();
+                          }
+                          return FractionallySizedBox(
+                            heightFactor: .75,
+                            child: Column(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Text(
+                                    pressureName,
+                                    style: Theme.of(
+                                      sheet,
+                                    ).textTheme.titleMedium,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: ListView.builder(
+                                    itemCount: rows.length,
+                                    itemBuilder: (_, i) {
+                                      final row = rows[rows.length - 1 - i];
+                                      return ListTile(
+                                        title: Text(
+                                          '${row.systolic}/${row.diastolic} mmHg',
+                                        ),
+                                        subtitle: Text(
+                                          '${l.formatCompactDate(row.at)} · ${ringClockText(row.at)}',
+                                        ),
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            _PressureShareButton(
+                                              controller: controller,
+                                              reading: row,
+                                            ),
+                                            if (row.source == 'reference')
+                                              PopupMenuButton<bool>(
+                                                tooltip: ringText(
+                                                  sheet,
+                                                  '管理参考值',
+                                                  'Manage reference reading',
+                                                ),
+                                                onSelected: (remove) =>
+                                                    Navigator.pop(sheet, (
+                                                      row: row,
+                                                      remove: remove,
+                                                    )),
+                                                itemBuilder: (_) => [
+                                                  PopupMenuItem(
+                                                    value: false,
+                                                    child: Text(
+                                                      ringText(
+                                                        sheet,
+                                                        '修改',
+                                                        'Edit',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  PopupMenuItem(
+                                                    value: true,
+                                                    child: Text(
+                                                      ringText(
+                                                        sheet,
+                                                        '删除',
+                                                        'Delete',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                if (action != null &&
+                    c.mounted &&
+                    owner == controller.ringExperienceOwner) {
+                  await changeReference(action.row, remove: action.remove);
+                }
+              },
+              child: Text(ringText(c, '逐条查看血压记录', 'View individual readings')),
+            ),
+          Text(
+            ringText(
+              c,
+              '按同日记录配对。两期各满 3 个记录日可比较均值。',
+              'Readings are paired by day. Comparing averages takes three recorded days in each period.',
+            ),
+          ),
+          if (pressureName.isNotEmpty)
+            Text(
+              ringText(
+                c,
+                '血压来源 · $pressureName',
+                'Blood pressure source · $pressureName',
+              ),
+            ),
+          for (final item in series)
+            Text(
+              '${cardioMetric(c, item.metric)} · ${item.model.isNotEmpty ? item.model : ringText(c, "穿戴设备", "Wearable device")}',
+            ),
+          if (insights.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            for (final note in insights)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(note),
+              ),
+          ],
+          for (final current in [true, false]) ...[
+            const Divider(),
+            Text(
+              '${current ? ringText(c, "本期", "This period") : ringText(c, "上期", "Previous period")} · '
+              '${l.formatShortDate(current ? report.start : report.previousStart)} – '
+              '${l.formatShortDate(current ? report.end : ringAddDays(report.start, -1))}',
+              style: Theme.of(c).textTheme.titleSmall,
+            ),
+            if (!dates.any((d) => d.isBefore(report.start) != current))
+              Text(ringText(c, '暂无记录', 'No records')),
+            for (final date in dates.where(
+              (d) => d.isBefore(report.start) != current,
+            ))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l.formatCompactDate(date),
+                      style: Theme.of(c).textTheme.labelMedium,
+                    ),
+                    Text(
+                      [
+                        if (byDate[date] case final day?)
+                          '${cardioNumber(day.systolic)}/${cardioNumber(day.diastolic)} mmHg · ${ringText(c, "${day.count} 次", day.count == 1 ? "1 reading" : "${day.count} readings")}',
+                        for (final item in series)
+                          if (item.values[date] case final value?)
+                            '${cardioMetric(c, item.metric)} ${cardioValue(c, item.metric, value)}',
+                      ].join('  ·  '),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
   }
 }
 
-int calendarDistance(DateTime from, DateTime to) => DateTime.utc(
-  to.year,
-  to.month,
-  to.day,
-).difference(DateTime.utc(from.year, from.month, from.day)).inDays;
-
 class _ReferenceEntry extends StatefulWidget {
-  const _ReferenceEntry();
+  const _ReferenceEntry(this.day, {this.existing});
+  final DateTime day;
+  final PressureSample? existing;
   @override
   State<_ReferenceEntry> createState() => _ReferenceEntryState();
 }
 
 class _ReferenceEntryState extends State<_ReferenceEntry> {
-  final upper = TextEditingController();
-  final lower = TextEditingController();
-  DateTime date = DateTime.now();
+  late final upper = TextEditingController(
+    text: widget.existing == null
+        ? ''
+        : cardioNumber(widget.existing!.systolic.toDouble()),
+  );
+  late final lower = TextEditingController(
+    text: widget.existing == null
+        ? ''
+        : cardioNumber(widget.existing!.diastolic.toDouble()),
+  );
+  late DateTime date = () {
+    if (widget.existing case final sample?) return sample.at.toLocal();
+    final now = DateTime.now(), day = widget.day;
+    return DateTime(day.year, day.month, day.day, now.hour, now.minute);
+  }();
   bool invalid = false;
 
   @override
@@ -497,8 +946,8 @@ class _ReferenceEntryState extends State<_ReferenceEntry> {
   }
 
   void save() {
-    final systolic = int.tryParse(upper.text.trim());
-    final diastolic = int.tryParse(lower.text.trim());
+    final systolic = num.tryParse(upper.text.trim());
+    final diastolic = num.tryParse(lower.text.trim());
     if (!PressureSample.validPair(systolic, diastolic) ||
         date.isAfter(DateTime.now())) {
       setState(() => invalid = true);
@@ -517,21 +966,25 @@ class _ReferenceEntryState extends State<_ReferenceEntry> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text(ringText(context, '录入血压参考值', 'Add a reference reading')),
+    title: Text(
+      widget.existing == null
+          ? ringText(context, '录入血压参考值', 'Add a reference reading')
+          : ringText(context, '修改血压参考值', 'Edit reference reading'),
+    ),
     scrollable: true,
     content: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         TextField(
           controller: upper,
-          keyboardType: TextInputType.number,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
             labelText: ringText(context, '收缩压 (mmHg)', 'Systolic (mmHg)'),
           ),
         ),
         TextField(
           controller: lower,
-          keyboardType: TextInputType.number,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
             labelText: ringText(context, '舒张压 (mmHg)', 'Diastolic (mmHg)'),
           ),

@@ -127,6 +127,30 @@ class HealthPage extends StatelessWidget {
               ),
             ),
           ],
+          if (controller.canOpenCardiovascularTrends)
+            Card(
+              margin: EdgeInsets.zero,
+              child: ListTile(
+                key: const Key('all-health-cardiovascular-trends'),
+                leading: const Icon(
+                  Icons.monitor_heart_outlined,
+                  color: SaydianColors.blue,
+                ),
+                title: Text(
+                  ringText(context, '心血管趋势', 'Cardiovascular trends'),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    settings: const RouteSettings(
+                      name: 'cardiovascular-trends',
+                    ),
+                    builder: (_) =>
+                        CardiovascularTrendsPage(controller: controller),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -451,7 +475,11 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                     isNew
                         ? '${_healthDisplayValue(record, widget.controller)} ${_healthDisplayUnit(widget.metric, record, widget.controller)}'
                         : failed
-                        ? (isU19 ? uiCopy(context, failure) : failure)
+                        ? appStatusCopy(
+                            failure,
+                            context: context,
+                            genericDevice: isU19,
+                          )
                         : waitingMessage,
                     textAlign: TextAlign.center,
                     style: TextStyle(

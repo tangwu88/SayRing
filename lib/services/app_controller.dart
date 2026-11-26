@@ -41,6 +41,7 @@ import '../domain/global_care.dart';
 import '../l10n/global_locale_controller.dart';
 import 'api_client.dart';
 import 'ai_chat_failure.dart';
+import 'cardiovascular_model.dart';
 import '../domain/home_health_cards.dart';
 import 'app_payment_bridge.dart';
 import 'app_notification_service.dart';
@@ -422,8 +423,18 @@ class AppController extends ChangeNotifier {
   ReadOnlyHealthFeatureService? _readOnlyHealthFeatureService;
   int _healthReadUiGeneration = 0;
   bool _readOnlyHealthSyncQueued = false;
+  int? _u19PolicyRefreshSyncGeneration;
   bool get isWellnessOnly => healthReleasePolicy.enabled;
   bool get healthAlertsAvailable => !isWellnessOnly;
+  String? get u19HealthReadNotice {
+    final policy = healthReleasePolicy;
+    final features = policy.u19Features;
+    if (!policy.enabled || !policy.isU19 || features == null) return null;
+    if (!features.active) return '暂未取得手表健康数据读取权限，请联网后再次同步';
+    if (features.readMetrics.isEmpty) return '当前未开放手表健康数据读取';
+    return null;
+  }
+
   final ModuleVisibilityLease? moduleVisibility;
   ModuleVisibilityService? _moduleVisibilityService;
   bool get healthLibraryVisible => moduleVisibility == null
@@ -432,6 +443,14 @@ class AppController extends ChangeNotifier {
   bool get mallVisible => moduleVisibility == null
       ? commerceEnabled
       : moduleVisibility!.allows(SayRingModule.mall);
+
+  bool get ringExperience =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android) &&
+      _api is RingExperienceApi &&
+      isGlobalEdition &&
+      !isPreviewMode;
 
   Future<void> refreshModuleVisibility() async {
     final lease = moduleVisibility;
@@ -502,38 +521,52 @@ class AppController extends ChangeNotifier {
       healthReleasePolicy.allowsMetric(metric);
 
   Future<void> refreshReadOnlyHealthFeatures() async {
+    if (_disposed || !isWellnessOnly) return;
     final features = healthReleasePolicy.readOnlyFeatures;
     final api = _api;
     final bridge = _wearable;
-    if (!isWellnessOnly ||
+    if (features != null &&
+        api is SayRingReadOnlyHealthApi &&
+        bridge is WearableReadOnlyHealthPolicyBridge) {
+      _readOnlyHealthFeatureService ??= ReadOnlyHealthFeatureService(
+        policy: healthReleasePolicy,
+        api: api as SayRingReadOnlyHealthApi,
+        bridge: bridge as WearableReadOnlyHealthPolicyBridge,
+      )..addListener(_handleReadOnlyHealthChanged);
+    }
+    // Both services can share the same in-flight configuration response.
+    // U19 does not wait for other adapters' native acknowledgements.
+    await Future.wait([
+      if (_readOnlyHealthFeatureService case final ring?) ring.refresh(),
+      _refreshU19HealthFeatures(),
+    ]);
+  }
+
+  Future<void> _refreshU19HealthFeatures() async {
+    final features = _baseHealthReleasePolicy.u19Features;
+    final api = _api;
+    final bridge = _wearable;
+    if (_disposed ||
         features == null ||
-        api is! SayRingReadOnlyHealthApi ||
-        bridge is! WearableReadOnlyHealthPolicyBridge ||
-        _disposed) {
+        api is! SayRingU19HealthApi ||
+        bridge is! WearableU19HealthPolicyBridge) {
       return;
     }
-    _readOnlyHealthFeatureService ??= ReadOnlyHealthFeatureService(
-      policy: healthReleasePolicy,
-      api: api as SayRingReadOnlyHealthApi,
-      bridge: bridge as WearableReadOnlyHealthPolicyBridge,
+    _u19HealthFeatureService ??= U19HealthFeatureService(
+      features: features,
+      api: api as SayRingU19HealthApi,
+      bridge: bridge as WearableU19HealthPolicyBridge,
     )..addListener(_handleReadOnlyHealthChanged);
-    await _readOnlyHealthFeatureService!.refresh();
-    if (api is SayRingU19HealthApi &&
-        bridge is WearableU19HealthPolicyBridge &&
-        _baseHealthReleasePolicy.u19Features != null) {
-      _u19HealthFeatureService ??= U19HealthFeatureService(
-        features: _baseHealthReleasePolicy.u19Features!,
-        api: api as SayRingU19HealthApi,
-        bridge: bridge as WearableU19HealthPolicyBridge,
-      )..addListener(_handleReadOnlyHealthChanged);
-      await _u19HealthFeatureService!.refresh();
-    }
+    await _u19HealthFeatureService!.refresh();
   }
 
   void _handleReadOnlyHealthChanged() {
     if (_disposed) return;
     final revision = ++_healthReadUiGeneration;
     final sessionGeneration = _sessionGeneration;
+    final includedInManualSync =
+        _u19PolicyRefreshSyncGeneration == _deviceSyncGeneration &&
+        healthReleasePolicy.isU19;
     final active = _activeMeasurementMetric;
     if (active != null &&
         !healthReleasePolicy.allowsManualMeasurement(active)) {
@@ -552,6 +585,8 @@ class AppController extends ChangeNotifier {
         await _refreshHealthRecordCache(expectedGeneration: sessionGeneration);
         if (!current()) return;
         notifyListeners();
+        // This manual sync will verify the current device and read its history.
+        if (includedInManualSync) return;
         final deviceId = connectedDevice?.id;
         if (deviceId == null) return;
         await refreshDeviceCapabilities(announceFailure: false);
@@ -559,7 +594,8 @@ class AppController extends ChangeNotifier {
             connectedDevice?.id != deviceId ||
             (connectedDevice?.sdkSource == WearableSdkSource.urion
                 ? healthReleasePolicy.u19Features?.readMetrics.isEmpty != false
-                : healthReleasePolicy.readOnlyFeatures!.metrics.isEmpty)) {
+                : healthReleasePolicy.readOnlyFeatures?.metrics.isEmpty !=
+                      false)) {
           return;
         }
         if (_activeMeasurementMetric != null) return;
@@ -4498,6 +4534,37 @@ class AppController extends ChangeNotifier {
     _clearDeviceSyncError();
     notifyListeners();
     try {
+      final watchFeatures =
+          transport == WearableTransport.urion && isWellnessOnly
+          ? healthReleasePolicy.u19Features
+          : null;
+      if (!initial && watchFeatures != null && !watchFeatures.active) {
+        _u19PolicyRefreshSyncGeneration = generation;
+        try {
+          // Even without internet the watch's activity and sleep can be read.
+          await _refreshU19HealthFeatures().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {},
+          );
+          if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+            return false;
+          }
+          if (watchFeatures.readMetrics.isNotEmpty) {
+            await refreshDeviceCapabilities(announceFailure: false);
+            if (!_isDeviceSyncCurrent(
+              generation,
+              deviceId,
+              sessionGeneration,
+            )) {
+              return false;
+            }
+          }
+        } finally {
+          if (_u19PolicyRefreshSyncGeneration == generation) {
+            _u19PolicyRefreshSyncGeneration = null;
+          }
+        }
+      }
       final windowBridge = _wearable;
       final checkpointStore = _healthStore;
       final canUseWindow =
@@ -4550,6 +4617,7 @@ class AppController extends ChangeNotifier {
       final recentOnly =
           canUseWindow &&
           checkpoint?.permitsRecent(DateTime.now(), signature) == true;
+      final watchReadNotice = u19HealthReadNotice;
       final receivedRecords = recentOnly
           ? await (windowBridge as WearableRecentHistoryBridge)
                 .syncRecentHealthData(days: 2)
@@ -4715,13 +4783,18 @@ class AppController extends ChangeNotifier {
         }
         errorMessage = _deviceSyncErrorMessage;
       } else {
-        syncStatus = !initial && bloodPressureStatus == 'no_data'
-            ? '本次未从手表读到血压记录'
-            : records.isEmpty
-            ? ''
-            : recentOnly
-            ? '近期数据已更新'
-            : '已同步 ${records.length} 条';
+        final readNotice = !initial
+            ? bloodPressureStatus == 'no_data'
+                  ? '本次未从手表读到血压记录'
+                  : u19HealthReadNotice ?? watchReadNotice
+            : null;
+        syncStatus =
+            readNotice ??
+            (records.isEmpty
+                ? ''
+                : recentOnly
+                ? '近期数据已更新'
+                : '已同步 ${records.length} 条');
         if (canUseWindow &&
             receivedRecords is WearableSyncResult &&
             receivedRecords.historyDays == (recentOnly ? 2 : 7)) {
@@ -5589,6 +5662,12 @@ class AppController extends ChangeNotifier {
   Future<List<HealthRecord>> loadSleepDays({
     required DateTime start,
     required DateTime end,
+  }) => _readSleepDays(start: start, end: end, allDevices: false);
+
+  Future<List<HealthRecord>> _readSleepDays({
+    required DateTime start,
+    required DateTime end,
+    required bool allDevices,
   }) async {
     final generation = _sessionGeneration;
     final preferred = connectedDevice?.id ?? rememberedDevice?.id;
@@ -5623,7 +5702,7 @@ class AppController extends ChangeNotifier {
     final store = _healthStore;
     final timelines = store is SleepDetailStore
         ? await (store as SleepDetailStore).loadDays(
-            deviceId: preferred,
+            deviceId: allDevices ? null : preferred,
             startSdkDate: first,
             endSdkDate: last,
           )
@@ -5643,7 +5722,9 @@ class AppController extends ChangeNotifier {
           record,
         ) {
           final day = sleepRecordSdkDate(record);
-          return (preferred == null || record.deviceId == preferred) &&
+          return (allDevices ||
+                  preferred == null ||
+                  record.deviceId == preferred) &&
               day.compareTo(first) >= 0 &&
               day.compareTo(last) <= 0;
         }),
@@ -8274,6 +8355,15 @@ class AppController extends ChangeNotifier {
         eventId: eventId,
       );
       if (marked && _isCurrentSessionGeneration(generation)) {
+        if (isRingShareNotice(eventId)) {
+          notifications = [
+            for (final item in notifications)
+              if (item['event_id'] == eventId)
+                {...item, 'is_read': true}
+              else
+                item,
+          ];
+        }
         await _refreshRemoteNotificationUnreadCount();
       }
     } on ApiException {
@@ -8283,7 +8373,9 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> _refreshRemoteNotificationUnreadCount() async {
+  Future<void> _refreshRemoteNotificationUnreadCount({
+    bool refreshShareHistory = true,
+  }) async {
     final generation = _sessionGeneration;
     final repository = _notificationInboxRepository;
     final notificationApi = _api is SaydianNotificationApi
@@ -8300,7 +8392,19 @@ class AppController extends ChangeNotifier {
           !identical(repository, _notificationInboxRepository)) {
         return;
       }
+      final changed = unreadCount != remoteNotificationUnreadCount;
       remoteNotificationUnreadCount = unreadCount;
+      if (refreshShareHistory &&
+          unreadCount != null &&
+          (changed || (unreadCount > 0 && !notificationPermissionEnabled)) &&
+          _appIsForeground &&
+          ringSharingEnabled) {
+        await refreshNotificationHistory();
+        if (!_isCurrentSessionGeneration(generation) ||
+            !identical(repository, _notificationInboxRepository)) {
+          return;
+        }
+      }
       if (remoteNotificationUnreadCount == 0 && _notificationStorageReady) {
         final readAt = DateTime.now().toUtc();
         for (final event in await repository.list()) {
@@ -8383,13 +8487,24 @@ class AppController extends ChangeNotifier {
     final remoteUnread = healthAlertsAvailable
         ? remoteNotificationUnreadCount
         : null;
+    // Restricted builds use the known share rows instead of the aggregate
+    // count, which also includes cloud health warnings.
+    final shareUnread = !healthAlertsAvailable && ringExperience
+        ? notifications.where((item) {
+            final id = '${item['event_id'] ?? ''}';
+            return item['is_read'] == false &&
+                isRingShareNotice(id) &&
+                !notificationInboxEvents.any((event) => event.eventId == id);
+          }).length
+        : 0;
     // Aggregate counts have no IDs with which to calculate an exact union.
     // Keep known unread events as a floor, without summing duplicate mirrors.
     final serverUnread =
         remoteUnread == null || remoteUnread < localServerMirrorUnread
         ? localServerMirrorUnread
         : remoteUnread;
-    notificationUnreadCount = localDeviceHealthUnread + serverUnread;
+    notificationUnreadCount =
+        localDeviceHealthUnread + serverUnread + shareUnread;
     unawaited(_notificationService.setBadge(notificationUnreadCount));
     if (!_disposed) notifyListeners();
   }
@@ -8629,7 +8744,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> refreshNotifications() async {
     await refreshNotificationHistory();
-    await _refreshRemoteNotificationUnreadCount();
+    await _refreshRemoteNotificationUnreadCount(refreshShareHistory: false);
     await _refreshNotificationInboxState();
   }
 
