@@ -8,6 +8,7 @@ import cc.saidian.saydian_app.AppWechatAuthStore
 import com.tencent.mm.opensdk.modelbase.BaseReq
 import com.tencent.mm.opensdk.modelbase.BaseResp
 import com.tencent.mm.opensdk.modelmsg.SendAuth
+import com.tencent.mm.opensdk.modelmsg.SendMessageToWX
 import com.tencent.mm.opensdk.openapi.IWXAPIEventHandler
 import com.tencent.mm.opensdk.openapi.WXAPIFactory
 
@@ -50,6 +51,10 @@ class WXEntryActivity : Activity(), IWXAPIEventHandler {
     override fun onReq(req: BaseReq?) = Unit
 
     override fun onResp(resp: BaseResp?) {
+        if (resp is SendMessageToWX.Resp) {
+            finish()
+            return
+        }
         val auth = resp as? SendAuth.Resp
         Log.i(
             "SaidianWechatAuth",

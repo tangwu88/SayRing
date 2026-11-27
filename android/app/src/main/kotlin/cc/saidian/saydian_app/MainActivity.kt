@@ -659,6 +659,7 @@ class MainActivity : FlutterActivity() {
 
     private fun handleAuthMethod(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "shareWechatWebpage" -> RingWechatSharing.share(this, call, result)
             "authorizeWechat" -> startWechatAuthorization(call, result)
             "cancelWechatAuthorization" -> {
                 val requestedState = call.argument<String>("state")?.trim().orEmpty()

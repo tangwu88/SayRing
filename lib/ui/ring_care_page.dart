@@ -403,6 +403,8 @@ class _RingCareThreadPageState extends State<RingCareThreadPage>
   bool loading = false;
   bool fetchingOlder = false;
   bool sending = false;
+  final Set<String> _reporting = {};
+  final Set<String> _reported = {};
   bool quiet = false;
   bool haptic = false;
   bool lastPage = false;
@@ -630,6 +632,27 @@ class _RingCareThreadPageState extends State<RingCareThreadPage>
       }
     } catch (error) {
       if (mounted && current) showRingError(context, error);
+    }
+  }
+
+  Future<void> _report(String id) async {
+    if (!current || _reporting.contains(id) || _reported.contains(id)) return;
+    setState(() => _reporting.add(id));
+    try {
+      await widget.controller.ringRequest('POST', '$path/messages/$id/report');
+      if (!mounted || !current) return;
+      setState(() => _reported.add(id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ringText(context, '举报已提交，我们会尽快处理', 'Report submitted for review'),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted && current) showRingError(context, error);
+    } finally {
+      if (current) setState(() => _reporting.remove(id));
     }
   }
 
@@ -964,10 +987,12 @@ class _RingCareThreadPageState extends State<RingCareThreadPage>
                                 ].join(' · '),
                               ),
                               trailing: PopupMenuButton<String>(
-                                onSelected: (action) => _modify(
-                                  action == 'delete' ? 'DELETE' : 'POST',
-                                  'messages/${row['id']}${action == 'report' ? '/report' : ''}',
-                                ),
+                                onSelected: (action) => action == 'report'
+                                    ? _report('${row['id']}')
+                                    : _modify(
+                                        'DELETE',
+                                        'messages/${row['id']}',
+                                      ),
                                 itemBuilder: (_) => row['mine'] == true
                                     ? [
                                         PopupMenuItem(
@@ -980,8 +1005,25 @@ class _RingCareThreadPageState extends State<RingCareThreadPage>
                                     : [
                                         PopupMenuItem(
                                           value: 'report',
+                                          enabled:
+                                              !_reporting.contains(
+                                                '${row['id']}',
+                                              ) &&
+                                              !_reported.contains(
+                                                '${row['id']}',
+                                              ),
                                           child: Text(
-                                            ringText(context, '举报', 'Report'),
+                                            _reported.contains('${row['id']}')
+                                                ? ringText(
+                                                    context,
+                                                    '已举报',
+                                                    'Reported',
+                                                  )
+                                                : ringText(
+                                                    context,
+                                                    '举报',
+                                                    'Report',
+                                                  ),
                                           ),
                                         ),
                                       ],

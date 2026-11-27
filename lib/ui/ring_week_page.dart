@@ -50,16 +50,16 @@ class _RingWeekPageState extends State<RingWeekPage> {
             a.current.length + a.previous.length,
           ),
         );
+    final fields = <String, Object>{'rangeEnd': ringDateText(now)};
     for (final pair in comparisons) {
-      if (pair.current.length < 3 || pair.previous.length < 3) continue;
+      if (pair.current.isEmpty) continue;
       int average(List<double> values) =>
           (values.reduce((sum, value) => sum + value) / values.length).round();
-      return RingSnapshot('week', start, {
-        'rangeEnd': ringDateText(now),
-        'sleepAverageMinutes': average(pair.current),
-        'previousSleepAverageMinutes': average(pair.previous),
-        'recordDays': pair.current.length,
-      });
+      fields['sleepAverageMinutes'] = average(pair.current);
+      if (pair.current.length >= 3 && pair.previous.length >= 3) {
+        fields['previousSleepAverageMinutes'] = average(pair.previous);
+      }
+      break;
     }
     final latest = widget.controller.sportRecords.where((item) {
       final at = item.startedAt?.toLocal();
@@ -78,39 +78,33 @@ class _RingWeekPageState extends State<RingWeekPage> {
         .toList();
     int workoutDays(List<SportRecord> rows) =>
         rows.map((row) => ringDate(row.startedAt!.toLocal())).toSet().length;
-    if (workoutDays(currentWorkout) >= 2 && workoutDays(previousWorkout) >= 2) {
+    if (currentWorkout.isNotEmpty) {
       int minutes(List<SportRecord> rows) =>
           (rows.fold<int>(0, (sum, row) => sum + row.durationSeconds) / 60)
               .round();
-      return RingSnapshot('week', start, {
-        'rangeEnd': ringDateText(now),
-        'sportMinutes': minutes(currentWorkout),
-        'previousSportMinutes': minutes(previousWorkout),
-        'recordDays': workoutDays(currentWorkout),
-      });
-    }
-    if (currentWorkout.firstOrNull case final workout?) {
-      final data = ringWorkoutSnapshot(context, workout);
-      if (data != null) {
-        return RingSnapshot('week', data.date, {
-          for (final entry in data.fields.entries)
-            if (entry.key != 'heartRate') entry.key: entry.value,
-        });
+      fields['sportMinutes'] = minutes(currentWorkout);
+      fields['recordDays'] = workoutDays(currentWorkout);
+      if (workoutDays(currentWorkout) >= 2 &&
+          workoutDays(previousWorkout) >= 2) {
+        fields['previousSportMinutes'] = minutes(previousWorkout);
+      }
+      final distances = currentWorkout.where(
+        (r) => !r.missingMetrics.contains('distanceKm') && r.distanceKm > 0,
+      );
+      if (distances.isNotEmpty) {
+        fields['distanceKm'] =
+            (distances.fold<double>(0, (sum, r) => sum + r.distanceKm) * 100)
+                .round() /
+            100;
+      }
+      final steps = currentWorkout.where(
+        (r) => !r.missingMetrics.contains('steps') && r.steps > 0,
+      );
+      if (steps.isNotEmpty) {
+        fields['steps'] = steps.fold<int>(0, (sum, r) => sum + r.steps);
       }
     }
-    for (final row in result.$1.reversed) {
-      final minutes = _sleepMinutes(row);
-      final date =
-          DateTime.tryParse(sleepRecordSdkDate(row)) ??
-          row.measuredAt.toLocal();
-      if (minutes == null ||
-          ringDate(date).isBefore(start) ||
-          ringDate(date).isAfter(now)) {
-        continue;
-      }
-      return RingSnapshot('week', date, {'sleepMinutes': minutes.round()});
-    }
-    return null;
+    return fields.length > 1 ? RingSnapshot('week', start, fields) : null;
   }
 
   List<double> _sleepPeriod(
@@ -164,7 +158,83 @@ class _RingWeekPageState extends State<RingWeekPage> {
                 return ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    RingSnapshotView(snapshot: display),
+                    Text(
+                      '${ringDateText(start)} — ${ringDateText(now)}',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    for (final section in [
+                      (
+                        '睡眠回顾',
+                        'Sleep this week',
+                        Icons.bedtime_outlined,
+                        ['sleepAverageMinutes', 'previousSleepAverageMinutes'],
+                      ),
+                      (
+                        '运动回顾',
+                        'Activity this week',
+                        Icons.directions_walk,
+                        [
+                          'sportMinutes',
+                          'recordDays',
+                          'distanceKm',
+                          'steps',
+                          'previousSportMinutes',
+                        ],
+                      ),
+                    ])
+                      if (section.$4.any(display.fields.containsKey))
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(section.$3),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        ringText(
+                                          context,
+                                          section.$1,
+                                          section.$2,
+                                        ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleLarge,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                for (final key in section.$4)
+                                  if (display.fields[key] case final value?)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                      ),
+                                      child: Wrap(
+                                        alignment: WrapAlignment.spaceBetween,
+                                        spacing: 16,
+                                        runSpacing: 4,
+                                        children: [
+                                          Text(ringShareField(context, key)),
+                                          Text(
+                                            ringShareValue(context, key, value),
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    const SizedBox(height: 16),
                     TextField(
                       maxLength: 140,
                       textInputAction: TextInputAction.done,

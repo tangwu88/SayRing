@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/global_care.dart';
+import 'package:saydian_app/domain/global_account.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/ring_experience.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
@@ -40,6 +41,20 @@ class _ConnectedRingApi extends _OfflineRingApi
   Map<String?, Map<String, Object?>> historyPages = const {};
   final historyCursors = <String?>[];
   final readShareIds = <String>[];
+  GlobalWechatAppCapability wechat = const GlobalWechatAppCapability(
+    enabled: true,
+    appId: 'wx12345678fixture',
+  );
+
+  @override
+  Future<GlobalAuthCapabilities> getAuthCapabilities() async =>
+      GlobalAuthCapabilities(
+        email: false,
+        sms: false,
+        smsCountries: const {},
+        supportedLocales: const ['en'],
+        wechatApp: wechat,
+      );
 
   @override
   Future<Map<String, Object?>> readRingCapabilities() => availability.future;
@@ -124,6 +139,90 @@ class _MissingStepsStore extends MemoryHealthStore {
 }
 
 void main() {
+  for (final outcome in ['open', 'missing-app', 'unconfigured']) {
+    testWidgets(
+      'WeChat webpage sharing preserves token and handles $outcome',
+      (tester) async {
+        final api = _ConnectedRingApi();
+        if (outcome == 'unconfigured') {
+          api.wechat = const GlobalWechatAppCapability();
+        }
+        final calls = <MethodCall>[];
+        const channel = MethodChannel('cc.saidian/app_auth');
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (call) async {
+            calls.add(call);
+            if (outcome == 'missing-app') {
+              throw PlatformException(code: 'WECHAT_NOT_INSTALLED');
+            }
+            return true;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          ),
+        );
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                api,
+                MemoryHealthStore(),
+                _DisconnectedRing(),
+              )
+              ..session = Session(
+                accessToken: 'fixture',
+                refreshToken: '',
+                expiresAt: DateTime.utc(2099),
+                memberId: 'fixture',
+                accountKey: 'global:fixture',
+                displayName: 'Fixture',
+              );
+        addTearDown(controller.dispose);
+        api.availability.complete({'sharing': true});
+        await controller.refreshRingCapabilities();
+        final snapshot = RingSnapshot('sleep', DateTime(2026, 11, 25), {
+          'sleepMinutes': 420,
+        });
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: RingShareButton(controller: controller, snapshot: snapshot),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Share to WeChat'));
+        await tester.pumpAndSettle();
+        expect(api.sharePosts, hasLength(1));
+        if (outcome == 'unconfigured') {
+          expect(calls, isEmpty);
+          expect(
+            find.text('WeChat sharing is unavailable. You can copy the link'),
+            findsOneWidget,
+          );
+        } else {
+          expect(calls.single.method, 'shareWechatWebpage');
+          expect(calls.single.arguments['appId'], 'wx12345678fixture');
+          expect(
+            calls.single.arguments['url'],
+            RingLink.url(
+              'share',
+              api.sharePosts.single['token'] as String,
+            ).toString(),
+          );
+          expect(calls.single.arguments['title'], 'Say Ring · Sleep report');
+          expect(calls.single.arguments['description'], isNot(contains('420')));
+        }
+        if (outcome == 'missing-app') {
+          expect(find.text('Please install WeChat first'), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+  }
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     testWidgets(
       'share and invitations appear in open pages when the server enables them ($platform)',
@@ -502,11 +601,29 @@ void main() {
       final nativeShares = _recordNativeShares(tester);
       final api = _ConnectedRingApi();
       final now = DateTime.now();
+      final weekStore = MemoryHealthStore();
+      await weekStore.upsert([
+        for (var day = 0; day < (now.weekday > 1 ? 2 : 1); day++)
+          HealthRecord(
+            id: 'week-sleep-$day',
+            metric: HealthMetric.sleep,
+            values: {'value': day == 0 ? 7 : 8},
+            measuredAt: DateTime(now.year, now.month, now.day - day),
+            timezone: '+08:00',
+            unit: 'h',
+            deviceId: 'synthetic-week-ring',
+            sourceModel: 'Fixture',
+            firmwareVersion: '',
+            quality: 'valid',
+            source: MeasurementSource.wearable,
+            rawVersion: 2,
+          ),
+      ]);
       final controller =
           AppController(
               MemorySessionVault(),
               api,
-              MemoryHealthStore(),
+              weekStore,
               _DisconnectedRing(),
             )
             ..session = Session(
@@ -518,6 +635,15 @@ void main() {
               displayName: 'Fixture',
             )
             ..sportRecords = [
+              SportRecord(
+                id: 'second-fixture-walk',
+                mode: SportMode.walking,
+                startedAt: now.subtract(const Duration(minutes: 20)),
+                durationSeconds: 900,
+                distanceKm: 1,
+                calories: 0,
+                steps: 1000,
+              ),
               SportRecord(
                 id: 'fixture-walk',
                 mode: SportMode.walking,
@@ -543,20 +669,35 @@ void main() {
       );
       await tester.pumpAndSettle();
       final share = find.text('Share with friends');
-      await tester.ensureVisible(share);
+      await Scrollable.ensureVisible(tester.element(share), alignment: 0.5);
+      await tester.pumpAndSettle();
       await tester.tap(share);
       await tester.pumpAndSettle();
       final first = api.sharePosts.single['snapshot'] as Map<String, Object?>;
       expect(first['note'], isEmpty);
       expect(
         first['fields'],
-        contains(equals({'key': 'steps', 'value': 2980})),
+        contains(equals({'key': 'steps', 'value': 3980})),
+      );
+      expect(
+        first['fields'],
+        contains(equals({'key': 'sportMinutes', 'value': 45})),
       );
       expect(nativeShares, hasLength(1));
+      expect(
+        first['fields'],
+        contains(
+          equals({
+            'key': 'sleepAverageMinutes',
+            'value': now.weekday > 1 ? 450 : 420,
+          }),
+        ),
+      );
 
       await tester.enterText(find.byType(TextField), 'A note for my friend');
       await tester.pumpAndSettle();
-      await tester.ensureVisible(share);
+      await Scrollable.ensureVisible(tester.element(share), alignment: 0.5);
+      await tester.pumpAndSettle();
       await tester.tap(share);
       await tester.pumpAndSettle();
       expect(api.sharePosts, hasLength(2));
