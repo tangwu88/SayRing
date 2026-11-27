@@ -104,11 +104,86 @@ Rect _shareAnchor(BuildContext context) {
       : const Rect.fromLTWH(0, 0, 1, 1);
 }
 
-Future<void> ringSystemShare(BuildContext context, Uri link) async {
+Future<void> ringSystemShare(
+  BuildContext context,
+  Uri link, {
+  String? subject,
+  String? text,
+}) async {
   await SharePlus.instance.share(
     ShareParams(
-      text: link.toString(),
+      subject: subject,
+      text: text ?? link.toString(),
       sharePositionOrigin: _shareAnchor(context),
+    ),
+  );
+}
+
+Future<void> ringShareLink(
+  BuildContext context,
+  AppController controller,
+  Uri link, {
+  required String title,
+  required String description,
+  required bool Function() canPresent,
+  String? systemSubject,
+  String? systemText,
+}) async {
+  if (!context.mounted || !canPresent()) return;
+  if (defaultTargetPlatform != TargetPlatform.android) {
+    await ringSystemShare(
+      context,
+      link,
+      subject: systemSubject,
+      text: systemText,
+    );
+    return;
+  }
+  final capability = (await controller.globalAuthCapabilities()).wechatApp;
+  if (!context.mounted || !canPresent()) return;
+  if (capability.appId == null) {
+    throw PlatformException(code: 'WECHAT_SHARE_NOT_CONFIGURED');
+  }
+  await const MethodChannel(
+    'cc.saidian/app_auth',
+  ).invokeMethod<bool>('shareWechatWebpage', {
+    'appId': capability.appId,
+    'url': link.toString(),
+    'title': title,
+    'description': description,
+  });
+}
+
+void showRingShareError(
+  BuildContext context,
+  Object error,
+  Uri link, {
+  required bool Function() canPresent,
+}) {
+  if (!context.mounted || !canPresent()) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        error is PlatformException && error.code == 'WECHAT_NOT_INSTALLED'
+            ? ringText(context, '请先安装微信', 'Please install WeChat first')
+            : error is PlatformException &&
+                  (error.code == 'WECHAT_SHARE_NOT_CONFIGURED' ||
+                      error.code == 'WECHAT_SHARE_CONFIG_INVALID')
+            ? ringText(
+                context,
+                '微信分享暂不可用，可复制链接分享',
+                'WeChat sharing is unavailable. You can copy the link',
+              )
+            : ringText(context, '分享面板未打开', 'Couldn’t open sharing'),
+      ),
+      action: SnackBarAction(
+        label: ringText(context, '复制链接', 'Copy link'),
+        onPressed: () {
+          if (context.mounted && canPresent()) {
+            ringCopy(context, link.toString());
+          }
+        },
+      ),
     ),
   );
 }
@@ -261,7 +336,7 @@ class _RingShareButtonState extends State<RingShareButton> {
 
   bool get _canPresent => _canShare && ModalRoute.isCurrentOf(context) != false;
 
-  Future<void> _share(RingSnapshot input, {bool asWechat = false}) async {
+  Future<void> _share(RingSnapshot input) async {
     if (_sharing || !mounted || !_canPresent) return;
     final snapshot = RingSnapshot(
       input.kind,
@@ -295,28 +370,18 @@ class _RingShareButtonState extends State<RingShareButton> {
       _retryToken = null;
       if (!mounted || !_canPresent) return;
       issued = RingLink.url('share', token);
-      if (asWechat) {
-        final capability =
-            (await _controller.globalAuthCapabilities()).wechatApp;
-        if (!mounted || !_canPresent) return;
-        if (capability.appId == null) {
-          throw PlatformException(code: 'WECHAT_SHARE_NOT_CONFIGURED');
-        }
-        await const MethodChannel(
-          'cc.saidian/app_auth',
-        ).invokeMethod<bool>('shareWechatWebpage', {
-          'appId': capability.appId,
-          'url': issued.toString(),
-          'title': 'Say Ring · ${ringSnapshotTitle(context, snapshot.kind)}',
-          'description': ringText(
-            context,
-            '打开查看报告并回应',
-            'Open the report and send a reply',
-          ),
-        });
-      } else {
-        await ringSystemShare(context, issued);
-      }
+      await ringShareLink(
+        context,
+        _controller,
+        issued,
+        title: 'Say Ring · ${ringSnapshotTitle(context, snapshot.kind)}',
+        description: ringText(
+          context,
+          '打开查看报告并回应',
+          'Open the report and send a reply',
+        ),
+        canPresent: () => mounted && _canPresent,
+      );
     } catch (error) {
       if (!mounted || !_canPresent) return;
       final link = issued;
@@ -327,28 +392,11 @@ class _RingShareButtonState extends State<RingShareButton> {
         }
         showRingError(context, error);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error is PlatformException && error.code == 'WECHAT_NOT_INSTALLED'
-                  ? ringText(context, '请先安装微信', 'Please install WeChat first')
-                  : error is PlatformException &&
-                        (error.code == 'WECHAT_SHARE_NOT_CONFIGURED' ||
-                            error.code == 'WECHAT_SHARE_CONFIG_INVALID')
-                  ? ringText(
-                      context,
-                      '微信分享暂不可用，可复制链接分享',
-                      'WeChat sharing is unavailable. You can copy the link',
-                    )
-                  : ringText(context, '分享面板未打开', 'Couldn’t open sharing'),
-            ),
-            action: SnackBarAction(
-              label: ringText(context, '复制链接', 'Copy link'),
-              onPressed: () {
-                if (mounted && _canPresent) ringCopy(context, link.toString());
-              },
-            ),
-          ),
+        showRingShareError(
+          context,
+          error,
+          link,
+          canPresent: () => mounted && _canPresent,
         );
       }
     } finally {
@@ -374,37 +422,11 @@ class _RingShareButtonState extends State<RingShareButton> {
           : const Icon(Icons.ios_share_rounded);
 
       return widget.compact
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(tooltip: title, onPressed: onPressed, icon: icon),
-                if (defaultTargetPlatform == TargetPlatform.android)
-                  IconButton(
-                    tooltip: ringText(context, '分享到微信', 'Share to WeChat'),
-                    onPressed: _sharing
-                        ? null
-                        : () => _share(input, asWechat: true),
-                    icon: const Icon(Icons.chat_bubble_outline),
-                  ),
-              ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: onPressed,
-                  icon: icon,
-                  label: Text(title),
-                ),
-                if (defaultTargetPlatform == TargetPlatform.android)
-                  TextButton.icon(
-                    onPressed: _sharing
-                        ? null
-                        : () => _share(input, asWechat: true),
-                    icon: const Icon(Icons.chat_bubble_outline),
-                    label: Text(ringText(context, '分享到微信', 'Share to WeChat')),
-                  ),
-              ],
+          ? IconButton(tooltip: title, onPressed: onPressed, icon: icon)
+          : OutlinedButton.icon(
+              onPressed: onPressed,
+              icon: icon,
+              label: Text(title),
             );
     },
   );

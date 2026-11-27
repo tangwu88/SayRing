@@ -71,8 +71,14 @@ internal object RingWechatLinkPolicy {
         return Regex("^wx[A-Za-z0-9]{8,64}$").matches(appId) &&
             uri.scheme == "https" && uri.host == "app.saydian.cn" &&
             uri.userInfo == null && (uri.port == -1 || uri.port == 443) &&
-            uri.rawPath == "/global/say-ring/share" &&
-            Regex("^[A-Za-z0-9_-]{43}$").matches(uri.rawFragment.orEmpty()) &&
+            when (uri.rawPath) {
+                "/global/say-ring/share" -> Regex("^[A-Za-z0-9_-]{43}$").matches(uri.rawFragment.orEmpty())
+                "/global/say-ring/invite" -> uri.rawQuery == null &&
+                    Regex("^[A-HJ-NP-Z2-9]{20}$").matches(uri.rawFragment.orEmpty())
+                "/global/saidian-mall/" -> uri.rawQuery == null &&
+                    Regex("^/pages/product/index\\?id=[A-Za-z0-9_-]{1,180}$").matches(uri.rawFragment.orEmpty())
+                else -> false
+            } &&
             link.length <= 2048
     }
 }

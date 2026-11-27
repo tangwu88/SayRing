@@ -26,6 +26,7 @@ import 'package:saydian_app/ui/global_care_page.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/ring_share_page.dart';
 import 'package:saydian_app/ui/ring_week_page.dart';
+import 'package:saydian_app/ui/ring_care_page.dart';
 
 class _OfflineRingApi extends Fake implements SaydianApi, GlobalAccountApi {}
 
@@ -41,20 +42,24 @@ class _ConnectedRingApi extends _OfflineRingApi
   Map<String?, Map<String, Object?>> historyPages = const {};
   final historyCursors = <String?>[];
   final readShareIds = <String>[];
+  int invitationPosts = 0;
+  Completer<GlobalAuthCapabilities>? pendingAuth;
   GlobalWechatAppCapability wechat = const GlobalWechatAppCapability(
     enabled: true,
     appId: 'wx12345678fixture',
   );
 
   @override
-  Future<GlobalAuthCapabilities> getAuthCapabilities() async =>
-      GlobalAuthCapabilities(
-        email: false,
-        sms: false,
-        smsCountries: const {},
-        supportedLocales: const ['en'],
-        wechatApp: wechat,
-      );
+  Future<GlobalAuthCapabilities> getAuthCapabilities() async {
+    if (pendingAuth case final pending?) return pending.future;
+    return GlobalAuthCapabilities(
+      email: false,
+      sms: false,
+      smsCountries: const {},
+      supportedLocales: const ['en'],
+      wechatApp: wechat,
+    );
+  }
 
   @override
   Future<Map<String, Object?>> readRingCapabilities() => availability.future;
@@ -78,6 +83,10 @@ class _ConnectedRingApi extends _OfflineRingApi
       sharePosts.add(data!);
       return await (shareResponse?.call() ?? Future.value({'id': 'fixture'}));
     }
+    if (method == 'POST' && path == 'care/invitations') {
+      invitationPosts++;
+      return {'id': 'invitation-fixture', 'code': 'ABCDEFGHJKLMNPQRSTUV'};
+    }
     if (method == 'GET' && path == 'shares') {
       historyCursors.add(query?['before']);
       if (historyPages[query?['before']] case final page?) return page;
@@ -100,12 +109,18 @@ class _ConnectedRingApi extends _OfflineRingApi
     }
     expect(method, 'GET');
     expect(path, 'care/invitations');
-    return {'items': []};
+    return {
+      'entries': [
+        if (invitationPosts > 0)
+          {'id': 'invitation-fixture', 'expiresAt': '2026-11-29T00:00:00Z'},
+      ],
+    };
   }
 }
 
 List<MethodCall> _recordNativeShares(WidgetTester tester) {
   const channel = MethodChannel('dev.fluttercommunity.plus/share');
+  const wechat = MethodChannel('cc.saidian/app_auth');
   final calls = <MethodCall>[];
   tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
     call,
@@ -113,9 +128,19 @@ List<MethodCall> _recordNativeShares(WidgetTester tester) {
     calls.add(call);
     return 'dev.fluttercommunity.plus/share/dismissed';
   });
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(wechat, (
+    call,
+  ) async {
+    calls.add(call);
+    return true;
+  });
   addTearDown(() {
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       channel,
+      null,
+    );
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      wechat,
       null,
     );
   });
@@ -139,6 +164,166 @@ class _MissingStepsStore extends MemoryHealthStore {
 }
 
 void main() {
+  for (final leave in [false, true]) {
+    testWidgets(
+      'pending care share stops after ${leave ? 'leaving' : 'account change'}',
+      (tester) async {
+        final calls = _recordNativeShares(tester);
+        final api = _ConnectedRingApi()
+          ..pendingAuth = Completer<GlobalAuthCapabilities>();
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                api,
+                MemoryHealthStore(),
+                _DisconnectedRing(),
+              )
+              ..session = Session(
+                accessToken: 'fixture',
+                refreshToken: '',
+                expiresAt: DateTime.utc(2099),
+                memberId: 'fixture',
+                accountKey: 'global:fixture',
+                displayName: 'Fixture',
+              );
+        addTearDown(controller.dispose);
+        api.availability.complete({'care': true});
+        await controller.refreshRingCapabilities();
+        await tester.pumpWidget(
+          MaterialApp(home: RingInvitationsPage(controller: controller)),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Share invitation link'));
+        await tester.pump();
+        expect(api.invitationPosts, 1);
+        if (leave) {
+          await tester.pumpWidget(const SizedBox.shrink());
+        } else {
+          controller.session = null;
+        }
+        api.pendingAuth!.complete(
+          const GlobalAuthCapabilities(
+            email: false,
+            sms: false,
+            smsCountries: {},
+            supportedLocales: ['en'],
+            wechatApp: GlobalWechatAppCapability(
+              enabled: true,
+              appId: 'wx12345678fixture',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(calls, isEmpty);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+  }
+  for (final compact in [false, true]) {
+    testWidgets(
+      'one report share entry opens WeChat (compact=$compact)',
+      (tester) async {
+        final calls = _recordNativeShares(tester);
+        final api = _ConnectedRingApi();
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                api,
+                MemoryHealthStore(),
+                _DisconnectedRing(),
+              )
+              ..session = Session(
+                accessToken: 'fixture',
+                refreshToken: '',
+                expiresAt: DateTime.utc(2099),
+                memberId: 'fixture',
+                accountKey: 'global:fixture',
+                displayName: 'Fixture',
+              );
+        addTearDown(controller.dispose);
+        api.availability.complete({'sharing': true});
+        await controller.refreshRingCapabilities();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: RingShareButton(
+                controller: controller,
+                compact: compact,
+                snapshot: RingSnapshot('sleep', DateTime(2026, 11, 25), {
+                  'sleepMinutes': 420,
+                }),
+              ),
+            ),
+          ),
+        );
+        final button = compact
+            ? find.byTooltip('Share with friends')
+            : find.text('Share with friends');
+        expect(button, findsOneWidget);
+        expect(find.text('Share to WeChat'), findsNothing);
+        expect(
+          find.byType(compact ? IconButton : OutlinedButton),
+          findsOneWidget,
+        );
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(calls.single.method, 'shareWechatWebpage');
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+  }
+
+  testWidgets(
+    'care invite creates a WeChat card and reshares the same invitation',
+    (tester) async {
+      final calls = _recordNativeShares(tester);
+      final api = _ConnectedRingApi();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              api,
+              MemoryHealthStore(),
+              _DisconnectedRing(),
+            )
+            ..session = Session(
+              accessToken: 'fixture',
+              refreshToken: '',
+              expiresAt: DateTime.utc(2099),
+              memberId: 'fixture',
+              accountKey: 'global:fixture',
+              displayName: 'Fixture',
+            );
+      addTearDown(controller.dispose);
+      api.availability.complete({'care': true});
+      await controller.refreshRingCapabilities();
+      await tester.pumpWidget(
+        MaterialApp(home: RingInvitationsPage(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Share invitation link'));
+      await tester.pumpAndSettle();
+      expect(api.invitationPosts, 1);
+      expect(calls.single.method, 'shareWechatWebpage');
+      expect(
+        calls.single.arguments['url'],
+        'https://app.saydian.cn/global/say-ring/invite#ABCDEFGHJKLMNPQRSTUV',
+      );
+      expect(calls.single.arguments['title'], 'Say Ring · Care invitation');
+      expect(find.text('Copy link'), findsNothing);
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Share invitation'));
+      await tester.pumpAndSettle();
+      expect(api.invitationPosts, 1);
+      expect(calls, hasLength(2));
+      expect(calls.last.arguments, calls.first.arguments);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
   for (final outcome in ['open', 'missing-app', 'unconfigured']) {
     testWidgets(
       'WeChat webpage sharing preserves token and handles $outcome',
@@ -193,7 +378,9 @@ void main() {
             ),
           ),
         );
-        await tester.tap(find.text('Share to WeChat'));
+        expect(find.text('Share to WeChat'), findsNothing);
+        expect(find.byType(OutlinedButton), findsOneWidget);
+        await tester.tap(find.text('Share with friends'));
         await tester.pumpAndSettle();
         expect(api.sharePosts, hasLength(1));
         if (outcome == 'unconfigured') {
@@ -299,9 +486,14 @@ void main() {
         final posted = api.sharePosts.single;
         expect(posted['confirmed'], isTrue);
         expect(posted['snapshot'], snapshot.toJson());
-        expect(nativeShares.single.method, 'share');
         expect(
-          nativeShares.single.arguments['text'],
+          nativeShares.single.method,
+          platform == TargetPlatform.android ? 'shareWechatWebpage' : 'share',
+        );
+        expect(
+          nativeShares.single.arguments[platform == TargetPlatform.android
+              ? 'url'
+              : 'text'],
           RingLink.url('share', posted['token'] as String).toString(),
         );
         expect(find.byType(CheckboxListTile), findsNothing);

@@ -31,6 +31,48 @@ class _RingInvitationsPageState extends State<RingInvitationsPage> {
   final links = <String, Uri>{};
   bool busy = false;
 
+  bool get _canPresent =>
+      mounted &&
+      widget.controller.isAuthenticated &&
+      owner == widget.controller.ringExperienceOwner &&
+      ModalRoute.isCurrentOf(context) != false;
+
+  Future<void> _shareInvitation(Uri link) async {
+    try {
+      await ringShareLink(
+        context,
+        widget.controller,
+        link,
+        title: ringText(
+          context,
+          'Say Ring · 远程关爱邀请',
+          'Say Ring · Care invitation',
+        ),
+        description: ringText(
+          context,
+          '邀请你加入远程关爱，由你选择共享内容',
+          'Join remote care and choose what you share',
+        ),
+        canPresent: () => _canPresent,
+      );
+    } catch (error) {
+      if (mounted && _canPresent) {
+        showRingShareError(context, error, link, canPresent: () => _canPresent);
+      }
+    }
+  }
+
+  Future<void> _reshare(String id) async {
+    final link = links[id];
+    if (busy || !_canPresent || link == null) return;
+    setState(() => busy = true);
+    try {
+      await _shareInvitation(link);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   @override
   void dispose() {
     _code.dispose();
@@ -38,7 +80,7 @@ class _RingInvitationsPageState extends State<RingInvitationsPage> {
   }
 
   Future<void> _create() async {
-    if (busy) return;
+    if (busy || !_canPresent) return;
     setState(() => busy = true);
     try {
       final entry = await widget.controller.ringRequest(
@@ -56,9 +98,9 @@ class _RingInvitationsPageState extends State<RingInvitationsPage> {
         links['${entry['id']}'] = link;
         invitations = widget.controller.ringRequest('GET', 'care/invitations');
       });
-      await ringSystemShare(context, link);
+      await _shareInvitation(link);
     } catch (error) {
-      if (mounted) showRingError(context, error);
+      if (mounted && _canPresent) showRingError(context, error);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -166,10 +208,8 @@ class _RingInvitationsPageState extends State<RingInvitationsPage> {
                           subtitle: Text(_expiry(context, row['expiresAt'])),
                           trailing: PopupMenuButton<String>(
                             onSelected: (action) {
-                              if (action == 'copy') {
-                                unawaited(
-                                  ringCopy(context, '${links[row['id']]}'),
-                                );
+                              if (action == 'share') {
+                                unawaited(_reshare('${row['id']}'));
                               }
                               if (action == 'cancel') {
                                 unawaited(_cancel('${row['id']}'));
@@ -178,9 +218,14 @@ class _RingInvitationsPageState extends State<RingInvitationsPage> {
                             itemBuilder: (_) => [
                               if (links.containsKey(row['id']))
                                 PopupMenuItem(
-                                  value: 'copy',
+                                  value: 'share',
+                                  enabled: !busy,
                                   child: Text(
-                                    ringText(context, '复制链接', 'Copy link'),
+                                    ringText(
+                                      context,
+                                      '分享邀请',
+                                      'Share invitation',
+                                    ),
                                   ),
                                 ),
                               PopupMenuItem(

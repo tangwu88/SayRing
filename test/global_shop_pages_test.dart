@@ -1,13 +1,31 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
+import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/global_account.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/global_shop_pages.dart';
 import 'package:saydian_app/ui/shop_pages.dart';
 
 class _Controller extends Fake implements AppController {
+  @override
+  Session? session;
+
+  @override
+  Future<GlobalAuthCapabilities> globalAuthCapabilities() async =>
+      const GlobalAuthCapabilities(
+        email: false,
+        sms: false,
+        smsCountries: {},
+        supportedLocales: ['en'],
+        wechatApp: GlobalWechatAppCapability(
+          enabled: true,
+          appId: 'wx12345678fixture',
+        ),
+      );
   @override
   void addListener(VoidCallback listener) {}
   @override
@@ -137,6 +155,88 @@ Future<void> _pump(WidgetTester tester, Widget page, {double scale = 1}) async {
 }
 
 void main() {
+  testWidgets(
+    'iOS product sharing retains the original subject and text link',
+    (tester) async {
+      const channel = MethodChannel('dev.fluttercommunity.plus/share');
+      final calls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call);
+        return 'dev.fluttercommunity.plus/share/dismissed';
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+      await _pump(
+        tester,
+        GlobalShopProductPage(
+          controller: _Controller(),
+          productId: 'uuid-watch',
+        ),
+      );
+      await tester.tap(find.byTooltip('Share product'));
+      await tester.pumpAndSettle();
+      expect(calls.single.method, 'share');
+      expect(calls.single.arguments['subject'], 'Watch details');
+      expect(
+        calls.single.arguments['text'],
+        'Watch details\nhttps://app.saydian.cn/global/saidian-mall/#/pages/product/index?id=uuid-watch',
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+  testWidgets(
+    'the existing product share sends one WeChat product card',
+    (tester) async {
+      final calls = <MethodCall>[];
+      final result = Completer<bool>();
+      const channel = MethodChannel('cc.saidian/app_auth');
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call);
+        return result.future;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+      final controller = _Controller();
+      await _pump(
+        tester,
+        GlobalShopProductPage(controller: controller, productId: 'uuid-watch'),
+      );
+      final share = find.byTooltip('Share product');
+      expect(share, findsOneWidget);
+      final press = tester
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.share_outlined),
+          )
+          .onPressed!;
+      press();
+      press();
+      await tester.pump();
+      expect(calls, hasLength(1));
+      expect(calls.single.method, 'shareWechatWebpage');
+      expect(
+        calls.single.arguments['url'],
+        'https://app.saydian.cn/global/saidian-mall/#/pages/product/index?id=uuid-watch',
+      );
+      expect(calls.single.arguments['title'], 'Watch details');
+      result.complete(true);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
   testWidgets(
     'actual global shop entry renders V2 products and opens UUID details',
     (tester) async {

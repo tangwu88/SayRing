@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html;
-import 'package:share_plus/share_plus.dart';
 
 import '../domain/global_commerce.dart';
 import '../l10n/global_locale_controller.dart';
@@ -15,6 +14,7 @@ import 'global_shop_widgets.dart';
 import 'widgets/safe_network_image.dart';
 import '../domain/module_visibility.dart';
 import 'module_content_gate.dart';
+import 'ring_share_page.dart';
 
 /// International storefront. Trading controls stay capability-gated by the
 /// server while browsing remains available during market or payment downtime.
@@ -342,6 +342,7 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
   bool _loading = true;
   bool _busy = false;
   bool _favorite = false;
+  bool _sharing = false;
 
   @override
   void initState() {
@@ -416,7 +417,18 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
 
   Future<void> _shareProduct() async {
     final product = _product;
-    if (product == null || _busy) return;
+    if (product == null || _busy || _sharing) return;
+    final owner = widget.controller.session?.accountKey;
+    final generation = _loadGeneration;
+    bool current() =>
+        mounted &&
+        widget.controller.mallVisible &&
+        widget.controller.commerceEnabled &&
+        owner == widget.controller.session?.accountKey &&
+        generation == _loadGeneration &&
+        identical(product, _product) &&
+        ModalRoute.isCurrentOf(context) != false;
+    if (!current()) return;
     final name = commerceText(product['displayName']).isNotEmpty
         ? commerceText(product['displayName'])
         : commerceText(product['name']);
@@ -425,15 +437,24 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
           fragment:
               '/pages/product/index?id=${Uri.encodeQueryComponent(widget.productId)}',
         );
+    setState(() => _sharing = true);
     try {
-      final result = await SharePlus.instance.share(
-        ShareParams(subject: name, text: '$name\n$target'),
+      await ringShareLink(
+        context,
+        widget.controller,
+        target,
+        title: name.isEmpty ? 'Say Ring' : name,
+        description: ringText(context, '打开查看商品详情', 'Open product details'),
+        canPresent: current,
+        systemSubject: name,
+        systemText: '$name\n$target',
       );
-      if (mounted && result.status == ShareResultStatus.unavailable) {
-        _message(context.l10n.serviceUnavailable);
+    } catch (error) {
+      if (mounted && current()) {
+        showRingShareError(context, error, target, canPresent: current);
       }
-    } catch (_) {
-      if (mounted) _message(context.l10n.serviceUnavailable);
+    } finally {
+      if (mounted) setState(() => _sharing = false);
     }
   }
 
@@ -546,7 +567,7 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
           if (product != null)
             IconButton(
               tooltip: context.l10n.shareProduct,
-              onPressed: _busy ? null : _shareProduct,
+              onPressed: _busy || _sharing ? null : _shareProduct,
               icon: const Icon(Icons.share_outlined),
             ),
           if (product != null &&
