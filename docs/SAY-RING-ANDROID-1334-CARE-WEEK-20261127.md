@@ -30,3 +30,9 @@
 - Release构建成功，assembleRelease约502.9秒。正式APK位于E:/SayRing-1.0.16-issues-20261127/SayRing-1.0.16-1334-release.apk，76453720字节，SHA256=bf4d262ec7281349d0697b44fe0654a56769d723ee2a64c31f2734e7f82fdfc3。
 - apksigner实际验证原正式证书SHA256=81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de，包号cn.saydian.ring、versionName=1.0.16、versionCode=1334且非debuggable。production API/JPush manifest、ARMv7/ARM64 ABI及zipalign -c -P 16 4门禁通过；已知ARMv7 DSP/ECG 4KB ELF例外保留，不能称所有市场16KB验收。android/key.properties已按原脚本清除；签名材料与APK不提交Git。
 - 已向唯一USB华为L2E0222510006851发起adb install -r。手机锁屏，已请本人完成解锁及安装安全验证，尚不把发起安装写成安装成功。未卸载、清数据、解绑或更改系统安全设置。
+
+## 手机安装与微信实测
+
+- 用户确认安装后，adb系统包管理器实际读回versionCode=1334、versionName=1.0.16、lastUpdateTime=2026-11-27 15:31:57；原adb install -r日志返回Performing Streamed Install / Success。确认为保留数据覆盖安装成功，未卸载或重置戒指。
+- 用户本人按“报告→分享到微信→文件传输助手→点开卡片”完成实测，明确反馈“卡片发送成功，点开可查看报告”。据此确认本机正式签名包的微信卡片发送及报告打开流程通过；不将该结果扩展为所有手机、微信版本、举报或跨账号批量发送均已实测。
+- 本补充仅记录安装与用户实测证据，未改运行源码，不重复已经通过的全量回归和构建。
