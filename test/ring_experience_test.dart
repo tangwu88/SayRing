@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:cryptography/cryptography.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +30,9 @@ import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/ring_share_page.dart';
 import 'package:saydian_app/ui/ring_week_page.dart';
 import 'package:saydian_app/ui/ring_care_page.dart';
+import 'package:saydian_app/app.dart';
+import 'package:saydian_app/services/app_update_service.dart';
+import 'package:saydian_app/ui/app_theme.dart';
 
 class _OfflineRingApi extends Fake implements SaydianApi, GlobalAccountApi {}
 
@@ -44,6 +50,7 @@ class _ConnectedRingApi extends _OfflineRingApi
   final readShareIds = <String>[];
   int invitationPosts = 0;
   Completer<GlobalAuthCapabilities>? pendingAuth;
+  final openedTokens = <String>[];
   GlobalWechatAppCapability wechat = const GlobalWechatAppCapability(
     enabled: true,
     appId: 'wx12345678fixture',
@@ -79,6 +86,14 @@ class _ConnectedRingApi extends _OfflineRingApi
     Map<String, String>? query,
     Map<String, Object?>? data,
   }) async {
+    if (method == 'POST' && path == 'shares/open') {
+      openedTokens.add(data!['token'] as String);
+      return {
+        'snapshot': RingSnapshot('sleep', DateTime(2026, 11, 27), {
+          'sleepMinutes': 420,
+        }).toJson(),
+      };
+    }
     if (method == 'POST' && path == 'shares') {
       sharePosts.add(data!);
       return await (shareResponse?.call() ?? Future.value({'id': 'fixture'}));
@@ -149,6 +164,17 @@ List<MethodCall> _recordNativeShares(WidgetTester tester) {
 
 class _DisconnectedRing extends Fake implements WearableBridge {}
 
+class _RingUpdateStore implements AppUpdateCheckStore {
+  @override
+  Future<AppUpdateInfo?> readRequiredUpdate() async => null;
+  @override
+  Future<DateTime?> readLastSuccessfulCheck() async => DateTime.now();
+  @override
+  Future<void> writeLastSuccessfulCheck(DateTime value) async {}
+  @override
+  Future<void> writeRequiredUpdate(AppUpdateInfo? value) async {}
+}
+
 class _MissingStepsStore extends MemoryHealthStore {
   @override
   Future<List<HealthRecord>> range({
@@ -164,6 +190,235 @@ class _MissingStepsStore extends MemoryHealthStore {
 }
 
 void main() {
+  for (final responses in [false, true]) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets(
+        'share ${responses ? 'responses' : 'history'} layout fits at ${scale}x',
+        (tester) async {
+          final time = DateTime(2026, 11, 27, 9, 12);
+          final api = _ConnectedRingApi();
+          final replies = [
+            {
+              'kind': 'cheer',
+              'name': '小林',
+              'createdAt': time.toUtc().toIso8601String(),
+            },
+            {
+              'kind': 'hug',
+              'createdAt': time
+                  .subtract(const Duration(minutes: 9))
+                  .toUtc()
+                  .toIso8601String(),
+            },
+            {
+              'kind': 'walk',
+              'name': '小陈',
+              'createdAt': time
+                  .subtract(const Duration(minutes: 16))
+                  .toUtc()
+                  .toIso8601String(),
+            },
+          ];
+          final rows = [
+            for (final kind in ['sleep', 'workout', 'week'])
+              {
+                'id': kind,
+                'snapshot': RingSnapshot(kind, time, {
+                  'recordDays': 1,
+                }).toJson(),
+                'expiresAt': DateTime.now()
+                    .add(const Duration(days: 2))
+                    .toUtc()
+                    .toIso8601String(),
+                'reactions': kind == 'week' ? <Object?>[] : [replies.first],
+              },
+          ];
+          api.share = {...rows.first, 'reactions': replies};
+          api.historyPages = {
+            null: {'entries': rows},
+          };
+          final controller =
+              AppController(
+                  MemorySessionVault(),
+                  api,
+                  MemoryHealthStore(),
+                  _DisconnectedRing(),
+                )
+                ..session = Session(
+                  accessToken: 'fixture',
+                  refreshToken: '',
+                  expiresAt: DateTime.utc(2099),
+                  memberId: 'fixture',
+                  accountKey: 'global:fixture',
+                  displayName: 'Fixture',
+                );
+          addTearDown(controller.dispose);
+          final captureDirectory =
+              Platform.environment['SAY_RING_UI_CAPTURE_DIR'];
+          if (captureDirectory != null) {
+            await tester.runAsync(() async {
+              final font = FontLoader('SharePreviewCJK')
+                ..addFont(
+                  File(
+                    'C:/Windows/Fonts/msyh.ttc',
+                  ).readAsBytes().then(ByteData.sublistView),
+                );
+              await font.load();
+              final icons = FontLoader('MaterialIcons')
+                ..addFont(
+                  File(
+                    'E:/saydian/.toolchains/flutter/bin/cache/artifacts/material_fonts/materialicons-regular.otf',
+                  ).readAsBytes().then(ByteData.sublistView),
+                );
+              await icons.load();
+            });
+          }
+          await tester.binding.setSurfaceSize(const Size(390, 844));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: captureDirectory == null
+                  ? buildSaydianTheme()
+                  : buildSaydianTheme().copyWith(
+                      textTheme: buildSaydianTheme().textTheme.apply(
+                        fontFamily: 'SharePreviewCJK',
+                      ),
+                      primaryTextTheme: buildSaydianTheme().primaryTextTheme
+                          .apply(fontFamily: 'SharePreviewCJK'),
+                      appBarTheme: buildSaydianTheme().appBarTheme.copyWith(
+                        titleTextStyle: buildSaydianTheme().textTheme.titleLarge
+                            ?.copyWith(
+                              fontFamily: 'SharePreviewCJK',
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      textButtonTheme: TextButtonThemeData(
+                        style: TextButton.styleFrom(
+                          textStyle: const TextStyle(
+                            fontFamily: 'SharePreviewCJK',
+                          ),
+                        ),
+                      ),
+                    ),
+              locale: const Locale('zh'),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!,
+              ),
+              home: RepaintBoundary(
+                key: const Key('share-ui-capture'),
+                child: responses
+                    ? RingShareRepliesPage(
+                        controller: controller,
+                        shareId: 'sleep',
+                      )
+                    : RingMySharesPage(controller: controller),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(find.text(responses ? '好友回应' : '分享记录'), findsOneWidget);
+          expect(find.text('为你开心'), findsWidgets);
+          expect(tester.takeException(), isNull);
+          final capture = Platform.environment['SAY_RING_UI_CAPTURE_DIR'];
+          if (capture != null && scale == 1) {
+            final boundary = tester.renderObject<RenderRepaintBoundary>(
+              find.byKey(const Key('share-ui-capture')),
+            );
+            await tester.runAsync(() async {
+              final bitmap = await boundary.toImage(pixelRatio: 2);
+              final png = await bitmap.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              await Directory(capture).create(recursive: true);
+              await File(
+                '$capture/${responses ? 'replies' : 'history'}.png',
+              ).writeAsBytes(png!.buffer.asUint8List());
+              bitmap.dispose();
+            });
+          }
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.android),
+      );
+    }
+  }
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final cold in [true, false]) {
+      testWidgets(
+        'report response app link opens the target (${cold ? 'cold' : 'warm'}, $platform)',
+        (tester) async {
+          FlutterSecureStorage.setMockInitialValues({});
+          const channel = EventChannel('com.llfbandit.app_links/events');
+          MockStreamHandlerEventSink? sink;
+          tester.binding.defaultBinaryMessenger.setMockStreamHandler(
+            channel,
+            MockStreamHandler.inline(
+              onListen: (_, events) {
+                sink = events;
+                if (cold) {
+                  events.success(
+                    'https://app.saydian.cn/global/say-ring/respond#${'A' * 43}',
+                  );
+                }
+              },
+            ),
+          );
+          addTearDown(
+            () => tester.binding.defaultBinaryMessenger.setMockStreamHandler(
+              channel,
+              null,
+            ),
+          );
+          final api = _ConnectedRingApi();
+          final controller =
+              AppController(
+                  MemorySessionVault(),
+                  api,
+                  MemoryHealthStore(),
+                  _DisconnectedRing(),
+                  wellnessOnly: platform == TargetPlatform.iOS,
+                )
+                ..isBooting = false
+                ..session = Session(
+                  accessToken: 'fixture',
+                  refreshToken: '',
+                  expiresAt: DateTime.utc(2099),
+                  memberId: 'fixture',
+                  accountKey: 'global:fixture',
+                  displayName: 'Fixture',
+                );
+          addTearDown(controller.dispose);
+          await tester.pumpWidget(
+            SaydianApp(
+              controller: controller,
+              updateCheckStore: _RingUpdateStore(),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(sink, isNotNull);
+          if (!cold) {
+            expect(find.byType(RingNamedResponsePage), findsNothing);
+            sink!.success(
+              'https://app.saydian.cn/global/say-ring/respond#${'A' * 43}',
+            );
+            await tester.pumpAndSettle();
+          }
+          expect(find.byType(RingNamedResponsePage), findsOneWidget);
+          expect(api.openedTokens, ['A' * 43]);
+          expect(tester.takeException(), isNull);
+          await tester.pageBack();
+          await tester.pumpAndSettle();
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        },
+        variant: TargetPlatformVariant.only(platform),
+      );
+    }
+  }
   for (final leave in [false, true]) {
     testWidgets(
       'pending care share stops after ${leave ? 'leaving' : 'account change'}',
@@ -1176,11 +1431,16 @@ void main() {
         replyContext,
       ).formatMediumDate(time);
       final clock = TimeOfDay.fromDateTime(time).format(replyContext);
-      expect(find.text('A friend · $date $clock'), findsOneWidget);
+      expect(find.text('A friend'), findsOneWidget);
+      expect(find.text('$date $clock'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('See older replies'), 180);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('See older replies'));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Let’s walk together'), 180);
+      await tester.pumpAndSettle();
       expect(find.text('Let’s walk together'), findsOneWidget);
-      expect(find.text('Fixture friend · $date $clock'), findsOneWidget);
+      expect(find.text('Fixture friend'), findsOneWidget);
 
       await tester.pumpWidget(shell(RingMySharesPage(controller: controller)));
       await tester.pumpAndSettle();
@@ -1203,12 +1463,15 @@ void main() {
           'entries': [api.share],
         },
       };
+      await tester.scrollUntilVisible(find.text('View replies'), 180);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('View replies'));
       await tester.pumpAndSettle();
       expect(api.historyCursors, [null, null, 'fixture-past-share']);
       expect(find.text('This share is unavailable'), findsNothing);
-      expect(find.text('A friend · $date $clock'), findsOneWidget);
-      expect(find.text('Fixture friend · $date $clock'), findsNothing);
+      expect(find.text('A friend'), findsOneWidget);
+      expect(find.text('$date $clock'), findsOneWidget);
+      expect(find.text('Fixture friend'), findsNothing);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),

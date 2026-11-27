@@ -12,6 +12,7 @@ import '../l10n/ui_labels.dart';
 import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import '../services/health_analysis.dart';
+import 'app_theme.dart';
 
 String ringText(BuildContext context, String chinese, String english) =>
     Localizations.localeOf(context).languageCode == 'zh' ? chinese : english;
@@ -523,8 +524,24 @@ class _RingMySharesPageState extends State<RingMySharesPage> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(16),
                     children: [
+                      Text(
+                        ringText(context, '分享记录', 'Shared reports'),
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        ringText(
+                          context,
+                          '查看报告与好友回应',
+                          'Your reports and replies from friends',
+                        ),
+                        style: const TextStyle(color: SaydianColors.muted),
+                      ),
+                      const SizedBox(height: 20),
                       if (rows.isEmpty)
-                        Text(ringText(context, '还没有分享记录', 'No shares yet')),
+                        _SharePlaceholder(
+                          label: ringText(context, '还没有分享记录', 'No shares yet'),
+                        ),
                       for (final row in rows) _shareRow(context, row),
                       if (result.data?['nextBefore'] case final String before)
                         TextButton(
@@ -551,33 +568,67 @@ class _RingMySharesPageState extends State<RingMySharesPage> {
 
   Widget _shareRow(BuildContext context, Map<String, Object?> row) {
     final expires = DateTime.tryParse('${row['expiresAt']}')?.toLocal();
-    final expired = expires != null && !expires.isAfter(DateTime.now());
     final replies = ringRows(row['reactions']);
     return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: SaydianColors.line),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (RingSnapshot.fromJson(row['snapshot']) case final snapshot?)
-              Text(
-                _sharedReportTitle(context, snapshot),
-                style: Theme.of(context).textTheme.titleMedium,
+              _ShareReportHeading(snapshot: snapshot, expires: expires),
+            const SizedBox(height: 12),
+            if (replies.firstOrNull case final reply?)
+              _ShareReplyTile(reply, compact: true)
+            else
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: SaydianColors.canvas,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 20,
+                      color: SaydianColors.muted,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        ringText(context, '还没有好友回应', 'No replies yet'),
+                        style: const TextStyle(color: SaydianColors.muted),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            if (replies.firstOrNull case final reply?) _ShareReplyTile(reply),
-            if (expired) Text(ringText(context, '链接已过期', 'Link expired')),
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: SaydianColors.line),
             if (row['id'] case final String id)
-              TextButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => RingShareRepliesPage(
-                      controller: widget.controller,
-                      shareId: id,
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => RingShareRepliesPage(
+                        controller: widget.controller,
+                        shareId: id,
+                      ),
                     ),
                   ),
+                  iconAlignment: IconAlignment.end,
+                  icon: const Icon(Icons.chevron_right_rounded),
+                  label: Text(ringText(context, '查看回应', 'View replies')),
                 ),
-                icon: const Icon(Icons.chat_bubble_outline_rounded),
-                label: Text(ringText(context, '查看回应', 'View replies')),
               ),
           ],
         ),
@@ -591,29 +642,262 @@ String _sharedReportTitle(BuildContext context, RingSnapshot snapshot) =>
     '${MaterialLocalizations.of(context).formatMediumDate(snapshot.date)}';
 
 class _ShareReplyTile extends StatelessWidget {
-  const _ShareReplyTile(this.reply);
+  const _ShareReplyTile(this.reply, {this.compact = false});
 
   final Map<String, Object?> reply;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final name = (reply['name'] as String?)?.trim() ?? '';
     final time = DateTime.tryParse('${reply['createdAt'] ?? ''}')?.toLocal();
-    final localizations = MaterialLocalizations.of(context);
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.favorite_border_rounded),
-      title: Text(ringReactionText(context, '${reply['kind']}')),
-      subtitle: Text(
-        [
-          name.isEmpty ? ringText(context, '有位朋友', 'A friend') : name,
-          if (time != null)
-            '${localizations.formatMediumDate(time)} '
-                '${TimeOfDay.fromDateTime(time).format(context)}',
-        ].join(' · '),
+    final author = name.isEmpty ? ringText(context, '有位朋友', 'A friend') : name;
+    final clock = time == null
+        ? ''
+        : '${MaterialLocalizations.of(context).formatMediumDate(time)} ${TimeOfDay.fromDateTime(time).format(context)}';
+    final (icon, color, background) = switch ('${reply['kind']}') {
+      'hug' => (
+        Icons.favorite_border_rounded,
+        SaydianColors.techBlue,
+        SaydianColors.techBlueSoft,
+      ),
+      'walk' => (
+        Icons.directions_walk_rounded,
+        SaydianColors.activity,
+        const Color(0xFFEDF5EF),
+      ),
+      _ => (
+        Icons.favorite_border_rounded,
+        SaydianColors.energy,
+        SaydianColors.techVioletSoft,
+      ),
+    };
+    final reaction = Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  ringReactionText(context, '${reply['kind']}'),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                if (compact) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    [author, if (clock.isNotEmpty) clock].join(' · '),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: SaydianColors.muted),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (compact) return reaction;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: SaydianColors.line),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  backgroundColor: name.isEmpty
+                      ? SaydianColors.techVioletSoft
+                      : SaydianColors.techBlue,
+                  foregroundColor: name.isEmpty
+                      ? SaydianColors.sleep
+                      : Colors.white,
+                  child: name.isEmpty
+                      ? const Icon(Icons.person_outline_rounded)
+                      : Text(name.characters.first),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        author,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      if (clock.isNotEmpty)
+                        Text(
+                          clock,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: SaydianColors.muted),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            reaction,
+          ],
+        ),
       ),
     );
   }
+}
+
+class _ShareReportHeading extends StatelessWidget {
+  const _ShareReportHeading({required this.snapshot, this.expires});
+  final RingSnapshot snapshot;
+  final DateTime? expires;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color, background) = switch (snapshot.kind) {
+      'sleep' => (
+        Icons.bedtime_outlined,
+        SaydianColors.sleep,
+        SaydianColors.techVioletSoft,
+      ),
+      'workout' => (
+        Icons.directions_walk_rounded,
+        SaydianColors.activity,
+        const Color(0xFFEDF5EF),
+      ),
+      'week' => (
+        Icons.calendar_today_outlined,
+        SaydianColors.techBlue,
+        SaydianColors.techBlueSoft,
+      ),
+      _ => (
+        Icons.monitor_heart_outlined,
+        SaydianColors.techBlue,
+        SaydianColors.techBlueSoft,
+      ),
+    };
+    final expired = expires?.isAfter(DateTime.now()) == false;
+    return Semantics(
+      label: _sharedReportTitle(context, snapshot),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: color, size: 26),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 12,
+                    runSpacing: 6,
+                    children: [
+                      Text(
+                        ringSnapshotTitle(context, snapshot.kind),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      if (expires != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: expired
+                                ? SaydianColors.line
+                                : SaydianColors.techBlueSoft,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            expired
+                                ? ringText(context, '已过期', 'Link expired')
+                                : ringText(context, '有效', 'Active'),
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(
+                                  color: expired
+                                      ? SaydianColors.muted
+                                      : SaydianColors.techBlue,
+                                ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  MaterialLocalizations.of(
+                    context,
+                  ).formatMediumDate(snapshot.date),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: SaydianColors.muted),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SharePlaceholder extends StatelessWidget {
+  const _SharePlaceholder({required this.label});
+  final String label;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Column(
+      children: [
+        const Icon(
+          Icons.chat_bubble_outline_rounded,
+          color: SaydianColors.sleep,
+          size: 32,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: SaydianColors.muted),
+        ),
+      ],
+    ),
+  );
 }
 
 class RingShareRepliesPage extends StatefulWidget {
@@ -739,12 +1023,28 @@ class _RingShareRepliesPageState extends State<RingShareRepliesPage> {
                     padding: const EdgeInsets.all(16),
                     children: [
                       if (snapshot != null)
-                        Text(
-                          _sharedReportTitle(context, snapshot),
-                          style: Theme.of(context).textTheme.titleLarge,
+                        Card(
+                          margin: const EdgeInsets.only(bottom: 24),
+                          elevation: 0,
+                          color: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: const BorderSide(color: SaydianColors.line),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: _ShareReportHeading(snapshot: snapshot),
+                          ),
                         ),
+                      Text(
+                        ringText(context, '好友回应', 'Replies from friends'),
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 16),
                       if (replies.isEmpty)
-                        Text(ringText(context, '还没有好友回应', 'No replies yet')),
+                        _SharePlaceholder(
+                          label: ringText(context, '还没有好友回应', 'No replies yet'),
+                        ),
                       for (final reply in replies) _ShareReplyTile(reply),
                       if (data['nextBefore'] case final String before)
                         TextButton(

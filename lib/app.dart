@@ -204,7 +204,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     _localeController.addListener(_handleLocaleChanged);
     WidgetsBinding.instance.addObserver(this);
     controller.addListener(_handleControllerState);
-    if (controller.isGlobalEdition && controller.isWellnessOnly) {
+    if (controller.ringExperience) {
       _ringLinks = AppLinks().uriLinkStream.listen(
         _receiveRingLink,
         onError: (Object _) {},
