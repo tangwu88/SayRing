@@ -30,3 +30,10 @@
 - apksigner核实原正式证书SHA256=81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de，包号cn.saydian.ring、versionName=1.0.16、versionCode=1336且非debuggable。production API/JPush manifest、ARMv7/ARM64运行库、ZIP对齐门禁通过；既有ARMv7 DSP/ECG 4KB ELF例外保留，不能称所有市场16KB验收。临时android/key.properties已按原脚本清除，构建产物/签名材料不提交Git。
 - 一次提交前Git fetch因TLS unexpected EOF失败，保留错误后重试成功，远端分支仍与44ade42基线一致。没有覆盖或强推其他改动。
 - 已向当前唯一USB华为发起保留数据的adb install -r；手机锁屏，已请本人完成解锁和华为安全验证。发起安装不代表安装完成，后续以系统实际版本为准。正式版网页到App的真实跳转仍待用户核对；不会代用户发送回应。
+
+## 2026-11-28保留数据安装核验
+
+- 昨日安装最终未完成，原install.log保留失败回执，手机实际仍为1335，未据旧请求宣称安装成功。
+- 今日按用户要求重新核对唯一USB华为与目标包：APK SHA256仍为aaa1654d2e33be649b8585d93903aa8831d5c08c3958dffe71108bbfade3b35a；apksigner实际重新验签通过，原正式证书SHA256=81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de。
+- 重新执行adb install -r，用户本人完成华为安装安全确认后返回Performing Streamed Install / Success，专用日志install-20261128.log保留在Git外原产物目录。系统包管理器读回versionCode=1336、versionName=1.0.16、lastUpdateTime=2026-11-28 10:27:41；确认保留数据覆盖安装完成。未卸载、解绑、重置戒指或更改系统安全设置。
+- 本轮仅安装及补充验证记录，运行源码和APK未变，沿用先前已通过的全量/签名/构建证据。已请用户点原网页的“在App里署名回应”验证真实跳转，具体结果另记，不把安装成功替代网页跳转验收。
