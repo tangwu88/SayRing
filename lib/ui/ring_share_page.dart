@@ -1083,6 +1083,7 @@ class _RingNamedResponsePageState extends State<RingNamedResponsePage> {
       .ringRequest('POST', 'shares/open', data: {'token': widget.token});
   bool named = false;
   bool working = false;
+  bool _namedResponseDenied = false;
 
   Future<void> respond(String kind) async {
     if (working || owner != widget.controller.ringExperienceOwner) return;
@@ -1097,7 +1098,15 @@ class _RingNamedResponsePageState extends State<RingNamedResponsePage> {
         Navigator.pop(context);
       }
     } catch (error) {
-      if (mounted) showRingError(context, error);
+      if (!mounted || owner != widget.controller.ringExperienceOwner) return;
+      if (named &&
+          error is ApiException &&
+          error.statusCode == 403 &&
+          error.message == '请选择匿名回应') {
+        setState(() => _namedResponseDenied = true);
+      } else {
+        showRingError(context, error);
+      }
     } finally {
       if (mounted) setState(() => working = false);
     }
@@ -1131,18 +1140,39 @@ class _RingNamedResponsePageState extends State<RingNamedResponsePage> {
               children: [
                 RingSnapshotView(snapshot: snapshot),
                 CheckboxListTile(
-                  title: Text(
+                  title: Text(ringText(context, '显示我的昵称', 'Show my name')),
+                  subtitle: Text(
                     ringText(
                       context,
-                      '向已关联的亲友显示我的昵称',
-                      'Show my name to connected friends and family',
+                      '需先与报告发布者在“远程关爱”中建立关联；不勾选则匿名回应。',
+                      'Connect with the report owner in Remote Care to show your name. Leave unchecked to respond anonymously.',
                     ),
                   ),
                   value: named,
                   onChanged: working
                       ? null
-                      : (value) => setState(() => named = value == true),
+                      : (value) => setState(() {
+                          named = value == true;
+                          _namedResponseDenied = false;
+                        }),
                 ),
+                if (_namedResponseDenied)
+                  Semantics(
+                    liveRegion: true,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: Text(
+                        ringText(
+                          context,
+                          '显示昵称需要先在“远程关爱”中与对方建立有效关联。你也可以取消勾选后匿名回应。',
+                          'To show your name, first establish an active connection with the report owner in Remote Care. You can also uncheck the option and respond anonymously.',
+                        ),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  ),
                 for (final kind in ['cheer', 'hug', 'walk'])
                   OutlinedButton(
                     onPressed: working ? null : () => respond(kind),
